@@ -1,0 +1,16 @@
+name: Lab CI (NUC + NVIDIA)
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  orchestrated-lab-ci:
+    runs-on: self-hosted
+
+    steps:
+      - name: Run orchestrated build on nuc (then nvidia)
+        run: |
+          echo "Starting orchestrated lab CI from GitHub Actions on nuc..."
+          ~/ci/orchestrate-nuc-build.sh

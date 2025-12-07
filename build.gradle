@@ -1,5 +1,9 @@
-test {
-    testLogging {
-        showStandardStreams = true
+import org.gradle.api.tasks.testing.Test
+
+subprojects {
+    tasks.withType(Test).configureEach {
+        testLogging {
+            showStandardStreams = true
+        }
     }
 }

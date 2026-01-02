@@ -18,3 +18,7 @@ plugins {
 
 rootProject.name = 'warpforge'
 include('app', 'list', 'utilities')
+include('snakeburger-core')
+include('snakeburger-cli')
+include('babylon-runtime')
+

@@ -1,9 +1,52 @@
 import org.gradle.api.tasks.testing.Test
 
 subprojects {
+
+    // Common test logging
     tasks.withType(Test).configureEach {
         testLogging {
             showStandardStreams = true
+        }
+    }
+
+    // Only create these tasks in Java projects
+    plugins.withId('java') {
+
+        tasks.register('cpuTest', Test) {
+            description = 'Run CPU-only tests (tagged @Tag("cpu")).'
+            group = 'verification'
+
+            useJUnitPlatform {
+                includeTags 'cpu'
+            }
+
+            // standard test sources / classpath
+            testClassesDirs = sourceSets.test.output.classesDirs
+            classpath = sourceSets.test.runtimeClasspath
+        }
+
+        tasks.register('nvidiaTest', Test) {
+            description = 'Run NVIDIA GPU tests (tagged @Tag("nvidia")).'
+            group = 'verification'
+
+            useJUnitPlatform {
+                includeTags 'nvidia'
+            }
+
+            testClassesDirs = sourceSets.test.output.classesDirs
+            classpath = sourceSets.test.runtimeClasspath
+        }
+
+        tasks.register('amdTest', Test) {
+            description = 'Run AMD GPU tests (tagged @Tag("amd")).'
+            group = 'verification'
+
+            useJUnitPlatform {
+                includeTags 'amd'
+            }
+
+            testClassesDirs = sourceSets.test.output.classesDirs
+            classpath = sourceSets.test.runtimeClasspath
         }
     }
 }

@@ -1,0 +1,228 @@
+// babylon-runtime/build.gradle
+//
+// Goals:
+// 1) Build a local Babylon JDK (JDK 26) from a sibling checkout (default: ../babylon)
+// 2) Emit an env file with BABYLON_JDK_HOME and a Gradle toolchains hint
+// 3) Avoid Gradle 9+ removed APIs like Project.exec / Project.javaexec
+// 4) Do NOT require -Pbabylon.bootJdk unless you are running Babylon-related tasks
+
+plugins {
+    id 'base'
+}
+
+def shQuote = { String s ->
+    // Safe single-quote for bash
+    return "'" + (s ?: '').replace("'", "'\"'\"'") + "'"
+}
+
+def defaultBabylonRepoPath = new File(rootProject.projectDir, '../babylon').absolutePath
+
+def babylonRepoProvider = providers.gradleProperty('babylon.repo')
+        .orElse(defaultBabylonRepoPath)
+
+def babylonBootJdkProvider = providers.gradleProperty('babylon.bootJdk')
+
+def debugLevelProvider = providers.gradleProperty('babylon.debugLevel').orElse('release')
+
+// jlink requires a "linkable" JDK image. If the JDK was built without this,
+// jlink fails with: "This JDK does not support linking from the current run-time image".
+// Default ON so downstream packaging (jlink/jpackage) works.
+def linkableRuntimeProvider = providers.gradleProperty('babylon.linkableRuntime').orElse('true')
+
+def arch = {
+    def a = (System.getProperty('os.arch') ?: '').toLowerCase(Locale.ROOT)
+    if (a.contains('aarch64') || a.contains('arm64')) return 'aarch64'
+    if (a.contains('x86_64') || a.contains('amd64')) return 'x86_64'
+    // Fallback: keep whatever Gradle reports
+    return a
+}.call()
+
+def os = 'macosx'
+
+def defaultConfNameProvider = debugLevelProvider.map { dl -> "${os}-${arch}-server-${dl}" }
+
+def confNameProvider = providers.gradleProperty('babylon.confName').orElse(defaultConfNameProvider)
+
+def extraConfigureArgsProvider = providers.gradleProperty('babylon.configureArgs').orElse('')
+
+
+def resolveRepoDir = {
+    def p = new File(babylonRepoProvider.get())
+    // Do not require it to exist at configuration time. We validate in task execution.
+    return p
+}
+
+
+def requireBootJdk = {
+    def boot = babylonBootJdkProvider.orNull
+    if (boot == null || boot.trim().isEmpty()) {
+        throw new GradleException(
+                "Missing required Gradle property for Babylon tasks: -Pbabylon.bootJdk=<JDK_HOME>\n" +
+                "Tip: on macOS, run /usr/libexec/java_home to print a JDK home, then pass it in."
+        )
+    }
+    return boot.trim()
+}
+
+
+def babylonBuildDirProvider = confNameProvider.map { cn ->
+    new File(resolveRepoDir(), "build/${cn}")
+}
+
+def babylonJdkHomeProvider = confNameProvider.map { cn ->
+    new File(resolveRepoDir(), "build/${cn}/jdk")
+}
+
+
+tasks.register('configureBabylon', Exec) {
+    group = 'babylon'
+    description = 'Runs bash ./configure in the Babylon checkout (default: ../babylon)'
+
+    // Always use an existing directory for workingDir to avoid Gradle validation errors.
+    workingDir(project.projectDir)
+
+    // Mark inputs for up-to-date checks.
+    inputs.property('babylon.repo', babylonRepoProvider)
+    inputs.property('babylon.bootJdk', babylonBootJdkProvider)
+    inputs.property('babylon.debugLevel', debugLevelProvider)
+    inputs.property('babylon.confName', confNameProvider)
+    inputs.property('babylon.configureArgs', extraConfigureArgsProvider)
+
+    doFirst {
+        def repoDir = resolveRepoDir()
+        if (!repoDir.exists()) {
+            throw new GradleException(
+                    "Babylon repo directory does not exist: ${repoDir.absolutePath}\n" +
+                    "Fix by cloning Babylon there, or pass -Pbabylon.repo=/path/to/babylon"
+            )
+        }
+
+        def bootJdk = requireBootJdk()
+        def debugLevel = debugLevelProvider.get()
+        def confName = confNameProvider.get()
+        def linkableRuntime = linkableRuntimeProvider.get().toBoolean()
+        def extraArgs = extraConfigureArgsProvider.get().trim()
+
+        def configureCmd = "bash ./configure " +
+                "--with-boot-jdk=${shQuote(bootJdk)} " +
+                "--with-debug-level=${shQuote(debugLevel)} " +
+                "--with-conf-name=${shQuote(confName)}"
+
+        if (linkableRuntime) {
+            configureCmd = configureCmd + " --enable-linkable-runtime"
+        }
+
+        if (!extraArgs.isEmpty()) {
+            configureCmd = configureCmd + " " + extraArgs
+        }
+
+        def bashCmd = "cd ${shQuote(repoDir.absolutePath)} && ${configureCmd}"
+        commandLine('bash', '-lc', bashCmd)
+    }
+}
+
+
+tasks.register('buildBabylonImages', Exec) {
+    group = 'babylon'
+    description = 'Builds the Babylon JDK image (make images)'
+
+    dependsOn(tasks.named('configureBabylon'))
+
+    workingDir(project.projectDir)
+
+    inputs.property('babylon.repo', babylonRepoProvider)
+    inputs.property('babylon.confName', confNameProvider)
+    inputs.property('babylon.debugLevel', debugLevelProvider)
+    inputs.property('babylon.extraConfigureArgs', extraConfigureArgsProvider)
+    inputs.property('babylon.linkableRuntime', linkableRuntimeProvider)
+
+    doFirst {
+        def repoDir = resolveRepoDir()
+        if (!repoDir.exists()) {
+            throw new GradleException(
+                    "Babylon repo directory does not exist: ${repoDir.absolutePath}\n" +
+                    "Fix by cloning Babylon there, or pass -Pbabylon.repo=/path/to/babylon"
+            )
+        }
+
+        // If any configure-relevant setting changes, do a clean build once.
+        def fingerprint = "confName=${confNameProvider.get()}\n" +
+                "debugLevel=${debugLevelProvider.get()}\n" +
+                "linkableRuntime=${linkableRuntimeProvider.get()}\n" +
+                "extraArgs=${extraConfigureArgsProvider.get().trim()}\n"
+
+        File buildDir = new File(repoDir, "build/${confNameProvider.get()}")
+        File marker = new File(buildDir, ".warpforge_babylon_fingerprint")
+
+        boolean needsClean = true
+        if (marker.exists()) {
+            try {
+                needsClean = marker.text != fingerprint
+            } catch (Exception ignored) {
+                needsClean = true
+            }
+        }
+
+        def makeTarget = needsClean ? "make clean images" : "make images"
+        def bashCmd = "cd ${shQuote(repoDir.absolutePath)} && ${makeTarget}"
+        commandLine('bash', '-lc', bashCmd)
+
+        // Stash the marker content for doLast.
+        project.ext.set("warpforgeBabylonFingerprint", fingerprint)
+        project.ext.set("warpforgeBabylonFingerprintMarker", marker)
+    }
+
+    doLast {
+        // Only write the marker if the build succeeded.
+        def marker = project.ext.get("warpforgeBabylonFingerprintMarker") as File
+        def fingerprint = project.ext.get("warpforgeBabylonFingerprint") as String
+        try {
+            marker.parentFile.mkdirs()
+            marker.text = fingerprint
+        } catch (Exception ignored) {
+            // Marker is a convenience, not a correctness requirement.
+        }
+    }
+}
+
+
+tasks.register('writeBabylonToolchainEnv') {
+    group = 'babylon'
+    description = 'Write an env file that points Gradle toolchains at the built Babylon JDK image.'
+    dependsOn 'buildBabylonImages'
+
+    doLast {
+        File outFile = file("$buildDir/babylon.toolchain.env")
+        outFile.parentFile.mkdirs()
+
+        File jdkHomeDir = babylonJdkHomeProvider.get()
+        if (!jdkHomeDir.exists()) {
+            throw new GradleException(
+                "Expected Babylon JDK home to exist but it does not: ${jdkHomeDir.absolutePath}"
+            )
+        }
+        String jdkHome = jdkHomeDir.canonicalPath
+
+        // IMPORTANT: Use a template + replace to avoid Groovy GString interpolation
+        // attempting to resolve $BABYLON_JDK_HOME at configuration time.
+        String tpl = '''
+# Generated by :babylon-runtime:writeBabylonToolchainEnv
+# Usage (bash/zsh):
+#   source babylon-runtime/build/babylon.toolchain.env
+#   ./gradlew --no-daemon --no-configuration-cache \
+#     -Dorg.gradle.java.installations.paths="$BABYLON_JDK_HOME" \
+#     -Dorg.gradle.java.installations.auto-detect=false \
+#     -Dorg.gradle.java.installations.auto-download=false \
+#     :snakeburger-cli:run
+
+export BABYLON_JDK_HOME="__JDK_HOME__"
+export GRADLE_OPTS="-Dorg.gradle.java.installations.paths=__JDK_HOME__ -Dorg.gradle.java.installations.auto-detect=false -Dorg.gradle.java.installations.auto-download=false"
+'''
+
+        outFile.text = tpl.stripIndent().replace('__JDK_HOME__', jdkHome) + System.lineSeparator()
+
+        println("Wrote: ${outFile}")
+        println("BABYLON_JDK_HOME = ${jdkHome}")
+        println("GRADLE_OPTS set to: -Dorg.gradle.java.installations.paths=<BABYLON_JDK_HOME> -Dorg.gradle.java.installations.auto-detect=false -Dorg.gradle.java.installations.auto-download=false")
+    }
+}

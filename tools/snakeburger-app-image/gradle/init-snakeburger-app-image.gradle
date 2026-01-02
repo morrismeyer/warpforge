@@ -1,0 +1,350 @@
+// Snakeburger CLI "app image" builder (portable zip containing a jlink runtime + launcher)
+// Applied via:  ./gradlew --init-script tools/snakeburger-app-image/gradle/init-snakeburger-app-image.gradle <tasks>
+//
+// Environment variables expected (set by build-snakeburger-cli-appimage.sh):
+//   BABYLON_JDK_HOME      -> Babylon-built JDK home (must contain bin/jdeps + bin/jlink)
+//   SNAKEBURGER_JMODS_DIR -> Directory containing JDK .jmod files to feed to jlink
+
+gradle.afterProject { Project p ->
+    if (p.path != ':snakeburger-cli') return
+
+    def jdkHome = System.getenv('BABYLON_JDK_HOME')
+    if (jdkHome == null || jdkHome.trim().isEmpty()) {
+        throw new GradleException('BABYLON_JDK_HOME is not set. Run tools/snakeburger-app-image/build-snakeburger-cli-appimage.sh')
+    }
+
+    def jmodsDir = System.getenv('SNAKEBURGER_JMODS_DIR')
+    if (jmodsDir == null || jmodsDir.trim().isEmpty()) {
+        throw new GradleException('SNAKEBURGER_JMODS_DIR is not set. Run tools/snakeburger-app-image/build-snakeburger-cli-appimage.sh')
+    }
+
+    def jmodsDirFile = new File(jmodsDir)
+    if (!jmodsDirFile.exists() || !jmodsDirFile.isDirectory()) {
+        throw new GradleException("SNAKEBURGER_JMODS_DIR does not exist or is not a directory: ${jmodsDir}")
+    }
+
+    def jlinkExe = new File(jdkHome, 'bin/jlink')
+    def jdepsExe = new File(jdkHome, 'bin/jdeps')
+    if (!jlinkExe.exists()) throw new GradleException("jlink not found at: ${jlinkExe}")
+    if (!jdepsExe.exists()) throw new GradleException("jdeps not found at: ${jdepsExe}")
+
+    def appImageDir = new File(p.buildDir, 'snakeburger-cli-appimage')
+    def appDir = new File(appImageDir, 'app')
+    def runtimeDir = new File(appImageDir, 'runtime')
+    def modulesFile = new File(appImageDir, 'jdeps-modules.txt')
+    def launcher = new File(appImageDir, 'bin/snakeburger')
+
+    def installDistDir = new File(p.buildDir, 'install/snakeburger-cli')
+
+    // Helper: run a process and capture output.
+    def runProcess = { List<String> cmd ->
+        def pb = new ProcessBuilder(cmd)
+        def proc = pb.start()
+        def outBytes = proc.inputStream.bytes
+        def errBytes = proc.errorStream.bytes
+        def code = proc.waitFor()
+        return [code, new String(outBytes, 'UTF-8'), new String(errBytes, 'UTF-8')]
+    }
+
+    // Helper: remove broken symlinks under a directory.
+    // Gradle's Zip task can fail with "Couldn't follow symbolic link" when the tree contains
+    // broken or unreadable symlinks (some JDK images ship a few, like ct.sym or font caches).
+    // We keep valid symlinks intact.
+    def pruneBrokenSymlinks = { File rootDir ->
+        int removed = 0
+        if (rootDir == null || !rootDir.exists()) return removed
+        def rootPath = rootDir.toPath()
+        java.nio.file.Files.walk(rootPath).withCloseable { stream ->
+            stream.forEach { path ->
+                try {
+                    if (java.nio.file.Files.isSymbolicLink(path)) {
+                        // Files.exists() follows the link; false here means the link is broken.
+                        if (!java.nio.file.Files.exists(path)) {
+                            java.nio.file.Files.deleteIfExists(path)
+                            removed++
+                        }
+                    }
+                } catch (Throwable ignore) {
+                    // best-effort cleanup; ignore failures
+                }
+            }
+        }
+        return removed
+    }
+
+    // 1) Stage an "application distribution" (bin/ + lib/) using installDist.
+    p.tasks.register('snakeburgerCliStageDist') {
+        dependsOn p.tasks.named('installDist')
+        outputs.dir(appDir)
+        doLast {
+            if (!installDistDir.exists()) {
+                throw new GradleException("Expected installDist output at: ${installDistDir}")
+            }
+            p.delete(appDir)
+            p.copy {
+                from installDistDir
+                into appDir
+            }
+        }
+    }
+
+    // 2) Write a small wrapper launcher that forces the bundled runtime.
+    p.tasks.register('snakeburgerCliWriteLauncher') {
+        dependsOn p.tasks.named('snakeburgerCliStageDist')
+        outputs.file(launcher)
+        doLast {
+            p.mkdir(launcher.parentFile)
+            launcher.text =
+                '#!/usr/bin/env bash\n' +
+                'set -euo pipefail\n' +
+                'HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"\n' +
+                'export JAVA_HOME="$HERE/../runtime"\n' +
+                'export PATH="$JAVA_HOME/bin:$PATH"\n' +
+                'exec "$HERE/../app/bin/snakeburger-cli" "$@"\n'
+            launcher.setExecutable(true, false)
+        }
+    }
+
+    // Helper: find a plausible "main jar" inside app/lib to point jdeps at.
+    def findMainJar = { File libDir ->
+        if (!libDir.exists()) return null
+        def jars = libDir.listFiles().findAll { it.isFile() && it.name.endsWith('.jar') }
+        if (jars.isEmpty()) return null
+        // Prefer *snakeburger* jars first, else pick the largest jar (often the app jar).
+        def preferred = jars.findAll { it.name.toLowerCase().contains('snakeburger') }
+        if (!preferred.isEmpty()) return preferred.sort { -it.length() }[0]
+        return jars.sort { -it.length() }[0]
+    }
+
+    // 3) Compute minimal module set via jdeps (based on the staged app distribution).
+    p.tasks.register('snakeburgerCliComputeJdkModules') {
+        dependsOn p.tasks.named('snakeburgerCliStageDist')
+        outputs.file(modulesFile)
+        doLast {
+            def libDir = new File(appDir, 'lib')
+            def mainJar = findMainJar(libDir)
+            if (mainJar == null) {
+                throw new GradleException("Could not find any jars under: ${libDir}")
+            }
+
+            def cpJars = libDir.listFiles().findAll { it.isFile() && it.name.endsWith('.jar') }
+            def classpath = cpJars.collect { it.absolutePath }.join(File.pathSeparator)
+
+            def cmd = [
+                jdepsExe.absolutePath,
+                '--multi-release', '26',
+                '--ignore-missing-deps',
+                '--print-module-deps',
+                '--class-path', classpath,
+                mainJar.absolutePath
+            ]
+
+            def (code, out, err) = runProcess(cmd)
+
+            def mods = (out ?: '').trim()
+            if (mods.isEmpty()) {
+                // Very conservative fallback.
+                mods = 'java.base'
+            }
+
+            // Normalize, de-dupe, and sort.
+            def norm = mods.split(',').collect { it.trim() }.findAll { !it.isEmpty() }.unique().sort().join(',')
+            modulesFile.text = norm + "\n"
+            println "jdeps modules: ${norm}"
+
+            if (err != null && !err.trim().isEmpty()) {
+                logger.info("jdeps stderr:\n" + err)
+            }
+            if (code != 0) {
+                // jdeps frequently returns non-zero with missing deps. We already used --ignore-missing-deps.
+                logger.info("jdeps exit code: ${code}")
+            }
+        }
+    }
+
+    // 4) Build jlink runtime.
+    p.tasks.register('snakeburgerCliJlinkRuntime') {
+        dependsOn p.tasks.named('snakeburgerCliComputeJdkModules')
+        outputs.dir(runtimeDir)
+        doLast {
+            def mods = modulesFile.text.trim()
+            if (mods.isEmpty()) mods = 'java.base'
+
+            // Always build into a fresh temp directory, then atomically replace.
+            p.mkdir(appImageDir)
+            def tmpRuntimeDir = new File(runtimeDir.parentFile, runtimeDir.name + ".tmp." + System.currentTimeMillis())
+            p.delete(tmpRuntimeDir)
+            p.delete(runtimeDir)
+
+            // Gradle 9 / JDK 26 warns that numeric values are deprecated for --compress.
+            // Prefer the explicit zip-* form. Allow override via env for experimentation.
+            def compressArg = System.getenv('SNAKEBURGER_JLINK_COMPRESS')
+            if (compressArg != null) {
+                compressArg = compressArg.trim()
+                if (compressArg.equalsIgnoreCase('none') ||
+                        compressArg.equalsIgnoreCase('off') ||
+                        compressArg == '0') {
+                    compressArg = ''
+                }
+            }
+            if (compressArg == null || compressArg.isEmpty()) {
+                compressArg = 'zip-6'
+            }
+
+            def baseCmd = [
+                jlinkExe.absolutePath,
+                '--module-path', jmodsDirFile.absolutePath,
+                '--add-modules', mods,
+                '--no-header-files',
+                '--no-man-pages'
+            ]
+
+            def attempts = []
+            // Attempt 1: normal flags, with explicit compression.
+            attempts << (baseCmd + ['--strip-debug', '--compress', compressArg, '--output', tmpRuntimeDir.absolutePath])
+            // Attempt 2: same, but no compression (workaround for some jlink IO bugs).
+            attempts << (baseCmd + ['--strip-debug', '--output', tmpRuntimeDir.absolutePath])
+            // Attempt 3: no strip-debug and no compression (last resort).
+            attempts << (baseCmd + ['--output', tmpRuntimeDir.absolutePath])
+
+            int lastCode = 0
+            String lastOut = null
+            String lastErr = null
+            List<String> lastCmd = null
+
+            for (def cmd : attempts) {
+                p.delete(tmpRuntimeDir)
+                def (code, out, err) = runProcess(cmd)
+                lastCode = code
+                lastOut = out
+                lastErr = err
+                lastCmd = cmd
+                if (code == 0) {
+                    // Move temp into place.
+                    p.delete(runtimeDir)
+                    if (!tmpRuntimeDir.renameTo(runtimeDir)) {
+                        // Fallback: copy then delete.
+                        p.copy {
+                            from tmpRuntimeDir
+                            into runtimeDir
+                        }
+                        p.delete(tmpRuntimeDir)
+                    }
+
+                    // Best-effort: prune any broken symlinks that can make Gradle's Zip fail.
+                    def removed = pruneBrokenSymlinks(runtimeDir)
+// Ensure the Java launcher can start: runtime/lib/jvm.cfg must exist.
+// Some build images contain jvm.cfg as a symlink that becomes broken when copied.
+def jvmCfg = new File(runtimeDir, "lib/jvm.cfg")
+if (!jvmCfg.exists()) {
+  jvmCfg.parentFile.mkdirs()
+  jvmCfg.text = "-server KNOWN\n"
+  println "Created runtime/lib/jvm.cfg (server VM)."
+}
+
+                    if (removed > 0) {
+                        println "Removed ${removed} broken symlink(s) under runtime/."
+                    }
+                    return
+                }
+
+                // If the failure looks like an output-dir collision, retry once with a new temp dir.
+                if (out != null && out.contains('directory already exists')) {
+                    tmpRuntimeDir = new File(runtimeDir.parentFile, runtimeDir.name + ".tmp." + System.currentTimeMillis())
+                    continue
+                }
+
+                // If it looks like a flaky ClosedChannelException, try the next attempt.
+                if (out != null && out.contains('ClosedChannelException')) {
+                    continue
+                }
+            }
+
+            // All attempts failed.
+            def cmdLine = lastCmd.collect { it.contains(' ') ? "\"${it}\"" : it }.join(' ')
+            def msg = "jlink failed (exit ${lastCode}).\ncommand:\n${cmdLine}"
+            if (lastOut != null && !lastOut.trim().isEmpty()) msg += "\n\nstdout:\n" + lastOut
+            if (lastErr != null && !lastErr.trim().isEmpty()) msg += "\n\nstderr:\n" + lastErr
+
+            // Helpful diagnostics: is the incubator module jmod readable?
+            def incubatorJmod = new File(jmodsDirFile, 'jdk.incubator.code.jmod')
+            if (incubatorJmod.exists()) {
+                msg += "\n\nDiagnostics:\n"
+                msg += "- jmods dir: ${jmodsDirFile.absolutePath}\n"
+                msg += "- jdk.incubator.code.jmod size: ${incubatorJmod.length()} bytes\n"
+            } else {
+                msg += "\n\nDiagnostics:\n- Missing: ${incubatorJmod.absolutePath}\n"
+            }
+
+            def logFile = new File(p.buildDir, 'snakeburgerCliJlinkRuntime.log')
+            logFile.parentFile.mkdirs()
+            logFile.text = msg + "\n"
+            msg += "\n\nWrote log: ${logFile.absolutePath}"
+            // Fallback: bundle the full Babylon JDK image as runtime if jlink fails.
+            println "jlink failed. Falling back to bundling the full Babylon JDK runtime image (larger, but should run)."
+            // Clean runtime dir and copy JDK image into it.
+            p.delete(runtimeDir)
+            runtimeDir.parentFile.mkdirs()
+            def osName = System.getProperty('os.name').toLowerCase()
+            def isMac = osName.contains('mac')
+            def copyCmd = isMac ? ['/usr/bin/ditto', jdkHome, runtimeDir.absolutePath]
+                                : ['/bin/cp', '-a', jdkHome + '/.', runtimeDir.absolutePath]
+            if (!isMac) {
+                runtimeDir.mkdirs()
+            }
+            def (c2, o2, e2) = runProcess(copyCmd)
+            if (c2 != 0) {
+                msg += "\n\nFallback copy failed (exit ${c2}).\ncommand:\n" + copyCmd.join(' ') + "\n\nstdout:\n${o2}\n\nstderr:\n${e2}"
+                throw new GradleException(msg)
+            } else {
+                logFile << "\n\nFallback: copied full Babylon JDK runtime image into runtime/.\n"
+                println "Fallback copy succeeded."
+
+                // Some JDK builds contain lib/ct.sym as a symlink. Gradle's Zip can fail if that link is broken
+                // after copying the runtime image. ct.sym is only used by compilation tooling, not by running.
+                try {
+                    def ctSym = new File(runtimeDir, 'lib/ct.sym')
+                    def ctPath = ctSym.toPath()
+                    if (java.nio.file.Files.exists(ctPath, java.nio.file.LinkOption.NOFOLLOW_LINKS) &&
+                            java.nio.file.Files.isSymbolicLink(ctPath)) {
+                        p.delete(ctSym)
+                        println "Removed runtime/lib/ct.sym symlink (not needed for runtime execution)."
+                    }
+                } catch (Throwable ignore) {
+                    // best-effort
+                }
+
+                // Also prune any *broken* symlinks. Gradle's Zip task can fail when it tries to traverse them.
+                def removed = pruneBrokenSymlinks(runtimeDir)
+                if (removed > 0) {
+                    println "Removed ${removed} broken symlink(s) under runtime/."
+                }
+            }
+        }
+    }
+
+    // 5) Zip an "app image": runtime/ + app/ + bin/snakeburger.
+    p.tasks.register('snakeburgerCliZip', Zip) {
+        dependsOn p.tasks.named('snakeburgerCliJlinkRuntime'), p.tasks.named('snakeburgerCliWriteLauncher')
+        archiveBaseName.set('snakeburger-cli-appimage')
+        destinationDirectory.set(new File(p.buildDir, 'distributions'))
+
+        doFirst {
+            // Safety: if the runtime tree contains any broken symlinks, Zip may fail with
+            // "Couldn't follow symbolic link". Prune them right before archiving.
+            def runtime = new File(appImageDir, 'runtime')
+            def removed = pruneBrokenSymlinks(runtime)
+            if (removed > 0) {
+                println "Removed ${removed} broken symlink(s) under runtime/ before zipping."
+            }
+        }
+
+        from(appImageDir) {
+            include 'runtime/**'
+            include 'app/**'
+            include 'bin/**'
+            // Avoid packaging ct.sym if it is a symlink (not required at runtime).
+            exclude 'runtime/lib/ct.sym'
+        }
+    }
+}

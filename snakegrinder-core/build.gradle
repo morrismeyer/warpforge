@@ -1,0 +1,29 @@
+plugins {
+  id 'java-library'
+}
+
+repositories {
+  mavenCentral()
+}
+
+// IMPORTANT:
+// Keep these artifacts aligned with the *host* GraalVM JDK you run SnakeGrinder with.
+// You are running Oracle GraalVM JDK 25.0.1+8.1, so use Graal languages 25.0.1.
+// If you upgrade/downgrade GraalVM, update this version to match.
+ext {
+  graalvmPolyglotVersion = '25.0.1'
+}
+
+dependencies {
+  api "org.graalvm.polyglot:polyglot:${graalvmPolyglotVersion}"
+  // Pulls in the Graal Python (GraalPy) runtime for embedding.
+  // If you prefer relying on a locally installed language (gu install python),
+  // you can remove this dependency and ensure the host GraalVM has Python installed.
+  implementation "org.graalvm.polyglot:python:${graalvmPolyglotVersion}"
+}
+
+java {
+  toolchain {
+    languageVersion = JavaLanguageVersion.of(25)
+  }
+}

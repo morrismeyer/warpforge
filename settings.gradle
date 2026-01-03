@@ -21,4 +21,6 @@ include('app', 'list', 'utilities')
 include('snakeburger-core')
 include('snakeburger-cli')
 include('babylon-runtime')
+include 'snakegrinder-core'
+include 'snakegrinder-cli'
 

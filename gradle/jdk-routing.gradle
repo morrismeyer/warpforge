@@ -1,0 +1,111 @@
+// WarpForge JDK routing
+// - snakegrinder-* runs on a Java 25 toolchain launcher (intended: GraalVM JDK 25)
+// - snakeburger-* compiles/runs on the Babylon-built JDK discovered under ../babylon/build
+//
+// Safe to apply at repo root: it will not fail evaluation if Babylon is absent,
+// unless you actually execute a snakeburger task.
+
+import org.gradle.api.Action
+import org.gradle.jvm.toolchain.JavaLanguageVersion
+import org.gradle.jvm.toolchain.JavaToolchainService
+import org.gradle.api.tasks.JavaExec
+import org.gradle.api.tasks.testing.Test
+import org.gradle.api.tasks.compile.JavaCompile
+
+def toolchainService = (project.extensions.findByType(JavaToolchainService) ?: project.services.get(JavaToolchainService))
+
+// ---- Toolchain launcher for Java 25 (snakegrinder) ----
+def java25LauncherProvider = toolchainService.launcherFor(({ spec ->
+    spec.languageVersion = JavaLanguageVersion.of(25)
+} as Action))
+
+// ---- Babylon discovery helpers (snakeburger) ----
+def isMac = System.getProperty("os.name", "").toLowerCase().contains("mac")
+
+def findBabylonJavaExecutable = { ->
+    File babylonRoot = new File(rootDir, "../babylon")
+    File buildDir = new File(babylonRoot, "build")
+    if (!buildDir.exists()) return null
+
+    if (isMac) {
+        def files = fileTree(buildDir) { include "**/Contents/Home/bin/java" }.files
+        if (!files.isEmpty()) return files.iterator().next()
+    } else {
+        def files = fileTree(buildDir) {
+            include "**/jdk/bin/java"
+            include "**/bin/java"
+            exclude "**/jre/**"
+            exclude "**/lib/**"
+        }.files
+        if (!files.isEmpty()) return files.iterator().next()
+    }
+    return null
+}
+
+def babylonHomeFromJava = { File babylonJava ->
+    if (babylonJava == null) return null
+    // .../Contents/Home/bin/java -> Home
+    // .../jdk/bin/java or .../bin/java -> parent-of-bin
+    return babylonJava.parentFile.parentFile
+}
+
+def configureSnakeBurgerProject = { Project p ->
+    def babylonJava = findBabylonJavaExecutable.call()
+    if (babylonJava == null) {
+        // Fail only when a snakeburger task is actually executed.
+        p.tasks.matching { t -> (t instanceof JavaCompile) || (t instanceof JavaExec) || (t instanceof Test) }.configureEach { t ->
+            t.doFirst {
+                throw new GradleException(
+                    "Babylon JDK not found under ../babylon/build. Expected a built JDK containing " +
+                    (isMac ? "Contents/Home/bin/java" : "jdk/bin/java") +
+                    ". Build Babylon first in ../babylon, then re-run."
+                )
+            }
+        }
+        return
+    }
+
+    def babylonHome = babylonHomeFromJava.call(babylonJava)
+    def babylonJavac = new File(babylonHome, "bin/javac")
+    if (!babylonJavac.exists()) {
+        p.tasks.withType(JavaCompile).configureEach { c ->
+            c.doFirst { throw new GradleException("Babylon javac not found at: " + babylonJavac.absolutePath) }
+        }
+    }
+
+    p.tasks.withType(JavaCompile).configureEach { JavaCompile c ->
+        c.options.fork = true
+        // Use explicit executable to avoid Gradle probing a non-standard installation via toolchains.
+        c.options.forkOptions.executable = babylonJavac.absolutePath
+        c.options.compilerArgs.addAll(["--add-modules", "jdk.incubator.code"])
+    }
+
+    p.tasks.withType(JavaExec).configureEach { JavaExec e ->
+        e.executable = babylonJava.absolutePath
+        e.jvmArgs("--add-modules", "jdk.incubator.code", "--enable-native-access=ALL-UNNAMED")
+    }
+
+    p.tasks.withType(Test).configureEach { Test t ->
+        t.executable = babylonJava.absolutePath
+        t.jvmArgs("--add-modules", "jdk.incubator.code", "--enable-native-access=ALL-UNNAMED")
+    }
+}
+
+subprojects { p ->
+    def n = p.name
+
+    if (n.startsWith("snakegrinder")) {
+        p.tasks.withType(JavaExec).configureEach { JavaExec e ->
+            e.javaLauncher.set(java25LauncherProvider)
+            e.jvmArgs("--enable-native-access=ALL-UNNAMED", "-XX:+EnableJVMCI")
+        }
+        p.tasks.withType(Test).configureEach { Test t ->
+            t.javaLauncher.set(java25LauncherProvider)
+            t.jvmArgs("--enable-native-access=ALL-UNNAMED", "-XX:+EnableJVMCI")
+        }
+    }
+
+    if (n.startsWith("snakeburger")) {
+        configureSnakeBurgerProject.call(p)
+    }
+}

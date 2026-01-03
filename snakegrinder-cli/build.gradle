@@ -1,0 +1,37 @@
+plugins {
+  id 'application'
+}
+
+repositories {
+  mavenCentral()
+}
+
+dependencies {
+  implementation project(':snakegrinder-core')
+}
+
+application {
+  mainClass = 'io.surfworks.snakegrinder.cli.SnakeGrinderCli'
+  applicationDefaultJvmArgs = [
+    '--enable-native-access=ALL-UNNAMED',
+    '-XX:+EnableJVMCI'
+  ]
+}
+
+java {
+  toolchain {
+    languageVersion = JavaLanguageVersion.of(25)
+  }
+}
+
+def j25Launcher = javaToolchains.launcherFor {
+  languageVersion = JavaLanguageVersion.of(25)
+}
+
+tasks.withType(JavaExec).configureEach {
+  javaLauncher.set(j25Launcher)
+}
+
+tasks.withType(Test).configureEach {
+  javaLauncher.set(j25Launcher)
+}

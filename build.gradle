@@ -50,3 +50,6 @@ subprojects {
         }
     }
 }
+
+apply from: "$rootDir/gradle/jdk-routing.gradle"
+

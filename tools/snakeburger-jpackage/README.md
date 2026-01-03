@@ -1,44 +1,42 @@
-# Snakeburger macOS packaging (jpackage)
+# SnakeBurger packaging (Linux)
 
-This folder contains scripts to build a macOS `.app`, plus optional DMG and PKG artifacts.
+These scripts build Linux installer artifacts using `jpackage`.
 
-## Phase A: build the `.app`
+## Goals (Linux)
 
-```bash
-cd ~/surfworks/warpforge
+1. Build a runnable stage image (via `snakeburger-app-image` tooling).
+2. Build installer artifacts for Linux: `.deb` and `.rpm` using `jpackage`.
+3. (Deferred) Multi-distro, fully portable packaging.
 
-# Optional (recommended)
-export SNAKEBURGER_MAIN_CLASS=io.surfworks.snakeburger.cli.SnakeBurgerMain
+We currently focus on Goals 1 and 2.
 
-# Optional: change the macOS app name (default is "Snake Burger")
-# export SNAKEBURGER_APP_NAME="Snake Burger"
+## Build a `.deb`
 
-tools/snakeburger-jpackage/build-snakeburger-cli-jpackage.sh
-tools/snakeburger-jpackage/run-snakeburger-cli-jpackage.sh --help
-```
+- Script: `tools/snakeburger-jpackage/build-snakeburger-cli-deb.sh`
+- Output is copied to: `snakeburger-cli/build/distributions/*.deb`
 
-Outputs:
-- `snakeburger-cli/build/snakeburger-cli-jpackage/<App Name>.app`
-- `snakeburger-cli/build/distributions/snakeburger-cli-jpackage-<version>.zip`
+Prerequisites on Ubuntu/Debian:
 
-## Phase B: build DMG or PKG (no install)
+- `dpkg-deb` (package: `dpkg-dev`)
 
-These scripts only **build** the artifacts. They do not mount, copy, or install anything.
+## Build an `.rpm`
 
-```bash
-# DMG
-tools/snakeburger-jpackage/build-snakeburger-cli-dmg.sh
+- Script: `tools/snakeburger-jpackage/build-snakeburger-cli-rpm.sh`
+- Output is copied to: `snakeburger-cli/build/distributions/*.rpm`
 
-# PKG
-tools/snakeburger-jpackage/build-snakeburger-cli-pkg.sh
-```
+Prerequisites on Ubuntu/Debian:
 
-Outputs:
-- `snakeburger-cli/build/distributions/snakeburger-cli-<version>.dmg`
-- `snakeburger-cli/build/distributions/snakeburger-cli-<version>.pkg`
+- `rpmbuild` (provided by package: `rpm`)
 
-## Notes
+Note: the RPM script builds a temporary `jpackage --type app-image` first (reusing the staged Babylon runtime) to avoid jpackage warnings.
 
-- If you see macOS spawn helper issues around `codesign`, these scripts set:
-  `JAVA_TOOL_OPTIONS="... -Djdk.lang.Process.launchMechanism=FORK"`.
-- `tzdb.dat` is ensured inside the staged runtime before running jpackage.
+
+## Configuration
+
+Optional environment variables:
+
+- `SNAKEBURGER_MAIN_CLASS` (default: `io.surfworks.snakeburger.cli.SnakeBurgerMain`)
+- `SNAKEBURGER_APP_NAME` (default: `Snake Burger`)
+- `SNAKEBURGER_PKG_NAME` (default: `snakeburger`)
+- `SNAKEBURGER_APP_VERSION_RAW` (default: derived from jar file name)
+- `SNAKEBURGER_JPACKAGE_BIN` (override path to `jpackage`)

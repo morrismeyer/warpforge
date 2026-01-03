@@ -22,6 +22,27 @@ if [[ ! -d "$BABYLON_JDK_HOME" ]]; then
   exit 1
 fi
 
+copy_tree() {
+  local src="$1"
+  local dst="$2"
+
+  if command -v ditto >/dev/null 2>&1; then
+    # macOS: preserve permissions, xattrs, and resource forks.
+    ditto "$src" "$dst"
+    return
+  fi
+
+  # Linux: prefer rsync if available, otherwise fall back to cp -a.
+  if command -v rsync >/dev/null 2>&1; then
+    mkdir -p "$dst"
+    rsync -aH --links "$src"/ "$dst"/
+  else
+    mkdir -p "$dst"
+    cp -a "$src"/. "$dst"/
+  fi
+}
+
+
 # Find JMODs.
 SNAKEBURGER_JMODS_DIR=""
 if [[ -d "$BABYLON_JDK_HOME/jmods" ]]; then
@@ -69,7 +90,7 @@ mkdir -p "$DIST_DIR"
 
 # Stage app/ from installDist
 mkdir -p "$STAGING_DIR/app"
-ditto "snakeburger-cli/build/install/snakeburger-cli" "$STAGING_DIR/app"
+copy_tree "snakeburger-cli/build/install/snakeburger-cli" "$STAGING_DIR/app"
 
 # Write a small launcher that sets JAVA_HOME to the bundled runtime.
 mkdir -p "$STAGING_DIR/bin"
@@ -155,7 +176,7 @@ else
   echo "jlink failed or was skipped. Bundling the full Babylon JDK runtime image (larger, but should run)."
   rm -rf "$RUNTIME_OUT"
   mkdir -p "$RUNTIME_OUT"
-  ditto "$BABYLON_JDK_HOME" "$RUNTIME_OUT"
+  copy_tree "$BABYLON_JDK_HOME" "$RUNTIME_OUT"
   prune_broken_symlinks "$RUNTIME_OUT"
   ensure_jvm_cfg "$RUNTIME_OUT"
 fi

@@ -1,0 +1,185 @@
+import org.gradle.internal.os.OperatingSystem
+
+/**
+ * Babylon bootstrap for WarpForge.
+ *
+ * Applied with -I from helper scripts.
+ *
+ * Responsibilities:
+ *  - Ensure the Gradle project property `babylon.bootJdk` is set (required by :babylon-runtime tasks)
+ *  - Ensure Babylon `configure` uses a host-specific conf name (no baked-in macosx-* on Linux)
+ *  - If Babylon `configure` warns that it overrode an older configuration, run `make clean`
+ */
+class BabylonInit {
+  static String osToken() {
+    def os = OperatingSystem.current()
+    if (os.isLinux()) return "linux"
+    if (os.isMacOsX()) return "macosx"
+    if (os.isWindows()) return "windows"
+    return System.getProperty("os.name", "unknown").toLowerCase().replaceAll("[^a-z0-9]+", "")
+  }
+
+  static String archToken() {
+    def arch = System.getProperty("os.arch", "unknown").toLowerCase()
+    if (arch == "amd64" || arch == "x86_64") return "x86_64"
+    if (arch == "aarch64" || arch == "arm64") return "aarch64"
+    // Keep as-is for uncommon arches (riscv64, ppc64le, etc.)
+    return arch
+  }
+
+  static String defaultConfName() {
+    // Keep this stable but host-specific.
+    return "${osToken()}-${archToken()}-server-release"
+  }
+
+  static File defaultBabylonDir() {
+    def env = System.getenv("BABYLON_DIR")
+    if (env != null && !env.trim().isEmpty()) {
+      return new File(env).absoluteFile
+    }
+    return new File(System.getProperty("user.home"), "surfworks/babylon").absoluteFile
+  }
+
+  static String detectBootJdkPath() {
+    // Priority:
+    //  1) BABYLON_BOOT_JDK env
+    //  2) Gradle project property (if already provided)
+    //  3) JAVA_HOME
+    //  4) Common Linux locations (/usr/lib/jvm)
+
+    def env = System.getenv("BABYLON_BOOT_JDK")
+    if (env != null && new File(env, "bin/java").exists()) return new File(env).absolutePath
+
+    def javaHome = System.getenv("JAVA_HOME")
+    if (javaHome != null && new File(javaHome, "bin/java").exists()) return new File(javaHome).absolutePath
+
+    // Ubuntu/Debian common JDK layouts
+    def jvmDir = new File("/usr/lib/jvm")
+    if (jvmDir.isDirectory()) {
+      def candidates = (jvmDir.listFiles() ?: [])
+        .findAll { it.isDirectory() && new File(it, "bin/java").exists() }
+
+      // Prefer JDK 25 if present, otherwise newest-looking folder name.
+      def preferred = candidates.find { it.name.contains("25") }
+      if (preferred != null) return preferred.absolutePath
+
+      // Fallback: pick lexicographically last (usually newest in distro naming).
+      if (!candidates.isEmpty()) {
+        candidates.sort { a, b -> a.name <=> b.name }
+        return candidates.last().absolutePath
+      }
+    }
+
+    // Last resort: use the JVM running Gradle.
+    def gradleJavaHome = System.getProperty("java.home")
+    if (gradleJavaHome != null && new File(gradleJavaHome, "bin/java").exists()) return new File(gradleJavaHome).absolutePath
+
+    return ""
+  }
+
+  static boolean logIndicatesReconfigured(File logFile) {
+    if (logFile == null || !logFile.isFile()) return false
+    def text = logFile.getText("UTF-8")
+    return text.contains("overridden an older") ||
+           text.contains("You *should* run 'make clean'") ||
+           text.contains("Failure to do so might result in strange build problems")
+  }
+}
+
+// Only set defaults if the caller did not already specify them.
+if (System.getProperty("org.gradle.project.babylon.confName") == null && System.getenv("BABYLON_CONF_NAME") != null) {
+  System.setProperty("org.gradle.project.babylon.confName", System.getenv("BABYLON_CONF_NAME"))
+}
+if (System.getProperty("org.gradle.project.babylon.confName") == null) {
+  System.setProperty("org.gradle.project.babylon.confName", BabylonInit.defaultConfName())
+}
+
+if (System.getProperty("org.gradle.project.babylon.bootJdk") == null) {
+  def boot = BabylonInit.detectBootJdkPath()
+  if (boot != null && !boot.isEmpty()) {
+    System.setProperty("org.gradle.project.babylon.bootJdk", boot)
+  }
+}
+
+gradle.beforeProject { p ->
+  if (p.path != ":babylon-runtime") return
+
+  def bootJdk = (p.findProperty("babylon.bootJdk") ?: "").toString()
+  def confName = (p.findProperty("babylon.confName") ?: BabylonInit.defaultConfName()).toString()
+
+  if (bootJdk == null || bootJdk.trim().isEmpty()) {
+    throw new GradleException("babylon.bootJdk is required but could not be resolved. Set BABYLON_BOOT_JDK or pass -Pbabylon.bootJdk=...")
+  }
+
+  println("Using babylon.bootJdk: ${bootJdk}")
+  println("Using babylon.confName: ${confName}")
+
+  // These tasks interact with external build tools and are not config-cache friendly.
+  p.tasks.matching { it.name in ["configureBabylon", "buildBabylonImages"] }.configureEach { t ->
+    if (t.metaClass.respondsTo(t, "notCompatibleWithConfigurationCache", String)) {
+      t.notCompatibleWithConfigurationCache("Exec-based Babylon build tasks")
+    }
+  }
+
+  // Patch the Exec invocation for configureBabylon to enforce host-specific conf name and boot JDK.
+  p.tasks.matching { it.name == "configureBabylon" }.configureEach { t ->
+    if (!(t instanceof Exec)) return
+
+    t.doFirst {
+      // Mutate command-line args right before execution.
+      def mutate = { List<String> list ->
+        boolean sawConf = false
+        boolean sawBoot = false
+        for (int i = 0; i < list.size(); i++) {
+          def a = list[i]
+          if (a.startsWith("--with-conf-name=")) {
+            list[i] = "--with-conf-name=${confName}"
+            sawConf = true
+          } else if (a.startsWith("--with-boot-jdk=")) {
+            list[i] = "--with-boot-jdk=${bootJdk}"
+            sawBoot = true
+          }
+        }
+        if (!sawConf) list.add("--with-conf-name=${confName}")
+        if (!sawBoot) list.add("--with-boot-jdk=${bootJdk}")
+      }
+
+      if (t.commandLine != null && !t.commandLine.isEmpty()) {
+        def cl = new ArrayList<String>(t.commandLine)
+        // Avoid touching the executable (first element). Only mutate args.
+        if (cl.size() > 1) {
+          def head = cl[0]
+          def tail = new ArrayList<String>(cl.subList(1, cl.size()))
+          mutate(tail)
+          def merged = new ArrayList<String>()
+          merged.add(head)
+          merged.addAll(tail)
+          t.commandLine = merged
+        }
+      } else {
+        def args = new ArrayList<String>(t.args ?: [])
+        mutate(args)
+        t.args = args
+      }
+    }
+
+    t.doLast {
+      // If configure warns about overriding an older config, run `make clean` in the build directory.
+      File logFile = new File(p.rootProject.buildDir, "babylon-runtime/configureBabylon.log")
+      if (!BabylonInit.logIndicatesReconfigured(logFile)) return
+
+      def babylonDir = BabylonInit.defaultBabylonDir()
+      def buildDir = new File(babylonDir, "build/${confName}")
+      if (!buildDir.isDirectory()) {
+        println("configureBabylon warned about overridden config, but build dir was not found: ${buildDir}")
+        return
+      }
+
+      println("configureBabylon warned about overridden config. Running: make clean (in ${buildDir})")
+      p.exec {
+        workingDir(buildDir)
+        commandLine("bash", "-lc", "make clean")
+      }
+    }
+  }
+}

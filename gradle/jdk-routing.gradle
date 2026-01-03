@@ -1,63 +1,86 @@
 // WarpForge JDK routing
-// - snakegrinder-* runs on a Java 25 toolchain launcher (intended: GraalVM JDK 25)
-// - snakeburger-* compiles/runs on the Babylon-built JDK discovered under ../babylon/build
 //
-// Safe to apply at repo root: it will not fail evaluation if Babylon is absent,
-// unless you actually execute a snakeburger task.
+// Goals:
+//  - snakegrinder-* must RUN on a GraalVM JDK 25 launcher (GraalPy runtime compilation).
+//  - snakeburger-* must compile/run on the locally-built Babylon JDK discovered under ../babylon/build.
+//
+// Notes:
+//  - Gradle's JavaExec/Test tasks have BOTH `javaLauncher` (toolchain) and `executable` (path) inputs.
+//    If both are set and point at different installations, Gradle fails with:
+//      "Toolchain from `executable` property does not match toolchain from `javaLauncher` property."
+//
+//  - Some plugins (notably `application`) may set `javaLauncher` late during project evaluation.
+//    To avoid being overwritten, we wire snakegrinder launchers in `gradle.projectsEvaluated { ... }`
+//    so this script runs last.
 
 import org.gradle.api.Action
+import org.gradle.api.tasks.JavaExec
+import org.gradle.api.tasks.compile.JavaCompile
+import org.gradle.api.tasks.testing.Test
 import org.gradle.jvm.toolchain.JavaLanguageVersion
 import org.gradle.jvm.toolchain.JavaToolchainService
-import org.gradle.api.tasks.JavaExec
-import org.gradle.api.tasks.testing.Test
-import org.gradle.api.tasks.compile.JavaCompile
+import org.gradle.jvm.toolchain.JvmVendorSpec
 
-def toolchainService = (project.extensions.findByType(JavaToolchainService) ?: project.services.get(JavaToolchainService))
+// Prefer services.get(...) so this works even when the root project does not apply the Java plugin.
+def toolchainService = project.services.get(JavaToolchainService)
 
-// ---- Toolchain launcher for Java 25 (snakegrinder) ----
-def java25LauncherProvider = toolchainService.launcherFor(({ spec ->
+// ---- Toolchain launcher for Java 25 on GraalVM (snakegrinder) ----
+// Vendor matching keeps this robust across Oracle GraalVM vs GraalVM Community.
+def graalvm25LauncherProvider = toolchainService.launcherFor(({ spec ->
     spec.languageVersion = JavaLanguageVersion.of(25)
+    spec.vendor = JvmVendorSpec.matching("GraalVM")
 } as Action))
 
 // ---- Babylon discovery helpers (snakeburger) ----
 def isMac = System.getProperty("os.name", "").toLowerCase().contains("mac")
 
-def findBabylonJavaExecutable = { ->
+// Return the Babylon JDK home dir (the one that contains bin/java AND bin/javac)
+def findBabylonJdkHome = { ->
     File babylonRoot = new File(rootDir, "../babylon")
     File buildDir = new File(babylonRoot, "build")
     if (!buildDir.exists()) return null
 
+    // macOS: .../Contents/Home/bin/javac
     if (isMac) {
-        def files = fileTree(buildDir) { include "**/Contents/Home/bin/java" }.files
-        if (!files.isEmpty()) return files.iterator().next()
-    } else {
-        def files = fileTree(buildDir) {
-            include "**/jdk/bin/java"
-            include "**/bin/java"
-            exclude "**/jre/**"
-            exclude "**/lib/**"
+        def javacFiles = fileTree(buildDir) {
+            include "**/Contents/Home/bin/javac"
         }.files
-        if (!files.isEmpty()) return files.iterator().next()
+        if (!javacFiles.isEmpty()) {
+            File javac = javacFiles.iterator().next()
+            return javac.parentFile.parentFile // Contents/Home
+        }
     }
-    return null
-}
 
-def babylonHomeFromJava = { File babylonJava ->
-    if (babylonJava == null) return null
-    // .../Contents/Home/bin/java -> Home
-    // .../jdk/bin/java or .../bin/java -> parent-of-bin
-    return babylonJava.parentFile.parentFile
+    // Linux: prefer .../jdk/bin/javac (avoid support/interim-image)
+    def javacFiles = fileTree(buildDir) {
+        include "**/jdk/bin/javac"
+        include "**/images/**/bin/javac"
+        exclude "**/support/**"
+        exclude "**/interim-image/**"
+        exclude "**/jre/**"
+    }.files
+
+    if (javacFiles.isEmpty()) return null
+
+    // Deterministic pick: prefer paths that look like the final built JDK.
+    def sorted = javacFiles.toList().sort { it.absolutePath }
+    File pick = sorted.find { f ->
+        def p = f.absolutePath
+        return (p.contains("/jdk/") || p.endsWith("/jdk/bin/javac")) && !p.contains("support") && !p.contains("interim")
+    } ?: sorted[0]
+
+    return pick.parentFile.parentFile // .../jdk
 }
 
 def configureSnakeBurgerProject = { Project p ->
-    def babylonJava = findBabylonJavaExecutable.call()
-    if (babylonJava == null) {
+    def babylonHome = findBabylonJdkHome.call()
+    if (babylonHome == null) {
         // Fail only when a snakeburger task is actually executed.
         p.tasks.matching { t -> (t instanceof JavaCompile) || (t instanceof JavaExec) || (t instanceof Test) }.configureEach { t ->
             t.doFirst {
                 throw new GradleException(
                     "Babylon JDK not found under ../babylon/build. Expected a built JDK containing " +
-                    (isMac ? "Contents/Home/bin/java" : "jdk/bin/java") +
+                    (isMac ? "Contents/Home/bin/javac" : "jdk/bin/javac") +
                     ". Build Babylon first in ../babylon, then re-run."
                 )
             }
@@ -65,12 +88,19 @@ def configureSnakeBurgerProject = { Project p ->
         return
     }
 
-    def babylonHome = babylonHomeFromJava.call(babylonJava)
+    def babylonJava  = new File(babylonHome, "bin/java")
     def babylonJavac = new File(babylonHome, "bin/javac")
-    if (!babylonJavac.exists()) {
-        p.tasks.withType(JavaCompile).configureEach { c ->
-            c.doFirst { throw new GradleException("Babylon javac not found at: " + babylonJavac.absolutePath) }
+
+    if (!babylonJava.exists() || !babylonJavac.exists()) {
+        p.tasks.matching { t -> (t instanceof JavaCompile) || (t instanceof JavaExec) || (t instanceof Test) }.configureEach { t ->
+            t.doFirst {
+                throw new GradleException(
+                    "Babylon JDK home looks invalid: " + babylonHome.absolutePath +
+                    " (expected bin/java and bin/javac)"
+                )
+            }
         }
+        return
     }
 
     p.tasks.withType(JavaCompile).configureEach { JavaCompile c ->
@@ -91,21 +121,42 @@ def configureSnakeBurgerProject = { Project p ->
     }
 }
 
+// Configure snakeburger during normal configuration.
 subprojects { p ->
-    def n = p.name
-
-    if (n.startsWith("snakegrinder")) {
-        p.tasks.withType(JavaExec).configureEach { JavaExec e ->
-            e.javaLauncher.set(java25LauncherProvider)
-            e.jvmArgs("--enable-native-access=ALL-UNNAMED", "-XX:+EnableJVMCI")
-        }
-        p.tasks.withType(Test).configureEach { Test t ->
-            t.javaLauncher.set(java25LauncherProvider)
-            t.jvmArgs("--enable-native-access=ALL-UNNAMED", "-XX:+EnableJVMCI")
-        }
-    }
-
-    if (n.startsWith("snakeburger")) {
+    if (p.name.startsWith("snakeburger")) {
         configureSnakeBurgerProject.call(p)
+    }
+}
+
+// Configure snakegrinder as late as possible so nothing overrides it.
+gradle.projectsEvaluated {
+    def graalLauncher = graalvm25LauncherProvider.get()
+    def graalJava = graalLauncher.executablePath.asFile.absolutePath
+
+    rootProject.subprojects.each { p ->
+        if (!p.name.startsWith("snakegrinder")) return
+
+        p.tasks.withType(JavaExec).configureEach { JavaExec e ->
+            // Force BOTH properties to the same toolchain to avoid Gradle mismatch errors.
+            e.javaLauncher.set(graalvm25LauncherProvider)
+            e.executable = graalJava
+
+            e.jvmArgs(
+                "--enable-native-access=ALL-UNNAMED",
+                "-XX:+UnlockExperimentalVMOptions",
+                "-XX:+EnableJVMCI"
+            )
+        }
+
+        p.tasks.withType(Test).configureEach { Test t ->
+            t.javaLauncher.set(graalvm25LauncherProvider)
+            t.executable = graalJava
+
+            t.jvmArgs(
+                "--enable-native-access=ALL-UNNAMED",
+                "-XX:+UnlockExperimentalVMOptions",
+                "-XX:+EnableJVMCI"
+            )
+        }
     }
 }

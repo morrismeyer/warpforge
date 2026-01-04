@@ -1,105 +1,134 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# -------- CONFIG --------
+# NUC orchestration entrypoint.
+#
+# Intended to run ON the NUC. It:
+# - Updates the local WarpForge repo on the NUC
+# - Runs a NUC build + smoke test
+# - If green, triggers the NVIDIA box build
+# - If green, triggers the AMD box build
 
-# Local repo on nuc
-NUC_REPO_DIR="$HOME/projects/warpforge"
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
-# Branch from GitHub, fallback to main for manual runs
+# -------- CONFIG (override via environment variables) --------
+
+# WarpForge repo on the NUC
+# Default matches your recent layout: ~/surfworks/warpforge
+NUC_REPO_DIR="${NUC_REPO_DIR_OVERRIDE:-$HOME/surfworks/warpforge}"
+
+# Branch from GitHub Actions. Fallback to main for manual runs.
 BRANCH="${GITHUB_REF_NAME:-main}"
 
-# Build + smoke test commands on nuc (placeholders for now)
-NUC_BUILD_CMD="${NUC_BUILD_CMD_OVERRIDE:-./gradlew clean assemble cpuTest}"
-NUC_TEST_CMD="${NUC_TEST_CMD_OVERRIDE:-test}"
+# Build + smoke test commands on the NUC
+NUC_BUILD_CMD="${NUC_BUILD_CMD_OVERRIDE:-./gradlew clean assemble}"
+NUC_TEST_CMD="${NUC_TEST_CMD_OVERRIDE:-./gradlew test}"
 
-# Path to orchestrator scripts on NUC
-NVIDIA_ORCH_SCRIPT="/home/morris/ci/orchestrate-nvidia-build.sh"
-AMD_ORCH_SCRIPT="/home/morris/ci/orchestrate-amd-build.sh"
+# Paths to the NVIDIA and AMD orchestrator scripts.
+# Default is to run the sibling scripts shipped with this file.
+NVIDIA_ORCH_SCRIPT="${NVIDIA_ORCH_SCRIPT_OVERRIDE:-$SCRIPT_DIR/orchestrate-nvidia-build.sh}"
+AMD_ORCH_SCRIPT="${AMD_ORCH_SCRIPT_OVERRIDE:-$SCRIPT_DIR/orchestrate-amd-build.sh}"
 
-LOG_ROOT="$HOME/build-logs"
+LOG_ROOT="${LOG_ROOT_OVERRIDE:-$HOME/build-logs}"
 mkdir -p "$LOG_ROOT"
 
 RUN_ID="${GITHUB_RUN_ID:-manual-$(date +%Y%m%d-%H%M%S)}"
 LOG_FILE="$LOG_ROOT/nuc-${RUN_ID}.log"
 
-echo "[$(date)] ==== NUC ORCHESTRATOR START (run $RUN_ID) ==== " | tee -a "$LOG_FILE"
-echo "[$(date)] Branch: $BRANCH" | tee -a "$LOG_FILE"
-echo "[$(date)] NUC repo dir: $NUC_REPO_DIR" | tee -a "$LOG_FILE"
-echo "[$(date)] NUC build cmd: $NUC_BUILD_CMD" | tee -a "$LOG_FILE"
-echo "[$(date)] NUC test  cmd: $NUC_TEST_CMD" | tee -a "$LOG_FILE"
+# WarpForge repo URL for cloning if missing
+WARP_FORGE_REPO_URL="${WARP_FORGE_REPO_URL_OVERRIDE:-git@github.com:morrismeyer/warpforge.git}"
 
-# 1. Prepare repo on nuc
-echo "[$(date)] Preparing repo on nuc..." | tee -a "$LOG_FILE"
+# -------- END CONFIG --------
+
+log() {
+  echo "[$(date)] $*" | tee -a "$LOG_FILE"
+}
+
+log "==== NUC ORCHESTRATOR START (run ${RUN_ID}) ===="
+log "Branch: ${BRANCH}"
+log "NUC repo dir: ${NUC_REPO_DIR}"
+log "NUC build cmd: ${NUC_BUILD_CMD}"
+log "NUC test  cmd: ${NUC_TEST_CMD}"
+log "NVIDIA script: ${NVIDIA_ORCH_SCRIPT}"
+log "AMD script:    ${AMD_ORCH_SCRIPT}"
+log "Repo URL:      ${WARP_FORGE_REPO_URL}"
+
+# 1) Prepare repo on NUC
+log "Preparing WarpForge repo on NUC..."
 
 mkdir -p "$(dirname "$NUC_REPO_DIR")"
-if [ ! -d "$NUC_REPO_DIR/.git" ]; then
-  echo "[$(date)] Repo not present, cloning..." | tee -a "$LOG_FILE"
+if [[ ! -d "$NUC_REPO_DIR/.git" ]]; then
+  log "Repo not present, cloning..."
   mkdir -p "$NUC_REPO_DIR"
   cd "$NUC_REPO_DIR"
-  git clone git@github.com:morrismeyer/warpforge.git . | tee -a "$LOG_FILE"
+  git clone "$WARP_FORGE_REPO_URL" . 2>&1 | tee -a "$LOG_FILE"
 else
   cd "$NUC_REPO_DIR"
 fi
 
-echo "[$(date)] Fetching latest from origin..." | tee -a "$LOG_FILE"
-git fetch origin | tee -a "$LOG_FILE"
+log "Fetching origin..."
+git fetch origin 2>&1 | tee -a "$LOG_FILE"
 
-echo "[$(date)] Checking out branch $BRANCH..." | tee -a "$LOG_FILE"
-git checkout "$BRANCH" | tee -a "$LOG_FILE"
-
-echo "[$(date)] Pulling branch $BRANCH..." | tee -a "$LOG_FILE"
-git pull --ff-only origin "$BRANCH" | tee -a "$LOG_FILE"
-
-# 2. Build + smoke test on nuc (placeholders for now)
-echo "[$(date)] Running NUC build: $NUC_BUILD_CMD" | tee -a "$LOG_FILE"
-bash -lc "$NUC_BUILD_CMD" | tee -a "$LOG_FILE"
-
-echo "[$(date)] Running NUC tests: $NUC_TEST_CMD" | tee -a "$LOG_FILE"
-bash -lc "$NUC_TEST_CMD" | tee -a "$LOG_FILE"
-
-echo "[$(date)] NUC build+tests SUCCESS" | tee -a "$LOG_FILE"
-
-# 3. If nuc is clean, run NVIDIA orchestrator
-if [ ! -x "$NVIDIA_ORCH_SCRIPT" ]; then
-  echo "[$(date)] ERROR: NVIDIA orchestrator script not found or not executable at $NVIDIA_ORCH_SCRIPT" | tee -a "$LOG_FILE"
+# Robust branch checkout (works even if local branch does not exist yet)
+if git show-ref --verify --quiet "refs/remotes/origin/${BRANCH}"; then
+  if git show-ref --verify --quiet "refs/heads/${BRANCH}"; then
+    git checkout "${BRANCH}" 2>&1 | tee -a "$LOG_FILE"
+  else
+    git checkout -b "${BRANCH}" "origin/${BRANCH}" 2>&1 | tee -a "$LOG_FILE"
+  fi
+  log "Resetting working tree to origin/${BRANCH}..."
+  git reset --hard "origin/${BRANCH}" 2>&1 | tee -a "$LOG_FILE"
+else
+  log "ERROR: origin/${BRANCH} does not exist. Check the branch name in GITHUB_REF_NAME."
   exit 1
 fi
 
-echo "[$(date)] Invoking NVIDIA orchestrator: $NVIDIA_ORCH_SCRIPT" | tee -a "$LOG_FILE"
+# 2) Build + smoke test on NUC
+log "Running NUC build: ${NUC_BUILD_CMD}"
+bash -lc "${NUC_BUILD_CMD}" 2>&1 | tee -a "$LOG_FILE"
 
+log "Running NUC tests: ${NUC_TEST_CMD}"
+bash -lc "${NUC_TEST_CMD}" 2>&1 | tee -a "$LOG_FILE"
+
+log "NUC build + tests SUCCESS"
+
+# 3) NVIDIA tier
+if [[ ! -x "$NVIDIA_ORCH_SCRIPT" ]]; then
+  log "ERROR: NVIDIA orchestrator script not found or not executable at ${NVIDIA_ORCH_SCRIPT}"
+  exit 1
+fi
+
+log "Invoking NVIDIA orchestrator: ${NVIDIA_ORCH_SCRIPT}"
 set +e
 "$NVIDIA_ORCH_SCRIPT" 2>&1 | tee -a "$LOG_FILE"
 NVIDIA_STATUS=$?
 set -e
 
-echo "[$(date)] NVIDIA orchestrator exit status: $NVIDIA_STATUS" | tee -a "$LOG_FILE"
+log "NVIDIA orchestrator exit status: ${NVIDIA_STATUS}"
 
-if [ "$NVIDIA_STATUS" -ne 0 ]; then
-  echo "[$(date)] Overall CI result: FAILURE (NVIDIA build/tests failed or NVIDIA script errored)" | tee -a "$LOG_FILE"
+if [[ "$NVIDIA_STATUS" -ne 0 ]]; then
+  log "Overall CI result: FAILURE (NVIDIA build or script errored)"
   exit "$NVIDIA_STATUS"
 fi
 
-# 4. If NVIDIA is clean, run AMD orchestrator
-if [ ! -x "$AMD_ORCH_SCRIPT" ]; then
-  echo "[$(date)] ERROR: AMD orchestrator script not found or not executable at $AMD_ORCH_SCRIPT" | tee -a "$LOG_FILE"
+# 4) AMD tier
+if [[ ! -x "$AMD_ORCH_SCRIPT" ]]; then
+  log "ERROR: AMD orchestrator script not found or not executable at ${AMD_ORCH_SCRIPT}"
   exit 1
 fi
 
-echo "[$(date)] Invoking AMD orchestrator: $AMD_ORCH_SCRIPT" | tee -a "$LOG_FILE"
-
+log "Invoking AMD orchestrator: ${AMD_ORCH_SCRIPT}"
 set +e
 "$AMD_ORCH_SCRIPT" 2>&1 | tee -a "$LOG_FILE"
 AMD_STATUS=$?
 set -e
 
-echo "[$(date)] AMD orchestrator exit status: $AMD_STATUS" | tee -a "$LOG_FILE"
+log "AMD orchestrator exit status: ${AMD_STATUS}"
 
-if [ "$AMD_STATUS" -ne 0 ]; then
-  echo "[$(date)] Overall CI result: FAILURE (AMD build/tests failed or AMD script errored)" | tee -a "$LOG_FILE"
+if [[ "$AMD_STATUS" -ne 0 ]]; then
+  log "Overall CI result: FAILURE (AMD build or script errored)"
   exit "$AMD_STATUS"
 fi
 
-# 5. If we got here, all three tiers are green
-echo "[$(date)] Overall CI result: SUCCESS (NUC, NVIDIA, and AMD builds/tests OK)" | tee -a "$LOG_FILE"
+log "Overall CI result: SUCCESS (NUC, NVIDIA, and AMD builds/tests OK)"
 exit 0

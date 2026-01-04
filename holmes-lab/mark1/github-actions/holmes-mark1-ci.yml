@@ -1,0 +1,67 @@
+name: Holmes Mark-1 CI (NUC orchestrator)
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - master
+
+permissions:
+  contents: read
+
+jobs:
+  mark1:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Configure SSH
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+
+          # Private key for connecting to the NUC
+          echo "${{ secrets.HOLMES_NUC_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+
+          # Known hosts to avoid interactive prompt
+          ssh-keyscan -H "${{ secrets.HOLMES_NUC_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Upload CI scripts to NUC
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          NUC_USER="${{ secrets.HOLMES_NUC_USER }}"
+          NUC_HOST="${{ secrets.HOLMES_NUC_HOST }}"
+
+          # Stage scripts under ~/ci/holmes-lab/mark1/ci-scripts on the NUC
+          ssh "${NUC_USER}@${NUC_HOST}" "mkdir -p ~/ci/holmes-lab/mark1"
+          scp -r holmes-lab/mark1/ci-scripts "${NUC_USER}@${NUC_HOST}:~/ci/holmes-lab/mark1/"
+
+          # Ensure executables
+          ssh "${NUC_USER}@${NUC_HOST}" "chmod +x ~/ci/holmes-lab/mark1/ci-scripts/*.sh"
+
+      - name: Run NUC orchestrator
+        shell: bash
+        env:
+          # Optional overrides. If you do not set them, the scripts use safe defaults.
+          NUC_REPO_DIR_OVERRIDE: ${{ secrets.WARP_FORGE_NUC_REPO_DIR }}
+        run: |
+          set -euo pipefail
+
+          NUC_USER="${{ secrets.HOLMES_NUC_USER }}"
+          NUC_HOST="${{ secrets.HOLMES_NUC_HOST }}"
+
+          # Pass the GitHub branch/run identifiers through so the NUC checks out
+          # the same branch that triggered the workflow.
+          ssh "${NUC_USER}@${NUC_HOST}" \
+            "GITHUB_REF_NAME='${GITHUB_REF_NAME}' \
+             GITHUB_RUN_ID='${GITHUB_RUN_ID}' \
+             NUC_REPO_DIR_OVERRIDE='${NUC_REPO_DIR_OVERRIDE:-}' \
+             bash -lc '~/ci/holmes-lab/mark1/ci-scripts/orchestrate-nuc-build.sh'"

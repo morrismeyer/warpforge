@@ -1,16 +1,28 @@
-name: Lab CI (NUC + NVIDIA)
+name: Lab CI (NUC orchestrator baseline)
 
 on:
   push:
-    branches:
-      - main
+    branches: [ main ]
+  workflow_dispatch: {}
 
 jobs:
   orchestrated-lab-ci:
-    runs-on: self-hosted
+    runs-on: [self-hosted, linux, x64]
 
     steps:
-      - name: Run orchestrated build on nuc (then nvidia)
+      - name: Checkout repo into workspace
+        uses: actions/checkout@v4
+
+      - name: Debug where we are
         run: |
-          echo "Starting orchestrated lab CI from GitHub Actions on nuc..."
-          /home/actions/surfworks/warpforge/holmes-lab/mark1/ci-scripts/orchestrate-nuc-build.sh
+          set -euo pipefail
+          echo "Workspace: $GITHUB_WORKSPACE"
+          pwd
+          ls -la
+          git rev-parse --short HEAD
+
+      - name: Run orchestrate script from repo
+        run: |
+          set -euo pipefail
+          chmod +x holmes-lab/mark1/ci-scripts/*.sh
+          bash holmes-lab/mark1/ci-scripts/orchestrate-nuc-build.sh

@@ -13,4 +13,4 @@ jobs:
       - name: Run orchestrated build on nuc (then nvidia)
         run: |
           echo "Starting orchestrated lab CI from GitHub Actions on nuc..."
-          /home/morris/ci/orchestrate-nuc-build.sh
+          /home/actions/surfworks/warpforge/holmes-lab/mark1/ci-scripts/orchestrate-nuc-build.sh

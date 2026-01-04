@@ -33,6 +33,14 @@ BRANCH="${GITHUB_REF_NAME:-main}"
 BUILD_CMD="${BUILD_CMD_OVERRIDE:-./gradlew clean assemble}"
 TEST_CMD="${TEST_CMD_OVERRIDE:-./gradlew test}"
 
+# SSH wait behavior
+# - Set SKIP_IF_UNREACHABLE=1 to continue the overall orchestrator even if the target box is offline.
+# - Set SKIP_IF_UNREACHABLE=0 to fail fast if the target box never becomes reachable.
+SSH_CONNECT_TIMEOUT_SECONDS="${SSH_CONNECT_TIMEOUT_SECONDS:-5}"
+SSH_POLL_INTERVAL_SECONDS="${SSH_POLL_INTERVAL_SECONDS:-10}"
+SSH_MAX_WAIT_SECONDS="${SSH_MAX_WAIT_SECONDS:-180}"
+SKIP_IF_UNREACHABLE="${SKIP_IF_UNREACHABLE:-1}"
+
 # If 1, power off NVIDIA only when build + tests succeed
 POWER_OFF_ON_SUCCESS="${POWER_OFF_ON_SUCCESS:-1}"
 
@@ -73,20 +81,33 @@ else
 fi
 
 # 2) Wait for SSH to come up
-log "Waiting for SSH on ${TARGET_HOST}..."
+log "Waiting for SSH on ${TARGET_HOST} (max ${SSH_MAX_WAIT_SECONDS}s)..."
 SSH_OK=0
-for i in {1..30}; do
-  if ssh -o ConnectTimeout=5 -o BatchMode=yes "$TARGET_HOST" "echo up" >/dev/null 2>&1; then
+START_TS="$(date +%s)"
+ATTEMPT=0
+while true; do
+  ATTEMPT=$((ATTEMPT + 1))
+  if ssh -o ConnectTimeout="${SSH_CONNECT_TIMEOUT_SECONDS}" -o BatchMode=yes "$TARGET_HOST" "echo up" >/dev/null 2>&1; then
     log "${TARGET_HOST} is up (SSH reachable)"
     SSH_OK=1
     break
   fi
-  log "...still waiting for SSH (${i})"
-  sleep 10
+
+  NOW_TS="$(date +%s)"
+  ELAPSED=$((NOW_TS - START_TS))
+  if (( ELAPSED >= SSH_MAX_WAIT_SECONDS )); then
+    break
+  fi
+  log "...still waiting for SSH (${ATTEMPT}, elapsed ${ELAPSED}s)"
+  sleep "${SSH_POLL_INTERVAL_SECONDS}"
 done
 
 if [[ "$SSH_OK" -ne 1 ]]; then
-  log "ERROR: ${TARGET_HOST} did not come up in time"
+  if [[ "$SKIP_IF_UNREACHABLE" -eq 1 ]]; then
+    log "WARN: ${TARGET_HOST} did not become reachable within ${SSH_MAX_WAIT_SECONDS}s. Skipping remote build (SKIP_IF_UNREACHABLE=1)."
+    exit 0
+  fi
+  log "ERROR: ${TARGET_HOST} did not come up in time (SKIP_IF_UNREACHABLE=0)"
   exit 1
 fi
 

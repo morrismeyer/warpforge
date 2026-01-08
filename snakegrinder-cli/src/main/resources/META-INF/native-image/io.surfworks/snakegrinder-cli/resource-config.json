@@ -1,0 +1,13 @@
+{
+  "resources": {
+    "includes": [
+      {
+        "pattern": "snakegrinder/.*\\.py$"
+      },
+      {
+        "pattern": "snakegrinder/bootstrap\\.py$"
+      }
+    ]
+  },
+  "bundles": []
+}

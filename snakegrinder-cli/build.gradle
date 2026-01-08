@@ -1,5 +1,6 @@
 plugins {
   id 'application'
+  id 'org.graalvm.buildtools.native' version '0.10.4'
 }
 
 repositories {
@@ -34,4 +35,28 @@ tasks.withType(JavaExec).configureEach {
 
 tasks.withType(Test).configureEach {
   javaLauncher.set(j25Launcher)
+}
+
+// Native image configuration for GraalPy embedding
+graalvmNative {
+  binaries {
+    main {
+      imageName = 'snakegrinder'
+      mainClass = 'io.surfworks.snakegrinder.cli.SnakeGrinderCli'
+
+      // Native image build options
+      buildArgs.addAll([
+        '-H:+ReportExceptionStackTraces',
+        '--no-fallback',
+        // Include Python resources from snakegrinder-core
+        '-H:IncludeResources=snakegrinder/.*\\.py$',
+        // GraalPy optimizations - reduce binary size
+        '-Dpython.WithoutSSL=true',
+        '-Dpython.WithoutCompressionLibraries=true',
+        '-Dpython.WithoutNativePosix=true'
+      ])
+    }
+  }
+
+  toolchainDetection = false
 }

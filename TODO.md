@@ -8,3 +8,4 @@
 - [ ] warpforge-ucx-transport-ffm
 - [ ] snakegrinder-core PyTorch / JAX to MLIR
 - [ ] snakeburger-core MLIR to warpforget-core
+- [ ] JDK linux-rdma - https://cr.openjdk.org/~ylu/8195160.27/

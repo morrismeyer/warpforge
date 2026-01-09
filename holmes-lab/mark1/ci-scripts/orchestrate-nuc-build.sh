@@ -90,6 +90,44 @@ bash -lc "${NUC_BUILD_CMD}" 2>&1 | tee -a "$LOG_FILE"
 log "Running NUC tests: ${NUC_TEST_CMD}"
 bash -lc "${NUC_TEST_CMD}" 2>&1 | tee -a "$LOG_FILE"
 
+# Explicitly run snakeburger-core tests and verify they executed
+log "Running snakeburger-core tests explicitly..."
+bash -lc "./gradlew :snakeburger-core:test --info 2>&1" | tee -a "$LOG_FILE" || true
+
+# Verify test results exist and have sufficient count
+TEST_RESULTS_DIR="snakeburger-core/build/test-results/test"
+if [[ -d "$TEST_RESULTS_DIR" ]]; then
+  TEST_COUNT=$(find "$TEST_RESULTS_DIR" -name "*.xml" -exec grep -h "tests=" {} \; 2>/dev/null | grep -oE 'tests="[0-9]+"' | grep -oE '[0-9]+' | awk '{sum+=$1} END {print sum}')
+  log "snakeburger-core test count: ${TEST_COUNT:-0}"
+
+  if [[ "${TEST_COUNT:-0}" -lt 300 ]]; then
+    log "ERROR: Expected at least 300 snakeburger-core tests but found ${TEST_COUNT:-0}"
+    log "This suggests tests were skipped. Checking Babylon JDK availability..."
+    if [[ -d "$HOME/surfworks/babylon/build" ]]; then
+      log "Babylon build directory exists at $HOME/surfworks/babylon/build"
+      find "$HOME/surfworks/babylon/build" -name "javac" -type f 2>&1 | head -5 | tee -a "$LOG_FILE" || true
+    else
+      log "ERROR: Babylon JDK not found at $HOME/surfworks/babylon/build"
+      log "snakeburger tests require Babylon JDK. Please build it first:"
+      log "  cd ~/surfworks/babylon && bash configure && make images"
+    fi
+    exit 1
+  fi
+
+  log "SUCCESS: snakeburger-core tests executed (${TEST_COUNT} tests)"
+else
+  log "ERROR: No test results found at $TEST_RESULTS_DIR"
+  log "snakeburger-core tests may not have run!"
+  log "Checking if Babylon JDK is available..."
+  if [[ -d "$HOME/surfworks/babylon/build" ]]; then
+    log "Babylon build directory exists"
+    find "$HOME/surfworks/babylon/build" -name "javac" -type f 2>&1 | head -5 | tee -a "$LOG_FILE" || true
+  else
+    log "ERROR: Babylon JDK not found at $HOME/surfworks/babylon/build"
+  fi
+  exit 1
+fi
+
 log "NUC build + tests SUCCESS"
 
 # 3) NVIDIA tier

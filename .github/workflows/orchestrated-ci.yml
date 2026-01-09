@@ -26,3 +26,26 @@ jobs:
           set -euo pipefail
           chmod +x holmes-lab/mark1/ci-scripts/*.sh
           bash holmes-lab/mark1/ci-scripts/orchestrate-nuc-build.sh
+
+      - name: Verify snakeburger-core test execution
+        run: |
+          set -euo pipefail
+          echo "=== Checking snakeburger-core test results ==="
+
+          # Check if test results exist
+          if [[ -d "snakeburger-core/build/test-results/test" ]]; then
+            TEST_COUNT=$(find snakeburger-core/build/test-results/test -name "*.xml" -exec grep -h "tests=" {} \; | grep -oP 'tests="\K[0-9]+' | awk '{sum+=$1} END {print sum}')
+            echo "snakeburger-core test count: ${TEST_COUNT:-0}"
+
+            if [[ "${TEST_COUNT:-0}" -lt 300 ]]; then
+              echo "ERROR: Expected at least 300 snakeburger-core tests but found ${TEST_COUNT:-0}"
+              echo "This suggests tests were skipped. Check Babylon JDK availability."
+              exit 1
+            fi
+
+            echo "SUCCESS: snakeburger-core tests executed (${TEST_COUNT} tests)"
+          else
+            echo "ERROR: No test results found at snakeburger-core/build/test-results/test"
+            echo "snakeburger-core tests may not have run!"
+            exit 1
+          fi

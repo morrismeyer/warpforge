@@ -68,6 +68,51 @@ source babylon-runtime/build/babylon.toolchain.env
 - **build-logic** - Gradle convention plugins
 - **holmes-lab/mark1/ci-scripts** - Hardware CI orchestration scripts
 
+## SnakeGrinder vs SnakeBurger Architecture
+
+These two projects have distinct architectural goals and distribution paths:
+
+### SnakeGrinder (GraalPy + native-image)
+
+- **Runtime**: GraalPy (Python on GraalVM)
+- **Distribution**: GraalVM `native-image` → single-file executable
+- **Key constraint**: **No pip install dependencies**. All Python code must be pure Python bundled as resources. This eliminates Python configuration hassle and enables true single-file distribution.
+- **Why mock tracer**: The mock torch/jax modules exist because real PyTorch/JAX require pip install and native extensions incompatible with native-image bundling.
+- **StableHLO output**: Text format (MLIR), emitted by pure Python code
+
+### SnakeBurger (Babylon JDK)
+
+- **Runtime**: Babylon JDK (Java 26 with `jdk.incubator.code` module)
+- **Distribution**: `jlink` / `jpackage` → single-file executable
+- **Key constraint**: Babylon is experimental, lives only in Oracle's GitHub repo, and subject to API flux. Cannot use native-image path because Babylon APIs are incubator/preview.
+- **Future**: May integrate with HAT (Heterogeneous Accelerator Toolkit) when stable
+- **StableHLO input**: Parses text format from snakegrinder, converts to Babylon Code Reflection IR
+
+### Data Flow
+
+```
+Python ML code
+      │
+      ▼
+┌─────────────────┐
+│  SnakeGrinder   │  GraalPy + mock tracer
+│  (native-image) │  Emits StableHLO text
+└────────┬────────┘
+         │ .mlir file
+         ▼
+┌─────────────────┐
+│  SnakeBurger    │  Babylon JDK
+│  (jlink)        │  Parses StableHLO → Babylon IR
+└─────────────────┘
+```
+
+### Design Implications
+
+- SnakeGrinder Python code must remain **pure Python** (no C extensions, no pip packages)
+- SnakeBurger Java code must handle **Babylon API instability** gracefully
+- The two projects communicate via **StableHLO text format** as a stable interface
+- Both aim for **single-file executable** distribution but via different toolchains
+
 ## Testing
 
 - Framework: JUnit 5

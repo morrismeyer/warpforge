@@ -34,14 +34,17 @@ tasks.withType(JavaExec).configureEach {
 def isMac = System.getProperty('os.name', '').toLowerCase().contains('mac')
 def isLinux = System.getProperty('os.name', '').toLowerCase().contains('linux')
 
-// Find Babylon JDK home (same logic as jdk-routing.gradle)
-def findBabylonJdkHome = {
-    File babylonRoot = new File(rootDir, '../babylon')
-    File buildDir = new File(babylonRoot, 'build')
-    if (!buildDir.exists()) return null
+// Capture rootDir at configuration time for configuration cache compatibility
+def projectRootDir = rootDir
+
+// Find Babylon JDK home at configuration time
+def babylonJdkHome = {
+    File babylonRoot = new File(projectRootDir, '../babylon')
+    File bDir = new File(babylonRoot, 'build')
+    if (!bDir.exists()) return null
 
     if (isMac) {
-        def javacFiles = fileTree(buildDir) {
+        def javacFiles = fileTree(bDir) {
             include '**/Contents/Home/bin/javac'
         }.files
         if (!javacFiles.isEmpty()) {
@@ -49,7 +52,7 @@ def findBabylonJdkHome = {
         }
     }
 
-    def javacFiles = fileTree(buildDir) {
+    def javacFiles = fileTree(bDir) {
         include '**/jdk/bin/javac'
         include '**/images/**/bin/javac'
         exclude '**/support/**'
@@ -66,7 +69,7 @@ def findBabylonJdkHome = {
     } ?: sorted[0]
 
     return pick.parentFile.parentFile
-}
+}.call()  // Execute immediately at configuration time
 
 // jlink task to create self-contained runtime (JDK only, non-modular app)
 tasks.register('jlinkRuntime', Exec) {
@@ -76,8 +79,10 @@ tasks.register('jlinkRuntime', Exec) {
     def outputDir = file("${buildDir}/jlink-runtime")
     outputs.dir(outputDir)
 
+    // Capture at configuration time
+    def babylonHome = babylonJdkHome
+
     doFirst {
-        def babylonHome = findBabylonJdkHome()
         if (babylonHome == null) {
             throw new GradleException(
                 'Babylon JDK not found. Run: ./gradlew :babylon-runtime:ensureBabylonReady'

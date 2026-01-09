@@ -163,6 +163,16 @@ public final class StableHloTypeChecker {
             // Control flow
             case IfOp o -> {} // Complex validation, skip for now
             case WhileOp o -> {} // Complex validation, skip for now
+            // Linear algebra
+            case DotOp o -> validateBinaryElementwise(o, o.lhs(), o.rhs(), o.tensorResultType());
+            case CholeskyOp o -> validateUnaryElementwise(o, o.operand(), o.tensorResultType());
+            case TriangularSolveOp o -> {} // Complex validation, skip for now
+            // Complex numbers
+            case RealOp o -> {} // Complex validation, skip for now
+            case ImagOp o -> {} // Complex validation, skip for now
+            case ComplexOp o -> {} // Complex validation, skip for now
+            // Signal processing
+            case FftOp o -> {} // Complex validation, skip for now
             // Other
             case SortOp o -> {} // Complex validation, skip for now
             case RngOp o -> {} // Complex validation, skip for now

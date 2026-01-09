@@ -270,6 +270,12 @@ public final class StableHloAst {
             ConvolutionOp, BatchNormTrainingOp, BatchNormInferenceOp,
             // Control flow
             IfOp, WhileOp,
+            // Linear algebra
+            DotOp, CholeskyOp, TriangularSolveOp,
+            // Complex numbers
+            RealOp, ImagOp, ComplexOp,
+            // Signal processing
+            FftOp,
             // Other
             SortOp, RngOp, RngBitGeneratorOp {
 
@@ -1218,6 +1224,89 @@ public final class StableHloAst {
         @Override public String opName() { return "stablehlo.rng_bit_generator"; }
         @Override public List<Value> results() { return List.of(outputState, output); }
         @Override public List<Value> operands() { return List.of(initialState); }
+    }
+
+    // ==================== Linear Algebra Operations ====================
+
+    /** stablehlo.dot - Simple matrix multiplication. */
+    public record DotOp(Value result, Value lhs, Value rhs, TensorType tensorResultType) implements Operation {
+        @Override public String opName() { return "stablehlo.dot"; }
+        @Override public List<Value> results() { return List.of(result); }
+        @Override public List<Value> operands() { return List.of(lhs, rhs); }
+    }
+
+    /** stablehlo.cholesky - Cholesky decomposition. */
+    public record CholeskyOp(Value result, Value operand, boolean lower, TensorType tensorResultType) implements Operation {
+        @Override public String opName() { return "stablehlo.cholesky"; }
+        @Override public List<Value> results() { return List.of(result); }
+        @Override public List<Value> operands() { return List.of(operand); }
+    }
+
+    /** stablehlo.triangular_solve - Solve triangular linear system. */
+    public record TriangularSolveOp(
+            Value result,
+            Value a,
+            Value b,
+            boolean leftSide,
+            boolean lower,
+            boolean transposeA,
+            TensorType tensorResultType
+    ) implements Operation {
+        @Override public String opName() { return "stablehlo.triangular_solve"; }
+        @Override public List<Value> results() { return List.of(result); }
+        @Override public List<Value> operands() { return List.of(a, b); }
+    }
+
+    // ==================== Complex Number Operations ====================
+
+    /** stablehlo.real - Extract real part of complex number. */
+    public record RealOp(Value result, Value operand, TensorType tensorResultType) implements Operation {
+        @Override public String opName() { return "stablehlo.real"; }
+        @Override public List<Value> results() { return List.of(result); }
+        @Override public List<Value> operands() { return List.of(operand); }
+    }
+
+    /** stablehlo.imag - Extract imaginary part of complex number. */
+    public record ImagOp(Value result, Value operand, TensorType tensorResultType) implements Operation {
+        @Override public String opName() { return "stablehlo.imag"; }
+        @Override public List<Value> results() { return List.of(result); }
+        @Override public List<Value> operands() { return List.of(operand); }
+    }
+
+    /** stablehlo.complex - Create complex number from real and imaginary parts. */
+    public record ComplexOp(Value result, Value real, Value imag, TensorType tensorResultType) implements Operation {
+        @Override public String opName() { return "stablehlo.complex"; }
+        @Override public List<Value> results() { return List.of(result); }
+        @Override public List<Value> operands() { return List.of(real, imag); }
+    }
+
+    // ==================== Signal Processing ====================
+
+    /** FFT type enum. */
+    public enum FftType {
+        FFT, IFFT, RFFT, IRFFT;
+        public static FftType fromString(String s) {
+            return switch (s.toUpperCase()) {
+                case "FFT" -> FFT;
+                case "IFFT" -> IFFT;
+                case "RFFT" -> RFFT;
+                case "IRFFT" -> IRFFT;
+                default -> FFT;
+            };
+        }
+    }
+
+    /** stablehlo.fft - Fast Fourier Transform. */
+    public record FftOp(
+            Value result,
+            Value operand,
+            String fftType,
+            List<Long> fftLength,
+            TensorType tensorResultType
+    ) implements Operation {
+        @Override public String opName() { return "stablehlo.fft"; }
+        @Override public List<Value> results() { return List.of(result); }
+        @Override public List<Value> operands() { return List.of(operand); }
     }
 
     /**

@@ -170,6 +170,16 @@ public final class StableHloToBabylon {
             // Control flow
             case IfOp i -> emitIf(i, valueTypes);
             case WhileOp w -> emitWhile(w, valueTypes);
+            // Linear algebra
+            case DotOp d -> emitDot(d, valueTypes);
+            case CholeskyOp c -> emitCholesky(c, valueTypes);
+            case TriangularSolveOp t -> emitTriangularSolve(t, valueTypes);
+            // Complex numbers
+            case RealOp r -> emitReal(r, valueTypes);
+            case ImagOp i -> emitImag(i, valueTypes);
+            case ComplexOp c -> emitComplex(c, valueTypes);
+            // Signal processing
+            case FftOp f -> emitFft(f, valueTypes);
             // Other
             case SortOp s -> emitSort(s, valueTypes);
             case RngOp r -> emitRng(r, valueTypes);
@@ -560,6 +570,81 @@ public final class StableHloToBabylon {
             args.append("%").append(op.operands().get(i).name());
         }
         return args.toString();
+    }
+
+    // ==================== Linear Algebra ====================
+
+    private String emitDot(DotOp op, Map<String, String> valueTypes) {
+        String resultName = op.result().name();
+        String javaType = typeToJavaType(op.tensorResultType());
+        valueTypes.put(resultName, javaType);
+
+        return String.format("%%%-8s = dot %%%s, %%%s  // -> %s",
+                resultName, op.lhs().name(), op.rhs().name(),
+                shapeToString(op.tensorResultType()));
+    }
+
+    private String emitCholesky(CholeskyOp op, Map<String, String> valueTypes) {
+        String resultName = op.result().name();
+        String javaType = typeToJavaType(op.tensorResultType());
+        valueTypes.put(resultName, javaType);
+
+        return String.format("%%%-8s = cholesky %%%s lower=%s  // -> %s",
+                resultName, op.operand().name(), op.lower(),
+                shapeToString(op.tensorResultType()));
+    }
+
+    private String emitTriangularSolve(TriangularSolveOp op, Map<String, String> valueTypes) {
+        String resultName = op.result().name();
+        String javaType = typeToJavaType(op.tensorResultType());
+        valueTypes.put(resultName, javaType);
+
+        return String.format("%%%-8s = triangular_solve %%%s, %%%s left=%s lower=%s transpose=%s  // -> %s",
+                resultName, op.a().name(), op.b().name(),
+                op.leftSide(), op.lower(), op.transposeA(),
+                shapeToString(op.tensorResultType()));
+    }
+
+    // ==================== Complex Numbers ====================
+
+    private String emitReal(RealOp op, Map<String, String> valueTypes) {
+        String resultName = op.result().name();
+        String javaType = typeToJavaType(op.tensorResultType());
+        valueTypes.put(resultName, javaType);
+
+        return String.format("%%%-8s = real %%%s  // -> %s",
+                resultName, op.operand().name(), shapeToString(op.tensorResultType()));
+    }
+
+    private String emitImag(ImagOp op, Map<String, String> valueTypes) {
+        String resultName = op.result().name();
+        String javaType = typeToJavaType(op.tensorResultType());
+        valueTypes.put(resultName, javaType);
+
+        return String.format("%%%-8s = imag %%%s  // -> %s",
+                resultName, op.operand().name(), shapeToString(op.tensorResultType()));
+    }
+
+    private String emitComplex(ComplexOp op, Map<String, String> valueTypes) {
+        String resultName = op.result().name();
+        String javaType = typeToJavaType(op.tensorResultType());
+        valueTypes.put(resultName, javaType);
+
+        return String.format("%%%-8s = complex %%%s, %%%s  // -> %s",
+                resultName, op.real().name(), op.imag().name(),
+                shapeToString(op.tensorResultType()));
+    }
+
+    // ==================== Signal Processing ====================
+
+    private String emitFft(FftOp op, Map<String, String> valueTypes) {
+        String resultName = op.result().name();
+        String javaType = typeToJavaType(op.tensorResultType());
+        valueTypes.put(resultName, javaType);
+
+        return String.format("%%%-8s = fft<%s> %%%s length=%s  // -> %s",
+                resultName, op.fftType(), op.operand().name(), op.fftLength(),
+                shapeToString(op.tensorResultType()));
     }
 
     private String typeToString(Type type) {

@@ -243,6 +243,10 @@ public final class StableHloParser {
             case "stablehlo.reverse" -> parseReverse(resultName);
             case "stablehlo.pad" -> parsePad(resultName);
             case "stablehlo.iota" -> parseIota(resultName);
+            case "stablehlo.gather" -> parseGather(resultName);
+            case "stablehlo.scatter" -> parseScatter(resultName);
+            case "stablehlo.dynamic_slice" -> parseDynamicSlice(resultName);
+            case "stablehlo.dynamic_update_slice" -> parseDynamicUpdateSlice(resultName);
             // Conditional ops
             case "stablehlo.compare" -> parseCompare(resultName);
             case "stablehlo.select" -> parseSelect(resultName);
@@ -250,6 +254,26 @@ public final class StableHloParser {
             // Type conversion
             case "stablehlo.convert" -> parseConvert(resultName);
             case "stablehlo.bitcast_convert" -> parseBitcastConvert(resultName);
+            // Reduction ops
+            case "stablehlo.reduce" -> parseReduce(resultName);
+            case "stablehlo.reduce_window" -> parseReduceWindow(resultName);
+            // Neural network ops
+            case "stablehlo.convolution" -> parseConvolution(resultName);
+            case "stablehlo.batch_norm_training" -> parseBatchNormTraining(resultName);
+            case "stablehlo.batch_norm_inference" -> parseBatchNormInference(resultName);
+            // Sort and RNG
+            case "stablehlo.sort" -> parseSort(resultName);
+            case "stablehlo.rng" -> parseRng(resultName);
+            case "stablehlo.rng_bit_generator" -> parseRngBitGenerator(resultName);
+            // Other
+            case "stablehlo.dot" -> parseDot(resultName);
+            case "stablehlo.real" -> parseReal(resultName);
+            case "stablehlo.imag" -> parseImag(resultName);
+            case "stablehlo.complex" -> parseComplex(resultName);
+            case "stablehlo.fft" -> parseFft(resultName);
+            case "stablehlo.cholesky" -> parseCholesky(resultName);
+            case "stablehlo.triangular_solve" -> parseTriangularSolve(resultName);
+            case "stablehlo.custom_call" -> parseCustomCall(resultName);
             default -> throw error("Unsupported operation: " + opName);
         };
     }
@@ -1199,5 +1223,865 @@ public final class StableHloParser {
     private StableHloParseException error(String message) {
         Token t = peek();
         return new StableHloParseException(message, t.line(), t.column());
+    }
+
+    // ==================== Indexing Operations ====================
+
+    private GatherOp parseGather(String resultName) {
+        // %g = stablehlo.gather %operand, %start_indices, offset_dims=[...], collapsed_slice_dims=[...],
+        //      start_index_map=[...], index_vector_dim=..., slice_sizes=[...] : (...) -> tensor<...>
+        Value operand = lookupValue(parsePercentId());
+        expect(TokenType.COMMA);
+        Value startIndices = lookupValue(parsePercentId());
+        expect(TokenType.COMMA);
+
+        List<Long> offsetDims = new ArrayList<>();
+        List<Long> collapsedSliceDims = new ArrayList<>();
+        List<Long> startIndexMap = new ArrayList<>();
+        long indexVectorDim = 0;
+        List<Long> sliceSizes = new ArrayList<>();
+
+        while (!check(TokenType.COLON)) {
+            if (checkIdentifier("offset_dims")) {
+                advance();
+                expect(TokenType.EQUALS);
+                offsetDims = parseIntegerList();
+            } else if (checkIdentifier("collapsed_slice_dims")) {
+                advance();
+                expect(TokenType.EQUALS);
+                collapsedSliceDims = parseIntegerList();
+            } else if (checkIdentifier("start_index_map")) {
+                advance();
+                expect(TokenType.EQUALS);
+                startIndexMap = parseIntegerList();
+            } else if (checkIdentifier("index_vector_dim")) {
+                advance();
+                expect(TokenType.EQUALS);
+                indexVectorDim = Long.parseLong(expect(TokenType.INTEGER).value());
+            } else if (checkIdentifier("slice_sizes")) {
+                advance();
+                expect(TokenType.EQUALS);
+                sliceSizes = parseIntegerList();
+            } else if (check(TokenType.COMMA)) {
+                advance();
+            } else {
+                throw error("Unexpected token in gather: " + peek());
+            }
+        }
+
+        expect(TokenType.COLON);
+        // Skip input types
+        expect(TokenType.LPAREN);
+        parseType();
+        expect(TokenType.COMMA);
+        parseType();
+        expect(TokenType.RPAREN);
+        expect(TokenType.ARROW);
+        TensorType resultType = parseTensorType();
+
+        Value result = new Value(resultName, resultType);
+        valueMap.put(resultName, result);
+
+        return new GatherOp(result, operand, startIndices, offsetDims, collapsedSliceDims,
+                startIndexMap, indexVectorDim, sliceSizes, resultType);
+    }
+
+    private ScatterOp parseScatter(String resultName) {
+        // %s = stablehlo.scatter %operand, %scatter_indices, %updates, update_window_dims=[...],
+        //      inserted_window_dims=[...], scatter_dims_to_operand_dims=[...], index_vector_dim=... : (...) -> tensor<...>
+        Value operand = lookupValue(parsePercentId());
+        expect(TokenType.COMMA);
+        Value scatterIndices = lookupValue(parsePercentId());
+        expect(TokenType.COMMA);
+        Value updates = lookupValue(parsePercentId());
+        expect(TokenType.COMMA);
+
+        List<Long> updateWindowDims = new ArrayList<>();
+        List<Long> insertedWindowDims = new ArrayList<>();
+        List<Long> scatterDimsToOperandDims = new ArrayList<>();
+        long indexVectorDim = 0;
+
+        while (!check(TokenType.COLON)) {
+            if (checkIdentifier("update_window_dims")) {
+                advance();
+                expect(TokenType.EQUALS);
+                updateWindowDims = parseIntegerList();
+            } else if (checkIdentifier("inserted_window_dims")) {
+                advance();
+                expect(TokenType.EQUALS);
+                insertedWindowDims = parseIntegerList();
+            } else if (checkIdentifier("scatter_dims_to_operand_dims")) {
+                advance();
+                expect(TokenType.EQUALS);
+                scatterDimsToOperandDims = parseIntegerList();
+            } else if (checkIdentifier("index_vector_dim")) {
+                advance();
+                expect(TokenType.EQUALS);
+                indexVectorDim = Long.parseLong(expect(TokenType.INTEGER).value());
+            } else if (check(TokenType.COMMA)) {
+                advance();
+            } else {
+                throw error("Unexpected token in scatter: " + peek());
+            }
+        }
+
+        expect(TokenType.COLON);
+        // Skip input types
+        expect(TokenType.LPAREN);
+        parseType();
+        while (check(TokenType.COMMA)) {
+            advance();
+            parseType();
+        }
+        expect(TokenType.RPAREN);
+        expect(TokenType.ARROW);
+        TensorType resultType = parseTensorType();
+
+        Value result = new Value(resultName, resultType);
+        valueMap.put(resultName, result);
+
+        return new ScatterOp(result, operand, scatterIndices, updates, updateWindowDims,
+                insertedWindowDims, scatterDimsToOperandDims, indexVectorDim, resultType);
+    }
+
+    private DynamicSliceOp parseDynamicSlice(String resultName) {
+        // %d = stablehlo.dynamic_slice %operand, %start0, %start1, ..., sizes=[...] : (...) -> tensor<...>
+        Value operand = lookupValue(parsePercentId());
+        List<Value> startIndices = new ArrayList<>();
+
+        while (check(TokenType.COMMA)) {
+            advance();
+            if (checkIdentifier("sizes")) {
+                break;
+            }
+            startIndices.add(lookupValue(parsePercentId()));
+        }
+
+        expect(TokenType.IDENTIFIER, "sizes");
+        expect(TokenType.EQUALS);
+        List<Long> sliceSizes = parseIntegerList();
+
+        expect(TokenType.COLON);
+        // Skip input types
+        expect(TokenType.LPAREN);
+        parseType();
+        while (check(TokenType.COMMA)) {
+            advance();
+            parseType();
+        }
+        expect(TokenType.RPAREN);
+        expect(TokenType.ARROW);
+        TensorType resultType = parseTensorType();
+
+        Value result = new Value(resultName, resultType);
+        valueMap.put(resultName, result);
+
+        return new DynamicSliceOp(result, operand, startIndices, sliceSizes, resultType);
+    }
+
+    private DynamicUpdateSliceOp parseDynamicUpdateSlice(String resultName) {
+        // %d = stablehlo.dynamic_update_slice %operand, %update, %start0, %start1, ... : (...) -> tensor<...>
+        Value operand = lookupValue(parsePercentId());
+        expect(TokenType.COMMA);
+        Value update = lookupValue(parsePercentId());
+
+        List<Value> startIndices = new ArrayList<>();
+        while (check(TokenType.COMMA)) {
+            advance();
+            if (check(TokenType.COLON)) break;
+            startIndices.add(lookupValue(parsePercentId()));
+        }
+
+        expect(TokenType.COLON);
+        // Skip input types
+        expect(TokenType.LPAREN);
+        parseType();
+        while (check(TokenType.COMMA)) {
+            advance();
+            parseType();
+        }
+        expect(TokenType.RPAREN);
+        expect(TokenType.ARROW);
+        TensorType resultType = parseTensorType();
+
+        Value result = new Value(resultName, resultType);
+        valueMap.put(resultName, result);
+
+        return new DynamicUpdateSliceOp(result, operand, update, startIndices, resultType);
+    }
+
+    // ==================== Reduction Operations ====================
+
+    private ReduceOp parseReduce(String resultName) {
+        // %r = stablehlo.reduce %operand, %init, dims=[...], reducer=add : (...) -> tensor<...>
+        Value operand = lookupValue(parsePercentId());
+        expect(TokenType.COMMA);
+        Value initValue = lookupValue(parsePercentId());
+        expect(TokenType.COMMA);
+
+        List<Long> dimensions = new ArrayList<>();
+        String reducer = "add";
+
+        while (!check(TokenType.COLON)) {
+            if (checkIdentifier("dims")) {
+                advance();
+                expect(TokenType.EQUALS);
+                dimensions = parseIntegerList();
+            } else if (checkIdentifier("reducer")) {
+                advance();
+                expect(TokenType.EQUALS);
+                reducer = expect(TokenType.IDENTIFIER).value();
+            } else if (check(TokenType.COMMA)) {
+                advance();
+            } else {
+                throw error("Unexpected token in reduce: " + peek());
+            }
+        }
+
+        expect(TokenType.COLON);
+        // Skip input types
+        expect(TokenType.LPAREN);
+        parseType();
+        expect(TokenType.COMMA);
+        parseType();
+        expect(TokenType.RPAREN);
+        expect(TokenType.ARROW);
+        TensorType resultType = parseTensorType();
+
+        Value result = new Value(resultName, resultType);
+        valueMap.put(resultName, result);
+
+        return new ReduceOp(result, operand, initValue, dimensions, reducer, resultType);
+    }
+
+    private ReduceWindowOp parseReduceWindow(String resultName) {
+        // %r = stablehlo.reduce_window %operand, %init, window=[...], strides=[...], reducer=max : (...) -> tensor<...>
+        Value operand = lookupValue(parsePercentId());
+        expect(TokenType.COMMA);
+        Value initValue = lookupValue(parsePercentId());
+        expect(TokenType.COMMA);
+
+        List<Long> windowDimensions = new ArrayList<>();
+        List<Long> windowStrides = new ArrayList<>();
+        List<Long> baseDilations = new ArrayList<>();
+        List<Long> windowDilations = new ArrayList<>();
+        List<Long> paddingLow = new ArrayList<>();
+        List<Long> paddingHigh = new ArrayList<>();
+        String reducer = "add";
+
+        while (!check(TokenType.COLON)) {
+            if (checkIdentifier("window")) {
+                advance();
+                expect(TokenType.EQUALS);
+                windowDimensions = parseIntegerList();
+            } else if (checkIdentifier("strides")) {
+                advance();
+                expect(TokenType.EQUALS);
+                windowStrides = parseIntegerList();
+            } else if (checkIdentifier("base_dilations")) {
+                advance();
+                expect(TokenType.EQUALS);
+                baseDilations = parseIntegerList();
+            } else if (checkIdentifier("window_dilations")) {
+                advance();
+                expect(TokenType.EQUALS);
+                windowDilations = parseIntegerList();
+            } else if (checkIdentifier("padding_low")) {
+                advance();
+                expect(TokenType.EQUALS);
+                paddingLow = parseIntegerList();
+            } else if (checkIdentifier("padding_high")) {
+                advance();
+                expect(TokenType.EQUALS);
+                paddingHigh = parseIntegerList();
+            } else if (checkIdentifier("reducer")) {
+                advance();
+                expect(TokenType.EQUALS);
+                reducer = expect(TokenType.IDENTIFIER).value();
+            } else if (check(TokenType.COMMA)) {
+                advance();
+            } else {
+                throw error("Unexpected token in reduce_window: " + peek());
+            }
+        }
+
+        expect(TokenType.COLON);
+        // Skip input types
+        expect(TokenType.LPAREN);
+        parseType();
+        expect(TokenType.COMMA);
+        parseType();
+        expect(TokenType.RPAREN);
+        expect(TokenType.ARROW);
+        TensorType resultType = parseTensorType();
+
+        Value result = new Value(resultName, resultType);
+        valueMap.put(resultName, result);
+
+        return new ReduceWindowOp(result, operand, initValue, windowDimensions, windowStrides,
+                baseDilations, windowDilations, paddingLow, paddingHigh, reducer, resultType);
+    }
+
+    // ==================== Neural Network Operations ====================
+
+    private ConvolutionOp parseConvolution(String resultName) {
+        // %c = stablehlo.convolution %lhs, %rhs, strides=[...], padding_low=[...], padding_high=[...],
+        //      lhs_dilation=[...], rhs_dilation=[...], feature_group_count=1, batch_group_count=1,
+        //      dimension_numbers=... : (...) -> tensor<...>
+        Value lhs = lookupValue(parsePercentId());
+        expect(TokenType.COMMA);
+        Value rhs = lookupValue(parsePercentId());
+        expect(TokenType.COMMA);
+
+        List<Long> windowStrides = new ArrayList<>();
+        List<Long> paddingLow = new ArrayList<>();
+        List<Long> paddingHigh = new ArrayList<>();
+        List<Long> lhsDilation = new ArrayList<>();
+        List<Long> rhsDilation = new ArrayList<>();
+        long featureGroupCount = 1;
+        long batchGroupCount = 1;
+        // Dimension numbers
+        long inputBatchDimension = 0;
+        long inputFeatureDimension = 1;
+        List<Long> inputSpatialDimensions = new ArrayList<>();
+        long kernelInputFeatureDimension = 0;
+        long kernelOutputFeatureDimension = 1;
+        List<Long> kernelSpatialDimensions = new ArrayList<>();
+        long outputBatchDimension = 0;
+        long outputFeatureDimension = 1;
+        List<Long> outputSpatialDimensions = new ArrayList<>();
+
+        while (!check(TokenType.COLON)) {
+            if (checkIdentifier("strides")) {
+                advance();
+                expect(TokenType.EQUALS);
+                windowStrides = parseIntegerList();
+            } else if (checkIdentifier("padding_low")) {
+                advance();
+                expect(TokenType.EQUALS);
+                paddingLow = parseIntegerList();
+            } else if (checkIdentifier("padding_high")) {
+                advance();
+                expect(TokenType.EQUALS);
+                paddingHigh = parseIntegerList();
+            } else if (checkIdentifier("lhs_dilation")) {
+                advance();
+                expect(TokenType.EQUALS);
+                lhsDilation = parseIntegerList();
+            } else if (checkIdentifier("rhs_dilation")) {
+                advance();
+                expect(TokenType.EQUALS);
+                rhsDilation = parseIntegerList();
+            } else if (checkIdentifier("feature_group_count")) {
+                advance();
+                expect(TokenType.EQUALS);
+                featureGroupCount = Long.parseLong(expect(TokenType.INTEGER).value());
+            } else if (checkIdentifier("batch_group_count")) {
+                advance();
+                expect(TokenType.EQUALS);
+                batchGroupCount = Long.parseLong(expect(TokenType.INTEGER).value());
+            } else if (checkIdentifier("input_batch_dimension")) {
+                advance();
+                expect(TokenType.EQUALS);
+                inputBatchDimension = Long.parseLong(expect(TokenType.INTEGER).value());
+            } else if (checkIdentifier("input_feature_dimension")) {
+                advance();
+                expect(TokenType.EQUALS);
+                inputFeatureDimension = Long.parseLong(expect(TokenType.INTEGER).value());
+            } else if (checkIdentifier("input_spatial_dimensions")) {
+                advance();
+                expect(TokenType.EQUALS);
+                inputSpatialDimensions = parseIntegerList();
+            } else if (checkIdentifier("kernel_input_feature_dimension")) {
+                advance();
+                expect(TokenType.EQUALS);
+                kernelInputFeatureDimension = Long.parseLong(expect(TokenType.INTEGER).value());
+            } else if (checkIdentifier("kernel_output_feature_dimension")) {
+                advance();
+                expect(TokenType.EQUALS);
+                kernelOutputFeatureDimension = Long.parseLong(expect(TokenType.INTEGER).value());
+            } else if (checkIdentifier("kernel_spatial_dimensions")) {
+                advance();
+                expect(TokenType.EQUALS);
+                kernelSpatialDimensions = parseIntegerList();
+            } else if (checkIdentifier("output_batch_dimension")) {
+                advance();
+                expect(TokenType.EQUALS);
+                outputBatchDimension = Long.parseLong(expect(TokenType.INTEGER).value());
+            } else if (checkIdentifier("output_feature_dimension")) {
+                advance();
+                expect(TokenType.EQUALS);
+                outputFeatureDimension = Long.parseLong(expect(TokenType.INTEGER).value());
+            } else if (checkIdentifier("output_spatial_dimensions")) {
+                advance();
+                expect(TokenType.EQUALS);
+                outputSpatialDimensions = parseIntegerList();
+            } else if (check(TokenType.COMMA)) {
+                advance();
+            } else {
+                throw error("Unexpected token in convolution: " + peek());
+            }
+        }
+
+        expect(TokenType.COLON);
+        // Skip input types
+        expect(TokenType.LPAREN);
+        parseType();
+        expect(TokenType.COMMA);
+        parseType();
+        expect(TokenType.RPAREN);
+        expect(TokenType.ARROW);
+        TensorType resultType = parseTensorType();
+
+        Value result = new Value(resultName, resultType);
+        valueMap.put(resultName, result);
+
+        return new ConvolutionOp(result, lhs, rhs, windowStrides, paddingLow, paddingHigh,
+                lhsDilation, rhsDilation, featureGroupCount, batchGroupCount,
+                inputBatchDimension, inputFeatureDimension, inputSpatialDimensions,
+                kernelInputFeatureDimension, kernelOutputFeatureDimension, kernelSpatialDimensions,
+                outputBatchDimension, outputFeatureDimension, outputSpatialDimensions, resultType);
+    }
+
+    private BatchNormTrainingOp parseBatchNormTraining(String resultName) {
+        // %out:3 = stablehlo.batch_norm_training %operand, %scale, %offset, epsilon=1e-5, feature_index=1 : (...) -> (...)
+        Value operand = lookupValue(parsePercentId());
+        expect(TokenType.COMMA);
+        Value scale = lookupValue(parsePercentId());
+        expect(TokenType.COMMA);
+        Value offset = lookupValue(parsePercentId());
+        expect(TokenType.COMMA);
+
+        float epsilon = 1e-5f;
+        long featureIndex = 1;
+
+        while (!check(TokenType.COLON)) {
+            if (checkIdentifier("epsilon")) {
+                advance();
+                expect(TokenType.EQUALS);
+                epsilon = Float.parseFloat(expect(TokenType.FLOAT).value());
+            } else if (checkIdentifier("feature_index")) {
+                advance();
+                expect(TokenType.EQUALS);
+                featureIndex = Long.parseLong(expect(TokenType.INTEGER).value());
+            } else if (check(TokenType.COMMA)) {
+                advance();
+            } else {
+                throw error("Unexpected token in batch_norm_training: " + peek());
+            }
+        }
+
+        expect(TokenType.COLON);
+        // Skip input types
+        expect(TokenType.LPAREN);
+        parseType();
+        while (check(TokenType.COMMA)) {
+            advance();
+            parseType();
+        }
+        expect(TokenType.RPAREN);
+        expect(TokenType.ARROW);
+        // Result is a tuple (output, batch_mean, batch_var)
+        expect(TokenType.LPAREN);
+        TensorType resultType = parseTensorType();
+        expect(TokenType.COMMA);
+        TensorType meanType = parseTensorType();
+        expect(TokenType.COMMA);
+        TensorType varType = parseTensorType();
+        expect(TokenType.RPAREN);
+
+        Value output = new Value(resultName, resultType);
+        Value batchMean = new Value(resultName + "_mean", meanType);
+        Value batchVar = new Value(resultName + "_var", varType);
+        valueMap.put(resultName, output);
+
+        return new BatchNormTrainingOp(output, batchMean, batchVar, operand, scale, offset,
+                epsilon, featureIndex, resultType);
+    }
+
+    private BatchNormInferenceOp parseBatchNormInference(String resultName) {
+        // %out = stablehlo.batch_norm_inference %operand, %scale, %offset, %mean, %var, epsilon=1e-5, feature_index=1 : (...) -> tensor<...>
+        Value operand = lookupValue(parsePercentId());
+        expect(TokenType.COMMA);
+        Value scale = lookupValue(parsePercentId());
+        expect(TokenType.COMMA);
+        Value offset = lookupValue(parsePercentId());
+        expect(TokenType.COMMA);
+        Value mean = lookupValue(parsePercentId());
+        expect(TokenType.COMMA);
+        Value variance = lookupValue(parsePercentId());
+        expect(TokenType.COMMA);
+
+        float epsilon = 1e-5f;
+        long featureIndex = 1;
+
+        while (!check(TokenType.COLON)) {
+            if (checkIdentifier("epsilon")) {
+                advance();
+                expect(TokenType.EQUALS);
+                epsilon = Float.parseFloat(expect(TokenType.FLOAT).value());
+            } else if (checkIdentifier("feature_index")) {
+                advance();
+                expect(TokenType.EQUALS);
+                featureIndex = Long.parseLong(expect(TokenType.INTEGER).value());
+            } else if (check(TokenType.COMMA)) {
+                advance();
+            } else {
+                throw error("Unexpected token in batch_norm_inference: " + peek());
+            }
+        }
+
+        expect(TokenType.COLON);
+        // Skip input types
+        expect(TokenType.LPAREN);
+        parseType();
+        while (check(TokenType.COMMA)) {
+            advance();
+            parseType();
+        }
+        expect(TokenType.RPAREN);
+        expect(TokenType.ARROW);
+        TensorType resultType = parseTensorType();
+
+        Value result = new Value(resultName, resultType);
+        valueMap.put(resultName, result);
+
+        return new BatchNormInferenceOp(result, operand, scale, offset, mean, variance,
+                epsilon, featureIndex, resultType);
+    }
+
+    // ==================== Sort and RNG ====================
+
+    private SortOp parseSort(String resultName) {
+        // %s = stablehlo.sort %input, dim=0, stable=true : (...) -> tensor<...>
+        List<Value> inputs = new ArrayList<>();
+        inputs.add(lookupValue(parsePercentId()));
+
+        while (check(TokenType.COMMA)) {
+            advance();
+            if (checkIdentifier("dim") || checkIdentifier("stable")) {
+                break;
+            }
+            inputs.add(lookupValue(parsePercentId()));
+        }
+
+        long dimension = 0;
+        boolean isStable = false;
+
+        while (!check(TokenType.COLON)) {
+            if (checkIdentifier("dim")) {
+                advance();
+                expect(TokenType.EQUALS);
+                dimension = Long.parseLong(expect(TokenType.INTEGER).value());
+            } else if (checkIdentifier("stable")) {
+                advance();
+                expect(TokenType.EQUALS);
+                isStable = expect(TokenType.IDENTIFIER).value().equals("true");
+            } else if (check(TokenType.COMMA)) {
+                advance();
+            } else {
+                throw error("Unexpected token in sort: " + peek());
+            }
+        }
+
+        expect(TokenType.COLON);
+        // Skip input types
+        expect(TokenType.LPAREN);
+        parseType();
+        while (check(TokenType.COMMA)) {
+            advance();
+            parseType();
+        }
+        expect(TokenType.RPAREN);
+        expect(TokenType.ARROW);
+        TensorType resultType = parseTensorType();
+
+        Value result = new Value(resultName, resultType);
+        valueMap.put(resultName, result);
+
+        return new SortOp(result, inputs, dimension, isStable, resultType);
+    }
+
+    private RngOp parseRng(String resultName) {
+        // %r = stablehlo.rng %a, %b, distribution=uniform : (...) -> tensor<...>
+        Value a = lookupValue(parsePercentId());
+        expect(TokenType.COMMA);
+        Value b = lookupValue(parsePercentId());
+        expect(TokenType.COMMA);
+
+        String distribution = "uniform";
+
+        while (!check(TokenType.COLON)) {
+            if (checkIdentifier("distribution")) {
+                advance();
+                expect(TokenType.EQUALS);
+                distribution = expect(TokenType.IDENTIFIER).value();
+            } else if (check(TokenType.COMMA)) {
+                advance();
+            } else {
+                throw error("Unexpected token in rng: " + peek());
+            }
+        }
+
+        expect(TokenType.COLON);
+        // Skip input types
+        expect(TokenType.LPAREN);
+        parseType();
+        expect(TokenType.COMMA);
+        parseType();
+        expect(TokenType.RPAREN);
+        expect(TokenType.ARROW);
+        TensorType resultType = parseTensorType();
+
+        Value result = new Value(resultName, resultType);
+        valueMap.put(resultName, result);
+
+        return new RngOp(result, a, b, distribution, resultType);
+    }
+
+    private RngBitGeneratorOp parseRngBitGenerator(String resultName) {
+        // %r:2 = stablehlo.rng_bit_generator %state, algorithm=three_fry : (...) -> (...)
+        Value initialState = lookupValue(parsePercentId());
+        expect(TokenType.COMMA);
+
+        RngAlgorithm algorithm = RngAlgorithm.DEFAULT;
+
+        while (!check(TokenType.COLON)) {
+            if (checkIdentifier("algorithm")) {
+                advance();
+                expect(TokenType.EQUALS);
+                algorithm = RngAlgorithm.fromString(expect(TokenType.IDENTIFIER).value());
+            } else if (check(TokenType.COMMA)) {
+                advance();
+            } else {
+                throw error("Unexpected token in rng_bit_generator: " + peek());
+            }
+        }
+
+        expect(TokenType.COLON);
+        // Skip input type
+        parseType();
+        expect(TokenType.ARROW);
+        // Result is a tuple (output_state, output)
+        expect(TokenType.LPAREN);
+        TensorType stateType = parseTensorType();
+        expect(TokenType.COMMA);
+        TensorType outputType = parseTensorType();
+        expect(TokenType.RPAREN);
+
+        Value outputState = new Value(resultName + "_state", stateType);
+        Value output = new Value(resultName, outputType);
+        valueMap.put(resultName, output);
+
+        return new RngBitGeneratorOp(outputState, output, initialState, algorithm, outputType);
+    }
+
+    // ==================== Additional Operations ====================
+
+    private DotOp parseDot(String resultName) {
+        // %d = stablehlo.dot %lhs, %rhs : (t, t) -> tensor<...>
+        Value lhs = lookupValue(parsePercentId());
+        expect(TokenType.COMMA);
+        Value rhs = lookupValue(parsePercentId());
+
+        expect(TokenType.COLON);
+        // Skip input types
+        expect(TokenType.LPAREN);
+        parseType();
+        expect(TokenType.COMMA);
+        parseType();
+        expect(TokenType.RPAREN);
+        expect(TokenType.ARROW);
+        TensorType resultType = parseTensorType();
+
+        Value result = new Value(resultName, resultType);
+        valueMap.put(resultName, result);
+
+        return new DotOp(result, lhs, rhs, resultType);
+    }
+
+    private RealOp parseReal(String resultName) {
+        // %r = stablehlo.real %complex : tensor<...xcomplex<f32>> -> tensor<...xf32>
+        Value operand = lookupValue(parsePercentId());
+        expect(TokenType.COLON);
+        parseType(); // input type
+        expect(TokenType.ARROW);
+        TensorType resultType = parseTensorType();
+
+        Value result = new Value(resultName, resultType);
+        valueMap.put(resultName, result);
+
+        return new RealOp(result, operand, resultType);
+    }
+
+    private ImagOp parseImag(String resultName) {
+        // %i = stablehlo.imag %complex : tensor<...xcomplex<f32>> -> tensor<...xf32>
+        Value operand = lookupValue(parsePercentId());
+        expect(TokenType.COLON);
+        parseType(); // input type
+        expect(TokenType.ARROW);
+        TensorType resultType = parseTensorType();
+
+        Value result = new Value(resultName, resultType);
+        valueMap.put(resultName, result);
+
+        return new ImagOp(result, operand, resultType);
+    }
+
+    private ComplexOp parseComplex(String resultName) {
+        // %c = stablehlo.complex %real, %imag : (t, t) -> tensor<...xcomplex<f32>>
+        Value real = lookupValue(parsePercentId());
+        expect(TokenType.COMMA);
+        Value imag = lookupValue(parsePercentId());
+
+        expect(TokenType.COLON);
+        // Skip input types
+        expect(TokenType.LPAREN);
+        parseType();
+        expect(TokenType.COMMA);
+        parseType();
+        expect(TokenType.RPAREN);
+        expect(TokenType.ARROW);
+        TensorType resultType = parseTensorType();
+
+        Value result = new Value(resultName, resultType);
+        valueMap.put(resultName, result);
+
+        return new ComplexOp(result, real, imag, resultType);
+    }
+
+    private FftOp parseFft(String resultName) {
+        // %f = stablehlo.fft %operand, type=FFT, length=[...] : (...) -> tensor<...>
+        Value operand = lookupValue(parsePercentId());
+        expect(TokenType.COMMA);
+
+        String fftType = "FFT";
+        List<Long> fftLength = new ArrayList<>();
+
+        while (!check(TokenType.COLON)) {
+            if (checkIdentifier("type")) {
+                advance();
+                expect(TokenType.EQUALS);
+                fftType = expect(TokenType.IDENTIFIER).value();
+            } else if (checkIdentifier("length")) {
+                advance();
+                expect(TokenType.EQUALS);
+                fftLength = parseIntegerList();
+            } else if (check(TokenType.COMMA)) {
+                advance();
+            } else {
+                throw error("Unexpected token in fft: " + peek());
+            }
+        }
+
+        expect(TokenType.COLON);
+        parseType(); // input type
+        expect(TokenType.ARROW);
+        TensorType resultType = parseTensorType();
+
+        Value result = new Value(resultName, resultType);
+        valueMap.put(resultName, result);
+
+        return new FftOp(result, operand, fftType, fftLength, resultType);
+    }
+
+    private CholeskyOp parseCholesky(String resultName) {
+        // %c = stablehlo.cholesky %a, lower=true : tensor<...> -> tensor<...>
+        Value operand = lookupValue(parsePercentId());
+
+        boolean lower = true;
+
+        while (check(TokenType.COMMA)) {
+            advance();
+            if (checkIdentifier("lower")) {
+                advance();
+                expect(TokenType.EQUALS);
+                lower = expect(TokenType.IDENTIFIER).value().equals("true");
+            }
+        }
+
+        expect(TokenType.COLON);
+        parseType(); // input type
+        expect(TokenType.ARROW);
+        TensorType resultType = parseTensorType();
+
+        Value result = new Value(resultName, resultType);
+        valueMap.put(resultName, result);
+
+        return new CholeskyOp(result, operand, lower, resultType);
+    }
+
+    private TriangularSolveOp parseTriangularSolve(String resultName) {
+        // %x = stablehlo.triangular_solve %a, %b, left_side=true, lower=true, transpose_a=false : (...) -> tensor<...>
+        Value a = lookupValue(parsePercentId());
+        expect(TokenType.COMMA);
+        Value b = lookupValue(parsePercentId());
+
+        boolean leftSide = true;
+        boolean lower = true;
+        boolean transposeA = false;
+
+        while (check(TokenType.COMMA)) {
+            advance();
+            if (checkIdentifier("left_side")) {
+                advance();
+                expect(TokenType.EQUALS);
+                leftSide = expect(TokenType.IDENTIFIER).value().equals("true");
+            } else if (checkIdentifier("lower")) {
+                advance();
+                expect(TokenType.EQUALS);
+                lower = expect(TokenType.IDENTIFIER).value().equals("true");
+            } else if (checkIdentifier("transpose_a")) {
+                advance();
+                expect(TokenType.EQUALS);
+                transposeA = expect(TokenType.IDENTIFIER).value().equals("true");
+            }
+        }
+
+        expect(TokenType.COLON);
+        // Skip input types
+        expect(TokenType.LPAREN);
+        parseType();
+        expect(TokenType.COMMA);
+        parseType();
+        expect(TokenType.RPAREN);
+        expect(TokenType.ARROW);
+        TensorType resultType = parseTensorType();
+
+        Value result = new Value(resultName, resultType);
+        valueMap.put(resultName, result);
+
+        return new TriangularSolveOp(result, a, b, leftSide, lower, transposeA, resultType);
+    }
+
+    private CustomCallOp parseCustomCall(String resultName) {
+        // %c = stablehlo.custom_call @target(%arg0, %arg1) : (...) -> tensor<...>
+        String callTarget = parseAtId();
+        expect(TokenType.LPAREN);
+
+        List<Value> inputs = new ArrayList<>();
+        while (!check(TokenType.RPAREN)) {
+            if (!inputs.isEmpty()) {
+                expect(TokenType.COMMA);
+            }
+            inputs.add(lookupValue(parsePercentId()));
+        }
+        expect(TokenType.RPAREN);
+
+        expect(TokenType.COLON);
+        // Skip input types
+        expect(TokenType.LPAREN);
+        while (!check(TokenType.RPAREN)) {
+            parseType();
+            if (check(TokenType.COMMA)) advance();
+        }
+        expect(TokenType.RPAREN);
+        expect(TokenType.ARROW);
+        TensorType resultType = parseTensorType();
+
+        Value result = new Value(resultName, resultType);
+        valueMap.put(resultName, result);
+
+        return new CustomCallOp(result, callTarget, inputs, resultType);
     }
 }

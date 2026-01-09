@@ -25,3 +25,193 @@ tasks.withType(JavaCompile).configureEach {
 tasks.withType(JavaExec).configureEach {
     jvmArgs += ['--add-modules', 'jdk.incubator.code']
 }
+
+
+// =============================================================================
+// jlink: Create self-contained runtime image with Babylon JDK
+// =============================================================================
+
+def isMac = System.getProperty('os.name', '').toLowerCase().contains('mac')
+def isLinux = System.getProperty('os.name', '').toLowerCase().contains('linux')
+
+// Find Babylon JDK home (same logic as jdk-routing.gradle)
+def findBabylonJdkHome = {
+    File babylonRoot = new File(rootDir, '../babylon')
+    File buildDir = new File(babylonRoot, 'build')
+    if (!buildDir.exists()) return null
+
+    if (isMac) {
+        def javacFiles = fileTree(buildDir) {
+            include '**/Contents/Home/bin/javac'
+        }.files
+        if (!javacFiles.isEmpty()) {
+            return javacFiles.iterator().next().parentFile.parentFile
+        }
+    }
+
+    def javacFiles = fileTree(buildDir) {
+        include '**/jdk/bin/javac'
+        include '**/images/**/bin/javac'
+        exclude '**/support/**'
+        exclude '**/interim-image/**'
+        exclude '**/jre/**'
+    }.files
+
+    if (javacFiles.isEmpty()) return null
+
+    def sorted = javacFiles.toList().sort { it.absolutePath }
+    def pick = sorted.find { f ->
+        def p = f.absolutePath
+        (p.contains('/jdk/') || p.endsWith('/jdk/bin/javac')) && !p.contains('support') && !p.contains('interim')
+    } ?: sorted[0]
+
+    return pick.parentFile.parentFile
+}
+
+// jlink task to create self-contained runtime (JDK only, non-modular app)
+tasks.register('jlinkRuntime', Exec) {
+    group = 'distribution'
+    description = 'Create a minimal JDK runtime with jdk.incubator.code using jlink'
+
+    def outputDir = file("${buildDir}/jlink-runtime")
+    outputs.dir(outputDir)
+
+    doFirst {
+        def babylonHome = findBabylonJdkHome()
+        if (babylonHome == null) {
+            throw new GradleException(
+                'Babylon JDK not found. Run: ./gradlew :babylon-runtime:ensureBabylonReady'
+            )
+        }
+
+        def jlink = new File(babylonHome, 'bin/jlink')
+        if (!jlink.exists()) {
+            throw new GradleException("jlink not found at: ${jlink.absolutePath}")
+        }
+
+        // Clean output directory
+        if (outputDir.exists()) {
+            delete(outputDir)
+        }
+
+        // Modules to include - jdk.incubator.code plus standard modules needed
+        def modules = [
+            'jdk.incubator.code',  // Babylon code reflection
+            'java.base',
+            'java.logging',
+        ].join(',')
+
+        println "Babylon JDK: ${babylonHome}"
+        println "Creating runtime with modules: ${modules}"
+        println "Output: ${outputDir}"
+
+        commandLine(
+            jlink.absolutePath,
+            '--module-path', "${babylonHome}/jmods",
+            '--add-modules', modules,
+            '--output', outputDir.absolutePath,
+            '--strip-debug',
+            '--compress', 'zip-6',
+            '--no-header-files',
+            '--no-man-pages'
+        )
+    }
+}
+
+// Assemble the full distribution: runtime + JARs + launcher
+tasks.register('jlinkDist') {
+    group = 'distribution'
+    description = 'Create a self-contained distribution with jlink runtime and application JARs'
+
+    dependsOn 'jlinkRuntime', 'jar', ':snakeburger-core:jar'
+
+    def distDir = file("${buildDir}/snakeburger-dist")
+    outputs.dir(distDir)
+
+    doLast {
+        // Clean and create dist directory
+        if (distDir.exists()) {
+            delete(distDir)
+        }
+        distDir.mkdirs()
+
+        // Copy jlink runtime
+        copy {
+            from "${buildDir}/jlink-runtime"
+            into "${distDir}/runtime"
+        }
+
+        // Copy application JARs
+        def libDir = file("${distDir}/lib")
+        libDir.mkdirs()
+        copy {
+            from tasks.jar.archiveFile
+            from project(':snakeburger-core').tasks.jar.archiveFile
+            into libDir
+        }
+
+        // Create launcher script (Unix)
+        def launcherUnix = file("${distDir}/snakeburger")
+        def mainClass = application.mainClass.get()
+        launcherUnix.text = """\
+#!/bin/sh
+SCRIPT_DIR="\$(cd "\$(dirname "\$0")" && pwd)"
+exec "\$SCRIPT_DIR/runtime/bin/java" \\
+    --add-modules jdk.incubator.code \\
+    -cp "\$SCRIPT_DIR/lib/*" \\
+    ${mainClass} "\$@"
+""".stripIndent()
+        launcherUnix.setExecutable(true)
+
+        // Create launcher script (Windows)
+        def launcherWin = file("${distDir}/snakeburger.bat")
+        launcherWin.text = """\
+@echo off
+set SCRIPT_DIR=%~dp0
+"%SCRIPT_DIR%runtime\\bin\\java" ^
+    --add-modules jdk.incubator.code ^
+    -cp "%SCRIPT_DIR%lib\\*" ^
+    ${mainClass} %*
+""".stripIndent()
+
+        // Report sizes
+        def runtimeSize = 0
+        file("${distDir}/runtime").eachFileRecurse { runtimeSize += it.size() }
+        def libSize = 0
+        libDir.eachFile { libSize += it.size() }
+
+        println ""
+        println "Distribution created: ${distDir}"
+        println "  Runtime size: ${(runtimeSize / 1024 / 1024).round(1)} MB"
+        println "  Lib size: ${(libSize / 1024).round(1)} KB"
+        println "  Total: ${((runtimeSize + libSize) / 1024 / 1024).round(1)} MB"
+        println ""
+        println "To run: ${distDir}/snakeburger"
+    }
+}
+
+// Create a distributable archive
+tasks.register('jlinkZip', Zip) {
+    group = 'distribution'
+    description = 'Create a distributable zip with the jlink distribution'
+
+    dependsOn 'jlinkDist'
+
+    archiveBaseName = 'snakeburger'
+    archiveClassifier = isLinux ? 'linux-x64' : (isMac ? 'macos' : 'unknown')
+
+    from("${buildDir}/snakeburger-dist") {
+        into 'snakeburger'
+    }
+
+    doLast {
+        println "Created: ${archiveFile.get().asFile}"
+    }
+}
+
+// Convenience task
+tasks.register('packageSnakeBurger') {
+    group = 'distribution'
+    description = 'Build the complete SnakeBurger distribution'
+    dependsOn 'jlinkDist'
+}

@@ -274,6 +274,46 @@ public final class StableHloParser {
             case "stablehlo.cholesky" -> parseCholesky(resultName);
             case "stablehlo.triangular_solve" -> parseTriangularSolve(resultName);
             case "stablehlo.custom_call" -> parseCustomCall(resultName);
+            // Dynamic shape operations
+            case "stablehlo.dynamic_broadcast_in_dim" -> parseDynamicBroadcastInDim(resultName);
+            case "stablehlo.dynamic_gather" -> parseDynamicGather(resultName);
+            case "stablehlo.dynamic_iota" -> parseDynamicIota(resultName);
+            case "stablehlo.dynamic_pad" -> parseDynamicPad(resultName);
+            case "stablehlo.dynamic_reshape" -> parseDynamicReshape(resultName);
+            case "stablehlo.dynamic_conv" -> parseDynamicConv(resultName);
+            case "stablehlo.get_dimension_size" -> parseGetDimensionSize(resultName);
+            // Quantization operations
+            case "stablehlo.uniform_quantize" -> parseUniformQuantize(resultName);
+            case "stablehlo.uniform_dequantize" -> parseUniformDequantize(resultName);
+            // Additional reduction operations
+            case "stablehlo.reduce_precision" -> parseReducePrecision(resultName);
+            case "stablehlo.select_and_scatter" -> parseSelectAndScatter(resultName);
+            // Additional neural network operations
+            case "stablehlo.batch_norm_grad" -> parseBatchNormGrad(resultName);
+            // Control flow
+            case "stablehlo.case" -> parseCase(resultName);
+            case "stablehlo.map" -> parseMap(resultName);
+            // Distributed/collective operations
+            case "stablehlo.after_all" -> parseAfterAll(resultName);
+            case "stablehlo.all_gather" -> parseAllGather(resultName);
+            case "stablehlo.all_reduce" -> parseAllReduce(resultName);
+            case "stablehlo.all_to_all" -> parseAllToAll(resultName);
+            case "stablehlo.collective_broadcast" -> parseCollectiveBroadcast(resultName);
+            case "stablehlo.collective_permute" -> parseCollectivePermute(resultName);
+            case "stablehlo.partition_id" -> parsePartitionId(resultName);
+            case "stablehlo.reduce_scatter" -> parseReduceScatter(resultName);
+            case "stablehlo.replica_id" -> parseReplicaId(resultName);
+            // Communication operations
+            case "stablehlo.infeed" -> parseInfeed(resultName);
+            case "stablehlo.outfeed" -> parseOutfeed(resultName);
+            case "stablehlo.recv" -> parseRecv(resultName);
+            case "stablehlo.send" -> parseSend(resultName);
+            // Tuple operations
+            case "stablehlo.tuple" -> parseTuple(resultName);
+            case "stablehlo.get_tuple_element" -> parseGetTupleElement(resultName);
+            // Other operations
+            case "stablehlo.optimization_barrier" -> parseOptimizationBarrier(resultName);
+            case "stablehlo.composite" -> parseComposite(resultName);
             default -> throw error("Unsupported operation: " + opName);
         };
     }
@@ -1177,6 +1217,15 @@ public final class StableHloParser {
     private String parseAtId() {
         Token t = expect(TokenType.AT_ID);
         return t.value().substring(1); // Remove leading @
+    }
+
+    private String parseStringValue() {
+        String str = expect(TokenType.STRING).value();
+        // Remove surrounding quotes if present
+        if (str.startsWith("\"") && str.endsWith("\"") && str.length() >= 2) {
+            return str.substring(1, str.length() - 1);
+        }
+        return str;
     }
 
     private Value lookupValue(String name) {
@@ -2083,5 +2132,1142 @@ public final class StableHloParser {
         valueMap.put(resultName, result);
 
         return new CustomCallOp(result, callTarget, inputs, resultType);
+    }
+
+    // ==================== Dynamic Shape Operations ====================
+
+    private DynamicBroadcastInDimOp parseDynamicBroadcastInDim(String resultName) {
+        // %b = stablehlo.dynamic_broadcast_in_dim %operand, %output_dimensions, broadcast_dimensions=[...] : (...) -> tensor<...>
+        Value operand = lookupValue(parsePercentId());
+        expect(TokenType.COMMA);
+        Value outputDimensions = lookupValue(parsePercentId());
+
+        List<Long> broadcastDimensions = new ArrayList<>();
+        List<Long> knownExpandingDimensions = new ArrayList<>();
+        List<Long> knownNonexpandingDimensions = new ArrayList<>();
+
+        while (check(TokenType.COMMA)) {
+            advance();
+            if (checkIdentifier("broadcast_dimensions")) {
+                advance();
+                expect(TokenType.EQUALS);
+                broadcastDimensions = parseIntegerList();
+            } else if (checkIdentifier("known_expanding_dimensions")) {
+                advance();
+                expect(TokenType.EQUALS);
+                knownExpandingDimensions = parseIntegerList();
+            } else if (checkIdentifier("known_nonexpanding_dimensions")) {
+                advance();
+                expect(TokenType.EQUALS);
+                knownNonexpandingDimensions = parseIntegerList();
+            }
+        }
+
+        expect(TokenType.COLON);
+        expect(TokenType.LPAREN);
+        parseType();
+        expect(TokenType.COMMA);
+        parseType();
+        expect(TokenType.RPAREN);
+        expect(TokenType.ARROW);
+        TensorType resultType = parseTensorType();
+
+        Value result = new Value(resultName, resultType);
+        valueMap.put(resultName, result);
+
+        return new DynamicBroadcastInDimOp(result, operand, outputDimensions, broadcastDimensions,
+                knownExpandingDimensions, knownNonexpandingDimensions, resultType);
+    }
+
+    private DynamicGatherOp parseDynamicGather(String resultName) {
+        // %g = stablehlo.dynamic_gather %operand, %start_indices, %slice_sizes, offset_dims=[...], ... : (...) -> tensor<...>
+        Value operand = lookupValue(parsePercentId());
+        expect(TokenType.COMMA);
+        Value startIndices = lookupValue(parsePercentId());
+        expect(TokenType.COMMA);
+        Value sliceSizes = lookupValue(parsePercentId());
+
+        List<Long> offsetDims = new ArrayList<>();
+        List<Long> collapsedSliceDims = new ArrayList<>();
+        List<Long> startIndexMap = new ArrayList<>();
+        long indexVectorDim = 0;
+
+        while (check(TokenType.COMMA)) {
+            advance();
+            if (checkIdentifier("offset_dims")) {
+                advance();
+                expect(TokenType.EQUALS);
+                offsetDims = parseIntegerList();
+            } else if (checkIdentifier("collapsed_slice_dims")) {
+                advance();
+                expect(TokenType.EQUALS);
+                collapsedSliceDims = parseIntegerList();
+            } else if (checkIdentifier("start_index_map")) {
+                advance();
+                expect(TokenType.EQUALS);
+                startIndexMap = parseIntegerList();
+            } else if (checkIdentifier("index_vector_dim")) {
+                advance();
+                expect(TokenType.EQUALS);
+                indexVectorDim = Long.parseLong(expect(TokenType.INTEGER).value());
+            }
+        }
+
+        expect(TokenType.COLON);
+        expect(TokenType.LPAREN);
+        parseType();
+        while (check(TokenType.COMMA)) {
+            advance();
+            parseType();
+        }
+        expect(TokenType.RPAREN);
+        expect(TokenType.ARROW);
+        TensorType resultType = parseTensorType();
+
+        Value result = new Value(resultName, resultType);
+        valueMap.put(resultName, result);
+
+        return new DynamicGatherOp(result, operand, startIndices, sliceSizes, offsetDims,
+                collapsedSliceDims, startIndexMap, indexVectorDim, resultType);
+    }
+
+    private DynamicIotaOp parseDynamicIota(String resultName) {
+        // %i = stablehlo.dynamic_iota %output_shape, dim = 0 : (...) -> tensor<...>
+        Value outputShape = lookupValue(parsePercentId());
+        expect(TokenType.COMMA);
+        expect(TokenType.IDENTIFIER, "dim");
+        expect(TokenType.EQUALS);
+        long iotaDimension = Long.parseLong(expect(TokenType.INTEGER).value());
+
+        expect(TokenType.COLON);
+        parseType();
+        expect(TokenType.ARROW);
+        TensorType resultType = parseTensorType();
+
+        Value result = new Value(resultName, resultType);
+        valueMap.put(resultName, result);
+
+        return new DynamicIotaOp(result, outputShape, iotaDimension, resultType);
+    }
+
+    private DynamicPadOp parseDynamicPad(String resultName) {
+        // %p = stablehlo.dynamic_pad %operand, %padding_value, %low, %high, %interior : (...) -> tensor<...>
+        Value operand = lookupValue(parsePercentId());
+        expect(TokenType.COMMA);
+        Value paddingValue = lookupValue(parsePercentId());
+        expect(TokenType.COMMA);
+        Value edgePaddingLow = lookupValue(parsePercentId());
+        expect(TokenType.COMMA);
+        Value edgePaddingHigh = lookupValue(parsePercentId());
+        expect(TokenType.COMMA);
+        Value interiorPadding = lookupValue(parsePercentId());
+
+        expect(TokenType.COLON);
+        expect(TokenType.LPAREN);
+        parseType();
+        while (check(TokenType.COMMA)) {
+            advance();
+            parseType();
+        }
+        expect(TokenType.RPAREN);
+        expect(TokenType.ARROW);
+        TensorType resultType = parseTensorType();
+
+        Value result = new Value(resultName, resultType);
+        valueMap.put(resultName, result);
+
+        return new DynamicPadOp(result, operand, paddingValue, edgePaddingLow, edgePaddingHigh, interiorPadding, resultType);
+    }
+
+    private DynamicReshapeOp parseDynamicReshape(String resultName) {
+        // %r = stablehlo.dynamic_reshape %operand, %output_shape : (...) -> tensor<...>
+        Value operand = lookupValue(parsePercentId());
+        expect(TokenType.COMMA);
+        Value outputShape = lookupValue(parsePercentId());
+
+        expect(TokenType.COLON);
+        expect(TokenType.LPAREN);
+        parseType();
+        expect(TokenType.COMMA);
+        parseType();
+        expect(TokenType.RPAREN);
+        expect(TokenType.ARROW);
+        TensorType resultType = parseTensorType();
+
+        Value result = new Value(resultName, resultType);
+        valueMap.put(resultName, result);
+
+        return new DynamicReshapeOp(result, operand, outputShape, resultType);
+    }
+
+    private DynamicConvOp parseDynamicConv(String resultName) {
+        // Similar to convolution but with dynamic padding tensor
+        Value lhs = lookupValue(parsePercentId());
+        expect(TokenType.COMMA);
+        Value rhs = lookupValue(parsePercentId());
+        expect(TokenType.COMMA);
+        Value padding = lookupValue(parsePercentId());
+
+        List<Long> windowStrides = new ArrayList<>();
+        List<Long> lhsDilation = new ArrayList<>();
+        List<Long> rhsDilation = new ArrayList<>();
+        long featureGroupCount = 1;
+        long batchGroupCount = 1;
+        long inputBatchDimension = 0;
+        long inputFeatureDimension = 1;
+        List<Long> inputSpatialDimensions = new ArrayList<>();
+        long kernelInputFeatureDimension = 0;
+        long kernelOutputFeatureDimension = 1;
+        List<Long> kernelSpatialDimensions = new ArrayList<>();
+        long outputBatchDimension = 0;
+        long outputFeatureDimension = 1;
+        List<Long> outputSpatialDimensions = new ArrayList<>();
+
+        while (check(TokenType.COMMA)) {
+            advance();
+            if (checkIdentifier("strides")) {
+                advance();
+                expect(TokenType.EQUALS);
+                windowStrides = parseIntegerList();
+            } else if (checkIdentifier("lhs_dilation")) {
+                advance();
+                expect(TokenType.EQUALS);
+                lhsDilation = parseIntegerList();
+            } else if (checkIdentifier("rhs_dilation")) {
+                advance();
+                expect(TokenType.EQUALS);
+                rhsDilation = parseIntegerList();
+            } else if (checkIdentifier("feature_group_count")) {
+                advance();
+                expect(TokenType.EQUALS);
+                featureGroupCount = Long.parseLong(expect(TokenType.INTEGER).value());
+            } else if (checkIdentifier("batch_group_count")) {
+                advance();
+                expect(TokenType.EQUALS);
+                batchGroupCount = Long.parseLong(expect(TokenType.INTEGER).value());
+            } else if (checkIdentifier("input_batch_dimension")) {
+                advance();
+                expect(TokenType.EQUALS);
+                inputBatchDimension = Long.parseLong(expect(TokenType.INTEGER).value());
+            } else if (checkIdentifier("input_feature_dimension")) {
+                advance();
+                expect(TokenType.EQUALS);
+                inputFeatureDimension = Long.parseLong(expect(TokenType.INTEGER).value());
+            } else if (checkIdentifier("input_spatial_dimensions")) {
+                advance();
+                expect(TokenType.EQUALS);
+                inputSpatialDimensions = parseIntegerList();
+            } else if (checkIdentifier("kernel_input_feature_dimension")) {
+                advance();
+                expect(TokenType.EQUALS);
+                kernelInputFeatureDimension = Long.parseLong(expect(TokenType.INTEGER).value());
+            } else if (checkIdentifier("kernel_output_feature_dimension")) {
+                advance();
+                expect(TokenType.EQUALS);
+                kernelOutputFeatureDimension = Long.parseLong(expect(TokenType.INTEGER).value());
+            } else if (checkIdentifier("kernel_spatial_dimensions")) {
+                advance();
+                expect(TokenType.EQUALS);
+                kernelSpatialDimensions = parseIntegerList();
+            } else if (checkIdentifier("output_batch_dimension")) {
+                advance();
+                expect(TokenType.EQUALS);
+                outputBatchDimension = Long.parseLong(expect(TokenType.INTEGER).value());
+            } else if (checkIdentifier("output_feature_dimension")) {
+                advance();
+                expect(TokenType.EQUALS);
+                outputFeatureDimension = Long.parseLong(expect(TokenType.INTEGER).value());
+            } else if (checkIdentifier("output_spatial_dimensions")) {
+                advance();
+                expect(TokenType.EQUALS);
+                outputSpatialDimensions = parseIntegerList();
+            }
+        }
+
+        expect(TokenType.COLON);
+        expect(TokenType.LPAREN);
+        parseType();
+        while (check(TokenType.COMMA)) {
+            advance();
+            parseType();
+        }
+        expect(TokenType.RPAREN);
+        expect(TokenType.ARROW);
+        TensorType resultType = parseTensorType();
+
+        Value result = new Value(resultName, resultType);
+        valueMap.put(resultName, result);
+
+        return new DynamicConvOp(result, lhs, rhs, padding, windowStrides, lhsDilation, rhsDilation,
+                featureGroupCount, batchGroupCount, inputBatchDimension, inputFeatureDimension,
+                inputSpatialDimensions, kernelInputFeatureDimension, kernelOutputFeatureDimension,
+                kernelSpatialDimensions, outputBatchDimension, outputFeatureDimension, outputSpatialDimensions, resultType);
+    }
+
+    private GetDimensionSizeOp parseGetDimensionSize(String resultName) {
+        // %s = stablehlo.get_dimension_size %operand, dim = 0 : (...) -> tensor<i32>
+        Value operand = lookupValue(parsePercentId());
+        expect(TokenType.COMMA);
+        expect(TokenType.IDENTIFIER, "dim");
+        expect(TokenType.EQUALS);
+        long dimension = Long.parseLong(expect(TokenType.INTEGER).value());
+
+        expect(TokenType.COLON);
+        parseType();
+        expect(TokenType.ARROW);
+        TensorType resultType = parseTensorType();
+
+        Value result = new Value(resultName, resultType);
+        valueMap.put(resultName, result);
+
+        return new GetDimensionSizeOp(result, operand, dimension, resultType);
+    }
+
+    // ==================== Quantization Operations ====================
+
+    private UniformQuantizeOp parseUniformQuantize(String resultName) {
+        // %q = stablehlo.uniform_quantize %operand : tensor<...xf32> -> tensor<...x!quant.uniform<...>>
+        Value operand = lookupValue(parsePercentId());
+        expect(TokenType.COLON);
+        parseType();
+        expect(TokenType.ARROW);
+        TensorType resultType = parseTensorType();
+
+        Value result = new Value(resultName, resultType);
+        valueMap.put(resultName, result);
+
+        return new UniformQuantizeOp(result, operand, resultType);
+    }
+
+    private UniformDequantizeOp parseUniformDequantize(String resultName) {
+        // %d = stablehlo.uniform_dequantize %operand : tensor<...x!quant.uniform<...>> -> tensor<...xf32>
+        Value operand = lookupValue(parsePercentId());
+        expect(TokenType.COLON);
+        parseType();
+        expect(TokenType.ARROW);
+        TensorType resultType = parseTensorType();
+
+        Value result = new Value(resultName, resultType);
+        valueMap.put(resultName, result);
+
+        return new UniformDequantizeOp(result, operand, resultType);
+    }
+
+    // ==================== Additional Reduction Operations ====================
+
+    private ReducePrecisionOp parseReducePrecision(String resultName) {
+        // %r = stablehlo.reduce_precision %operand, exponent_bits=5, mantissa_bits=10 : tensor<...> -> tensor<...>
+        Value operand = lookupValue(parsePercentId());
+
+        int exponentBits = 5;
+        int mantissaBits = 10;
+
+        while (check(TokenType.COMMA)) {
+            advance();
+            if (checkIdentifier("exponent_bits")) {
+                advance();
+                expect(TokenType.EQUALS);
+                exponentBits = Integer.parseInt(expect(TokenType.INTEGER).value());
+            } else if (checkIdentifier("mantissa_bits")) {
+                advance();
+                expect(TokenType.EQUALS);
+                mantissaBits = Integer.parseInt(expect(TokenType.INTEGER).value());
+            }
+        }
+
+        expect(TokenType.COLON);
+        parseType();
+        expect(TokenType.ARROW);
+        TensorType resultType = parseTensorType();
+
+        Value result = new Value(resultName, resultType);
+        valueMap.put(resultName, result);
+
+        return new ReducePrecisionOp(result, operand, exponentBits, mantissaBits, resultType);
+    }
+
+    private SelectAndScatterOp parseSelectAndScatter(String resultName) {
+        // %s = stablehlo.select_and_scatter %operand, %source, %init, window=[...], strides=[...], padding=[...], select=ge, scatter=add : (...) -> tensor<...>
+        Value operand = lookupValue(parsePercentId());
+        expect(TokenType.COMMA);
+        Value source = lookupValue(parsePercentId());
+        expect(TokenType.COMMA);
+        Value initValue = lookupValue(parsePercentId());
+
+        List<Long> windowDimensions = new ArrayList<>();
+        List<Long> windowStrides = new ArrayList<>();
+        List<Long> padding = new ArrayList<>();
+        String selectFn = "ge";
+        String scatterFn = "add";
+
+        while (check(TokenType.COMMA)) {
+            advance();
+            if (checkIdentifier("window")) {
+                advance();
+                expect(TokenType.EQUALS);
+                windowDimensions = parseIntegerList();
+            } else if (checkIdentifier("strides")) {
+                advance();
+                expect(TokenType.EQUALS);
+                windowStrides = parseIntegerList();
+            } else if (checkIdentifier("padding")) {
+                advance();
+                expect(TokenType.EQUALS);
+                padding = parseIntegerList();
+            } else if (checkIdentifier("select")) {
+                advance();
+                expect(TokenType.EQUALS);
+                selectFn = expect(TokenType.IDENTIFIER).value();
+            } else if (checkIdentifier("scatter")) {
+                advance();
+                expect(TokenType.EQUALS);
+                scatterFn = expect(TokenType.IDENTIFIER).value();
+            }
+        }
+
+        expect(TokenType.COLON);
+        expect(TokenType.LPAREN);
+        parseType();
+        while (check(TokenType.COMMA)) {
+            advance();
+            parseType();
+        }
+        expect(TokenType.RPAREN);
+        expect(TokenType.ARROW);
+        TensorType resultType = parseTensorType();
+
+        Value result = new Value(resultName, resultType);
+        valueMap.put(resultName, result);
+
+        return new SelectAndScatterOp(result, operand, source, initValue, windowDimensions,
+                windowStrides, padding, selectFn, scatterFn, resultType);
+    }
+
+    // ==================== Additional Neural Network Operations ====================
+
+    private BatchNormGradOp parseBatchNormGrad(String resultName) {
+        // %grad:3 = stablehlo.batch_norm_grad %operand, %scale, %mean, %variance, %grad_output, epsilon=1e-5, feature_index=1 : (...) -> (...)
+        Value operand = lookupValue(parsePercentId());
+        expect(TokenType.COMMA);
+        Value scale = lookupValue(parsePercentId());
+        expect(TokenType.COMMA);
+        Value mean = lookupValue(parsePercentId());
+        expect(TokenType.COMMA);
+        Value variance = lookupValue(parsePercentId());
+        expect(TokenType.COMMA);
+        Value gradOutput = lookupValue(parsePercentId());
+
+        float epsilon = 1e-5f;
+        long featureIndex = 1;
+
+        while (check(TokenType.COMMA)) {
+            advance();
+            if (checkIdentifier("epsilon")) {
+                advance();
+                expect(TokenType.EQUALS);
+                epsilon = Float.parseFloat(expect(TokenType.FLOAT).value());
+            } else if (checkIdentifier("feature_index")) {
+                advance();
+                expect(TokenType.EQUALS);
+                featureIndex = Long.parseLong(expect(TokenType.INTEGER).value());
+            }
+        }
+
+        expect(TokenType.COLON);
+        expect(TokenType.LPAREN);
+        parseType();
+        while (check(TokenType.COMMA)) {
+            advance();
+            parseType();
+        }
+        expect(TokenType.RPAREN);
+        expect(TokenType.ARROW);
+        expect(TokenType.LPAREN);
+        TensorType gradOperandType = parseTensorType();
+        expect(TokenType.COMMA);
+        TensorType gradScaleType = parseTensorType();
+        expect(TokenType.COMMA);
+        TensorType gradOffsetType = parseTensorType();
+        expect(TokenType.RPAREN);
+
+        Value gradOperand = new Value(resultName, gradOperandType);
+        Value gradScale = new Value(resultName + "_scale", gradScaleType);
+        Value gradOffset = new Value(resultName + "_offset", gradOffsetType);
+        valueMap.put(resultName, gradOperand);
+
+        return new BatchNormGradOp(gradOperand, gradScale, gradOffset, operand, scale, mean, variance,
+                gradOutput, epsilon, featureIndex, gradOperandType);
+    }
+
+    // ==================== Control Flow Operations ====================
+
+    private CaseOp parseCase(String resultName) {
+        // %r = stablehlo.case %index { ... } { ... } : (i32) -> tensor<...>
+        Value index = lookupValue(parsePercentId());
+        List<List<Operation>> branches = new ArrayList<>();
+
+        // Parse branches (each is a region in { })
+        while (check(TokenType.LBRACE)) {
+            advance();
+            List<Operation> branch = new ArrayList<>();
+            while (!check(TokenType.RBRACE)) {
+                branch.add(parseOperation());
+            }
+            expect(TokenType.RBRACE);
+            branches.add(branch);
+        }
+
+        expect(TokenType.COLON);
+        expect(TokenType.LPAREN);
+        parseType();
+        expect(TokenType.RPAREN);
+        expect(TokenType.ARROW);
+        TensorType resultType = parseTensorType();
+
+        Value result = new Value(resultName, resultType);
+        valueMap.put(resultName, result);
+
+        return new CaseOp(List.of(result), index, branches, resultType);
+    }
+
+    private MapOp parseMap(String resultName) {
+        // %m = stablehlo.map %inputs, dims=[...] { computation } : (...) -> tensor<...>
+        List<Value> inputs = new ArrayList<>();
+        inputs.add(lookupValue(parsePercentId()));
+
+        while (check(TokenType.COMMA)) {
+            advance();
+            if (checkIdentifier("dims")) {
+                break;
+            }
+            inputs.add(lookupValue(parsePercentId()));
+        }
+
+        List<Long> dimensions = new ArrayList<>();
+        if (checkIdentifier("dims")) {
+            advance();
+            expect(TokenType.EQUALS);
+            dimensions = parseIntegerList();
+        }
+
+        List<Operation> computation = new ArrayList<>();
+        if (check(TokenType.LBRACE)) {
+            advance();
+            while (!check(TokenType.RBRACE)) {
+                computation.add(parseOperation());
+            }
+            expect(TokenType.RBRACE);
+        }
+
+        expect(TokenType.COLON);
+        expect(TokenType.LPAREN);
+        parseType();
+        while (check(TokenType.COMMA)) {
+            advance();
+            parseType();
+        }
+        expect(TokenType.RPAREN);
+        expect(TokenType.ARROW);
+        TensorType resultType = parseTensorType();
+
+        Value result = new Value(resultName, resultType);
+        valueMap.put(resultName, result);
+
+        return new MapOp(result, inputs, dimensions, computation, resultType);
+    }
+
+    // ==================== Distributed/Collective Operations ====================
+
+    private AfterAllOp parseAfterAll(String resultName) {
+        // %token = stablehlo.after_all %token1, %token2 : (!stablehlo.token, ...) -> !stablehlo.token
+        List<Value> inputs = new ArrayList<>();
+        if (!check(TokenType.COLON)) {
+            inputs.add(lookupValue(parsePercentId()));
+            while (check(TokenType.COMMA)) {
+                advance();
+                if (check(TokenType.COLON)) break;
+                inputs.add(lookupValue(parsePercentId()));
+            }
+        }
+
+        expect(TokenType.COLON);
+        // Skip types
+        while (!check(TokenType.ARROW) && !check(TokenType.EOF)) {
+            advance();
+        }
+        expect(TokenType.ARROW);
+        TensorType resultType = parseTensorType();
+
+        Value result = new Value(resultName, resultType);
+        valueMap.put(resultName, result);
+
+        return new AfterAllOp(result, inputs, resultType);
+    }
+
+    private AllGatherOp parseAllGather(String resultName) {
+        // %g = stablehlo.all_gather %operand, all_gather_dim=0, replica_groups=[[0,1],[2,3]], channel_id=1 : (...) -> tensor<...>
+        Value operand = lookupValue(parsePercentId());
+
+        long allGatherDim = 0;
+        List<List<Long>> replicaGroups = new ArrayList<>();
+        long channelId = 0;
+        boolean useGlobalDeviceIds = false;
+
+        while (check(TokenType.COMMA)) {
+            advance();
+            if (checkIdentifier("all_gather_dim")) {
+                advance();
+                expect(TokenType.EQUALS);
+                allGatherDim = Long.parseLong(expect(TokenType.INTEGER).value());
+            } else if (checkIdentifier("replica_groups")) {
+                advance();
+                expect(TokenType.EQUALS);
+                replicaGroups = parseNestedIntegerList();
+            } else if (checkIdentifier("channel_id")) {
+                advance();
+                expect(TokenType.EQUALS);
+                channelId = Long.parseLong(expect(TokenType.INTEGER).value());
+            } else if (checkIdentifier("use_global_device_ids")) {
+                advance();
+                expect(TokenType.EQUALS);
+                useGlobalDeviceIds = expect(TokenType.IDENTIFIER).value().equals("true");
+            }
+        }
+
+        expect(TokenType.COLON);
+        parseType();
+        expect(TokenType.ARROW);
+        TensorType resultType = parseTensorType();
+
+        Value result = new Value(resultName, resultType);
+        valueMap.put(resultName, result);
+
+        return new AllGatherOp(result, operand, allGatherDim, replicaGroups, channelId, useGlobalDeviceIds, resultType);
+    }
+
+    private AllReduceOp parseAllReduce(String resultName) {
+        // %r = stablehlo.all_reduce %operand, replica_groups=[[0,1]], channel_id=1, reducer=add : (...) -> tensor<...>
+        Value operand = lookupValue(parsePercentId());
+
+        List<List<Long>> replicaGroups = new ArrayList<>();
+        long channelId = 0;
+        boolean useGlobalDeviceIds = false;
+        String reducer = "add";
+
+        while (check(TokenType.COMMA)) {
+            advance();
+            if (checkIdentifier("replica_groups")) {
+                advance();
+                expect(TokenType.EQUALS);
+                replicaGroups = parseNestedIntegerList();
+            } else if (checkIdentifier("channel_id")) {
+                advance();
+                expect(TokenType.EQUALS);
+                channelId = Long.parseLong(expect(TokenType.INTEGER).value());
+            } else if (checkIdentifier("use_global_device_ids")) {
+                advance();
+                expect(TokenType.EQUALS);
+                useGlobalDeviceIds = expect(TokenType.IDENTIFIER).value().equals("true");
+            } else if (checkIdentifier("reducer")) {
+                advance();
+                expect(TokenType.EQUALS);
+                reducer = expect(TokenType.IDENTIFIER).value();
+            }
+        }
+
+        expect(TokenType.COLON);
+        parseType();
+        expect(TokenType.ARROW);
+        TensorType resultType = parseTensorType();
+
+        Value result = new Value(resultName, resultType);
+        valueMap.put(resultName, result);
+
+        return new AllReduceOp(result, operand, replicaGroups, channelId, useGlobalDeviceIds, reducer, resultType);
+    }
+
+    private AllToAllOp parseAllToAll(String resultName) {
+        // %a = stablehlo.all_to_all %operand, split_dimension=0, concat_dimension=1, split_count=2, replica_groups=[[...]] : (...) -> tensor<...>
+        Value operand = lookupValue(parsePercentId());
+
+        long splitDimension = 0;
+        long concatDimension = 0;
+        long splitCount = 1;
+        List<List<Long>> replicaGroups = new ArrayList<>();
+        long channelId = 0;
+
+        while (check(TokenType.COMMA)) {
+            advance();
+            if (checkIdentifier("split_dimension")) {
+                advance();
+                expect(TokenType.EQUALS);
+                splitDimension = Long.parseLong(expect(TokenType.INTEGER).value());
+            } else if (checkIdentifier("concat_dimension")) {
+                advance();
+                expect(TokenType.EQUALS);
+                concatDimension = Long.parseLong(expect(TokenType.INTEGER).value());
+            } else if (checkIdentifier("split_count")) {
+                advance();
+                expect(TokenType.EQUALS);
+                splitCount = Long.parseLong(expect(TokenType.INTEGER).value());
+            } else if (checkIdentifier("replica_groups")) {
+                advance();
+                expect(TokenType.EQUALS);
+                replicaGroups = parseNestedIntegerList();
+            } else if (checkIdentifier("channel_id")) {
+                advance();
+                expect(TokenType.EQUALS);
+                channelId = Long.parseLong(expect(TokenType.INTEGER).value());
+            }
+        }
+
+        expect(TokenType.COLON);
+        parseType();
+        expect(TokenType.ARROW);
+        TensorType resultType = parseTensorType();
+
+        Value result = new Value(resultName, resultType);
+        valueMap.put(resultName, result);
+
+        return new AllToAllOp(result, operand, splitDimension, concatDimension, splitCount, replicaGroups, channelId, resultType);
+    }
+
+    private CollectiveBroadcastOp parseCollectiveBroadcast(String resultName) {
+        // %b = stablehlo.collective_broadcast %operand, replica_groups=[[...]], channel_id=1 : (...) -> tensor<...>
+        Value operand = lookupValue(parsePercentId());
+
+        List<List<Long>> replicaGroups = new ArrayList<>();
+        long channelId = 0;
+
+        while (check(TokenType.COMMA)) {
+            advance();
+            if (checkIdentifier("replica_groups")) {
+                advance();
+                expect(TokenType.EQUALS);
+                replicaGroups = parseNestedIntegerList();
+            } else if (checkIdentifier("channel_id")) {
+                advance();
+                expect(TokenType.EQUALS);
+                channelId = Long.parseLong(expect(TokenType.INTEGER).value());
+            }
+        }
+
+        expect(TokenType.COLON);
+        parseType();
+        expect(TokenType.ARROW);
+        TensorType resultType = parseTensorType();
+
+        Value result = new Value(resultName, resultType);
+        valueMap.put(resultName, result);
+
+        return new CollectiveBroadcastOp(result, operand, replicaGroups, channelId, resultType);
+    }
+
+    private CollectivePermuteOp parseCollectivePermute(String resultName) {
+        // %p = stablehlo.collective_permute %operand, source_target_pairs=[[0,1],[1,0]], channel_id=1 : (...) -> tensor<...>
+        Value operand = lookupValue(parsePercentId());
+
+        List<List<Long>> sourceTargetPairs = new ArrayList<>();
+        long channelId = 0;
+
+        while (check(TokenType.COMMA)) {
+            advance();
+            if (checkIdentifier("source_target_pairs")) {
+                advance();
+                expect(TokenType.EQUALS);
+                sourceTargetPairs = parseNestedIntegerList();
+            } else if (checkIdentifier("channel_id")) {
+                advance();
+                expect(TokenType.EQUALS);
+                channelId = Long.parseLong(expect(TokenType.INTEGER).value());
+            }
+        }
+
+        expect(TokenType.COLON);
+        parseType();
+        expect(TokenType.ARROW);
+        TensorType resultType = parseTensorType();
+
+        Value result = new Value(resultName, resultType);
+        valueMap.put(resultName, result);
+
+        return new CollectivePermuteOp(result, operand, sourceTargetPairs, channelId, resultType);
+    }
+
+    private PartitionIdOp parsePartitionId(String resultName) {
+        // %p = stablehlo.partition_id : () -> tensor<ui32>
+        expect(TokenType.COLON);
+        expect(TokenType.LPAREN);
+        expect(TokenType.RPAREN);
+        expect(TokenType.ARROW);
+        TensorType resultType = parseTensorType();
+
+        Value result = new Value(resultName, resultType);
+        valueMap.put(resultName, result);
+
+        return new PartitionIdOp(result, resultType);
+    }
+
+    private ReduceScatterOp parseReduceScatter(String resultName) {
+        // %r = stablehlo.reduce_scatter %operand, scatter_dimension=0, replica_groups=[[...]], channel_id=1, reducer=add : (...) -> tensor<...>
+        Value operand = lookupValue(parsePercentId());
+
+        long scatterDimension = 0;
+        List<List<Long>> replicaGroups = new ArrayList<>();
+        long channelId = 0;
+        boolean useGlobalDeviceIds = false;
+        String reducer = "add";
+
+        while (check(TokenType.COMMA)) {
+            advance();
+            if (checkIdentifier("scatter_dimension")) {
+                advance();
+                expect(TokenType.EQUALS);
+                scatterDimension = Long.parseLong(expect(TokenType.INTEGER).value());
+            } else if (checkIdentifier("replica_groups")) {
+                advance();
+                expect(TokenType.EQUALS);
+                replicaGroups = parseNestedIntegerList();
+            } else if (checkIdentifier("channel_id")) {
+                advance();
+                expect(TokenType.EQUALS);
+                channelId = Long.parseLong(expect(TokenType.INTEGER).value());
+            } else if (checkIdentifier("use_global_device_ids")) {
+                advance();
+                expect(TokenType.EQUALS);
+                useGlobalDeviceIds = expect(TokenType.IDENTIFIER).value().equals("true");
+            } else if (checkIdentifier("reducer")) {
+                advance();
+                expect(TokenType.EQUALS);
+                reducer = expect(TokenType.IDENTIFIER).value();
+            }
+        }
+
+        expect(TokenType.COLON);
+        parseType();
+        expect(TokenType.ARROW);
+        TensorType resultType = parseTensorType();
+
+        Value result = new Value(resultName, resultType);
+        valueMap.put(resultName, result);
+
+        return new ReduceScatterOp(result, operand, scatterDimension, replicaGroups, channelId, useGlobalDeviceIds, reducer, resultType);
+    }
+
+    private ReplicaIdOp parseReplicaId(String resultName) {
+        // %r = stablehlo.replica_id : () -> tensor<ui32>
+        expect(TokenType.COLON);
+        expect(TokenType.LPAREN);
+        expect(TokenType.RPAREN);
+        expect(TokenType.ARROW);
+        TensorType resultType = parseTensorType();
+
+        Value result = new Value(resultName, resultType);
+        valueMap.put(resultName, result);
+
+        return new ReplicaIdOp(result, resultType);
+    }
+
+    // Helper for parsing nested integer lists like [[0,1],[2,3]]
+    private List<List<Long>> parseNestedIntegerList() {
+        expect(TokenType.LBRACKET);
+        List<List<Long>> result = new ArrayList<>();
+        while (!check(TokenType.RBRACKET)) {
+            if (!result.isEmpty()) {
+                expect(TokenType.COMMA);
+            }
+            result.add(parseIntegerList());
+        }
+        expect(TokenType.RBRACKET);
+        return result;
+    }
+
+    // ==================== Communication Operations ====================
+
+    private InfeedOp parseInfeed(String resultName) {
+        // %data, %token = stablehlo.infeed %token, infeed_config="..." : (...) -> (tensor<...>, !stablehlo.token)
+        Value token = lookupValue(parsePercentId());
+
+        String infeedConfig = "";
+
+        while (check(TokenType.COMMA)) {
+            advance();
+            if (checkIdentifier("infeed_config")) {
+                advance();
+                expect(TokenType.EQUALS);
+                infeedConfig = parseStringValue();
+            }
+        }
+
+        expect(TokenType.COLON);
+        parseType();
+        expect(TokenType.ARROW);
+        expect(TokenType.LPAREN);
+        TensorType dataType = parseTensorType();
+        expect(TokenType.COMMA);
+        parseType(); // token type
+        expect(TokenType.RPAREN);
+
+        Value data = new Value(resultName, dataType);
+        Value outToken = new Value(resultName + "_token", null);
+        valueMap.put(resultName, data);
+
+        return new InfeedOp(List.of(data, outToken), token, infeedConfig, dataType);
+    }
+
+    private OutfeedOp parseOutfeed(String resultName) {
+        // %token = stablehlo.outfeed %data, %token, outfeed_config="..." : (...) -> !stablehlo.token
+        List<Value> inputs = new ArrayList<>();
+        inputs.add(lookupValue(parsePercentId()));
+        expect(TokenType.COMMA);
+        Value token = lookupValue(parsePercentId());
+
+        String outfeedConfig = "";
+
+        while (check(TokenType.COMMA)) {
+            advance();
+            if (checkIdentifier("outfeed_config")) {
+                advance();
+                expect(TokenType.EQUALS);
+                outfeedConfig = parseStringValue();
+            }
+        }
+
+        expect(TokenType.COLON);
+        expect(TokenType.LPAREN);
+        parseType();
+        while (check(TokenType.COMMA)) {
+            advance();
+            parseType();
+        }
+        expect(TokenType.RPAREN);
+        expect(TokenType.ARROW);
+        TensorType resultType = parseTensorType();
+
+        Value result = new Value(resultName, resultType);
+        valueMap.put(resultName, result);
+
+        return new OutfeedOp(result, inputs, token, outfeedConfig, resultType);
+    }
+
+    private RecvOp parseRecv(String resultName) {
+        // %data, %token = stablehlo.recv %token, channel_id=1, channel_type=device_to_device : (...) -> (tensor<...>, !stablehlo.token)
+        Value token = lookupValue(parsePercentId());
+
+        long channelId = 0;
+        String channelType = "device_to_device";
+
+        while (check(TokenType.COMMA)) {
+            advance();
+            if (checkIdentifier("channel_id")) {
+                advance();
+                expect(TokenType.EQUALS);
+                channelId = Long.parseLong(expect(TokenType.INTEGER).value());
+            } else if (checkIdentifier("channel_type")) {
+                advance();
+                expect(TokenType.EQUALS);
+                channelType = expect(TokenType.IDENTIFIER).value();
+            }
+        }
+
+        expect(TokenType.COLON);
+        parseType();
+        expect(TokenType.ARROW);
+        expect(TokenType.LPAREN);
+        TensorType dataType = parseTensorType();
+        expect(TokenType.COMMA);
+        parseType(); // token type
+        expect(TokenType.RPAREN);
+
+        Value data = new Value(resultName, dataType);
+        Value outToken = new Value(resultName + "_token", null);
+        valueMap.put(resultName, data);
+
+        return new RecvOp(List.of(data, outToken), token, channelId, channelType, dataType);
+    }
+
+    private SendOp parseSend(String resultName) {
+        // %token = stablehlo.send %data, %token, channel_id=1, channel_type=device_to_device : (...) -> !stablehlo.token
+        List<Value> inputs = new ArrayList<>();
+        inputs.add(lookupValue(parsePercentId()));
+        expect(TokenType.COMMA);
+        Value token = lookupValue(parsePercentId());
+
+        long channelId = 0;
+        String channelType = "device_to_device";
+
+        while (check(TokenType.COMMA)) {
+            advance();
+            if (checkIdentifier("channel_id")) {
+                advance();
+                expect(TokenType.EQUALS);
+                channelId = Long.parseLong(expect(TokenType.INTEGER).value());
+            } else if (checkIdentifier("channel_type")) {
+                advance();
+                expect(TokenType.EQUALS);
+                channelType = expect(TokenType.IDENTIFIER).value();
+            }
+        }
+
+        expect(TokenType.COLON);
+        expect(TokenType.LPAREN);
+        parseType();
+        while (check(TokenType.COMMA)) {
+            advance();
+            parseType();
+        }
+        expect(TokenType.RPAREN);
+        expect(TokenType.ARROW);
+        TensorType resultType = parseTensorType();
+
+        Value result = new Value(resultName, resultType);
+        valueMap.put(resultName, result);
+
+        return new SendOp(result, inputs, token, channelId, channelType, resultType);
+    }
+
+    // ==================== Tuple Operations ====================
+
+    private TupleOp parseTuple(String resultName) {
+        // %t = stablehlo.tuple %a, %b, %c : (tensor<...>, ...) -> tuple<...>
+        List<Value> inputs = new ArrayList<>();
+        inputs.add(lookupValue(parsePercentId()));
+
+        while (check(TokenType.COMMA)) {
+            advance();
+            if (check(TokenType.COLON)) break;
+            inputs.add(lookupValue(parsePercentId()));
+        }
+
+        expect(TokenType.COLON);
+        expect(TokenType.LPAREN);
+        parseType();
+        while (check(TokenType.COMMA)) {
+            advance();
+            parseType();
+        }
+        expect(TokenType.RPAREN);
+        expect(TokenType.ARROW);
+        TensorType resultType = parseTensorType();
+
+        Value result = new Value(resultName, resultType);
+        valueMap.put(resultName, result);
+
+        return new TupleOp(result, inputs, resultType);
+    }
+
+    private GetTupleElementOp parseGetTupleElement(String resultName) {
+        // %e = stablehlo.get_tuple_element %tuple, index=0 : (tuple<...>) -> tensor<...>
+        Value operand = lookupValue(parsePercentId());
+
+        int index = 0;
+
+        while (check(TokenType.COMMA)) {
+            advance();
+            if (checkIdentifier("index")) {
+                advance();
+                expect(TokenType.EQUALS);
+                index = Integer.parseInt(expect(TokenType.INTEGER).value());
+            }
+        }
+
+        expect(TokenType.COLON);
+        expect(TokenType.LPAREN);
+        parseType();
+        expect(TokenType.RPAREN);
+        expect(TokenType.ARROW);
+        TensorType resultType = parseTensorType();
+
+        Value result = new Value(resultName, resultType);
+        valueMap.put(resultName, result);
+
+        return new GetTupleElementOp(result, operand, index, resultType);
+    }
+
+    // ==================== Other Operations ====================
+
+    private OptimizationBarrierOp parseOptimizationBarrier(String resultName) {
+        // %r = stablehlo.optimization_barrier %a, %b : (tensor<...>, ...) -> (tensor<...>, ...)
+        List<Value> operands = new ArrayList<>();
+        operands.add(lookupValue(parsePercentId()));
+
+        while (check(TokenType.COMMA)) {
+            advance();
+            if (check(TokenType.COLON)) break;
+            operands.add(lookupValue(parsePercentId()));
+        }
+
+        expect(TokenType.COLON);
+        expect(TokenType.LPAREN);
+        parseType();
+        while (check(TokenType.COMMA)) {
+            advance();
+            parseType();
+        }
+        expect(TokenType.RPAREN);
+        expect(TokenType.ARROW);
+        expect(TokenType.LPAREN);
+        TensorType resultType = parseTensorType();
+        List<Value> results = new ArrayList<>();
+        results.add(new Value(resultName, resultType));
+        while (check(TokenType.COMMA)) {
+            advance();
+            results.add(new Value(resultName + "_" + results.size(), parseTensorType()));
+        }
+        expect(TokenType.RPAREN);
+
+        valueMap.put(resultName, results.get(0));
+
+        return new OptimizationBarrierOp(results, operands, resultType);
+    }
+
+    private CompositeOp parseComposite(String resultName) {
+        // %c = stablehlo.composite %a, %b, name="my_op", composite_attributes=..., decomposition=@decomp, version=1 : (...) -> tensor<...>
+        List<Value> inputs = new ArrayList<>();
+        inputs.add(lookupValue(parsePercentId()));
+
+        String name = "";
+        String compositeAttributes = "";
+        String decomposition = "";
+        long version = 0;
+
+        while (check(TokenType.COMMA)) {
+            advance();
+            if (checkIdentifier("name")) {
+                advance();
+                expect(TokenType.EQUALS);
+                name = parseStringValue();
+            } else if (checkIdentifier("composite_attributes")) {
+                advance();
+                expect(TokenType.EQUALS);
+                compositeAttributes = parseStringValue();
+            } else if (checkIdentifier("decomposition")) {
+                advance();
+                expect(TokenType.EQUALS);
+                decomposition = parseAtId();
+            } else if (checkIdentifier("version")) {
+                advance();
+                expect(TokenType.EQUALS);
+                version = Long.parseLong(expect(TokenType.INTEGER).value());
+            } else if (!check(TokenType.COLON)) {
+                inputs.add(lookupValue(parsePercentId()));
+            }
+        }
+
+        expect(TokenType.COLON);
+        expect(TokenType.LPAREN);
+        parseType();
+        while (check(TokenType.COMMA)) {
+            advance();
+            parseType();
+        }
+        expect(TokenType.RPAREN);
+        expect(TokenType.ARROW);
+        TensorType resultType = parseTensorType();
+
+        Value result = new Value(resultName, resultType);
+        valueMap.put(resultName, result);
+
+        return new CompositeOp(result, inputs, name, compositeAttributes, decomposition, version, resultType);
     }
 }

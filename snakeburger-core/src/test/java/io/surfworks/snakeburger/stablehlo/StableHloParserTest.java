@@ -2552,4 +2552,570 @@ class StableHloParserTest {
             assertEquals(20, func.arguments().size());
         }
     }
+
+    // ==================== Dynamic Shape Operations Tests ====================
+
+    @Nested
+    class DynamicShapeOpsTests {
+
+        @Test
+        void parseDynamicBroadcastInDim() {
+            String mlir = """
+                module @test {
+                  func.func public @f(%x: tensor<4xf32>, %shape: tensor<2xi32>) -> (tensor<4x8xf32>) {
+                    %0 = stablehlo.dynamic_broadcast_in_dim %x, %shape, broadcast_dimensions = [0] : (tensor<4xf32>, tensor<2xi32>) -> tensor<4x8xf32>
+                    stablehlo.return %0 : tensor<4x8xf32>
+                  }
+                }
+                """;
+
+            Module module = StableHloParser.parse(mlir);
+            Function func = module.functions().get(0);
+            assertInstanceOf(DynamicBroadcastInDimOp.class, func.body().get(0));
+
+            DynamicBroadcastInDimOp op = (DynamicBroadcastInDimOp) func.body().get(0);
+            assertEquals("x", op.operand().name());
+            assertEquals("shape", op.outputDimensions().name());
+            assertEquals(List.of(0L), op.broadcastDimensions());
+        }
+
+        @Test
+        void parseDynamicGather() {
+            String mlir = """
+                module @test {
+                  func.func public @f(%data: tensor<8x4xf32>, %indices: tensor<2x1xi32>, %sizes: tensor<2xi32>) -> (tensor<2x4xf32>) {
+                    %0 = stablehlo.dynamic_gather %data, %indices, %sizes, offset_dims = [1], collapsed_slice_dims = [0], start_index_map = [0], index_vector_dim = 1 : (tensor<8x4xf32>, tensor<2x1xi32>, tensor<2xi32>) -> tensor<2x4xf32>
+                    stablehlo.return %0 : tensor<2x4xf32>
+                  }
+                }
+                """;
+
+            Module module = StableHloParser.parse(mlir);
+            Function func = module.functions().get(0);
+            assertInstanceOf(DynamicGatherOp.class, func.body().get(0));
+
+            DynamicGatherOp op = (DynamicGatherOp) func.body().get(0);
+            assertEquals("data", op.operand().name());
+            assertEquals(List.of(1L), op.offsetDims());
+            assertEquals(List.of(0L), op.collapsedSliceDims());
+            assertEquals(1L, op.indexVectorDim());
+        }
+
+        @Test
+        void parseDynamicIota() {
+            String mlir = """
+                module @test {
+                  func.func public @f(%shape: tensor<2xi32>) -> (tensor<4x8xf32>) {
+                    %0 = stablehlo.dynamic_iota %shape, dim = 1 : tensor<2xi32> -> tensor<4x8xf32>
+                    stablehlo.return %0 : tensor<4x8xf32>
+                  }
+                }
+                """;
+
+            Module module = StableHloParser.parse(mlir);
+            Function func = module.functions().get(0);
+            assertInstanceOf(DynamicIotaOp.class, func.body().get(0));
+
+            DynamicIotaOp op = (DynamicIotaOp) func.body().get(0);
+            assertEquals(1L, op.iotaDimension());
+        }
+
+        @Test
+        void parseDynamicPad() {
+            String mlir = """
+                module @test {
+                  func.func public @f(%x: tensor<4x8xf32>, %val: tensor<f32>, %low: tensor<2xi32>, %high: tensor<2xi32>, %interior: tensor<2xi32>) -> (tensor<6x12xf32>) {
+                    %0 = stablehlo.dynamic_pad %x, %val, %low, %high, %interior : (tensor<4x8xf32>, tensor<f32>, tensor<2xi32>, tensor<2xi32>, tensor<2xi32>) -> tensor<6x12xf32>
+                    stablehlo.return %0 : tensor<6x12xf32>
+                  }
+                }
+                """;
+
+            Module module = StableHloParser.parse(mlir);
+            Function func = module.functions().get(0);
+            assertInstanceOf(DynamicPadOp.class, func.body().get(0));
+
+            DynamicPadOp op = (DynamicPadOp) func.body().get(0);
+            assertEquals("x", op.operand().name());
+            assertEquals("val", op.paddingValue().name());
+        }
+
+        @Test
+        void parseDynamicReshape() {
+            String mlir = """
+                module @test {
+                  func.func public @f(%x: tensor<4x8xf32>, %shape: tensor<1xi32>) -> (tensor<32xf32>) {
+                    %0 = stablehlo.dynamic_reshape %x, %shape : (tensor<4x8xf32>, tensor<1xi32>) -> tensor<32xf32>
+                    stablehlo.return %0 : tensor<32xf32>
+                  }
+                }
+                """;
+
+            Module module = StableHloParser.parse(mlir);
+            Function func = module.functions().get(0);
+            assertInstanceOf(DynamicReshapeOp.class, func.body().get(0));
+
+            DynamicReshapeOp op = (DynamicReshapeOp) func.body().get(0);
+            assertEquals("x", op.operand().name());
+            assertEquals("shape", op.outputShape().name());
+        }
+
+        @Test
+        void parseGetDimensionSize() {
+            String mlir = """
+                module @test {
+                  func.func public @f(%x: tensor<4x8xf32>) -> (tensor<i32>) {
+                    %0 = stablehlo.get_dimension_size %x, dim = 1 : tensor<4x8xf32> -> tensor<i32>
+                    stablehlo.return %0 : tensor<i32>
+                  }
+                }
+                """;
+
+            Module module = StableHloParser.parse(mlir);
+            Function func = module.functions().get(0);
+            assertInstanceOf(GetDimensionSizeOp.class, func.body().get(0));
+
+            GetDimensionSizeOp op = (GetDimensionSizeOp) func.body().get(0);
+            assertEquals("x", op.operand().name());
+            assertEquals(1L, op.dimension());
+        }
+    }
+
+    // ==================== Quantization Operations Tests ====================
+
+    @Nested
+    class QuantizationOpsTests {
+
+        @Test
+        void parseUniformQuantize() {
+            String mlir = """
+                module @test {
+                  func.func public @f(%x: tensor<4x8xf32>) -> (tensor<4x8xi8>) {
+                    %0 = stablehlo.uniform_quantize %x : tensor<4x8xf32> -> tensor<4x8xi8>
+                    stablehlo.return %0 : tensor<4x8xi8>
+                  }
+                }
+                """;
+
+            Module module = StableHloParser.parse(mlir);
+            Function func = module.functions().get(0);
+            assertInstanceOf(UniformQuantizeOp.class, func.body().get(0));
+
+            UniformQuantizeOp op = (UniformQuantizeOp) func.body().get(0);
+            assertEquals("x", op.operand().name());
+        }
+
+        @Test
+        void parseUniformDequantize() {
+            String mlir = """
+                module @test {
+                  func.func public @f(%x: tensor<4x8xi8>) -> (tensor<4x8xf32>) {
+                    %0 = stablehlo.uniform_dequantize %x : tensor<4x8xi8> -> tensor<4x8xf32>
+                    stablehlo.return %0 : tensor<4x8xf32>
+                  }
+                }
+                """;
+
+            Module module = StableHloParser.parse(mlir);
+            Function func = module.functions().get(0);
+            assertInstanceOf(UniformDequantizeOp.class, func.body().get(0));
+
+            UniformDequantizeOp op = (UniformDequantizeOp) func.body().get(0);
+            assertEquals("x", op.operand().name());
+        }
+    }
+
+    // ==================== Additional Reduction Operations Tests ====================
+
+    @Nested
+    class AdditionalReductionOpsTests {
+
+        @Test
+        void parseReducePrecision() {
+            String mlir = """
+                module @test {
+                  func.func public @f(%x: tensor<4x8xf32>) -> (tensor<4x8xf32>) {
+                    %0 = stablehlo.reduce_precision %x, exponent_bits = 5, mantissa_bits = 10 : tensor<4x8xf32> -> tensor<4x8xf32>
+                    stablehlo.return %0 : tensor<4x8xf32>
+                  }
+                }
+                """;
+
+            Module module = StableHloParser.parse(mlir);
+            Function func = module.functions().get(0);
+            assertInstanceOf(ReducePrecisionOp.class, func.body().get(0));
+
+            ReducePrecisionOp op = (ReducePrecisionOp) func.body().get(0);
+            assertEquals(5, op.exponentBits());
+            assertEquals(10, op.mantissaBits());
+        }
+
+        @Test
+        void parseSelectAndScatter() {
+            String mlir = """
+                module @test {
+                  func.func public @f(%operand: tensor<4x8xf32>, %source: tensor<2x4xf32>, %init: tensor<f32>) -> (tensor<4x8xf32>) {
+                    %0 = stablehlo.select_and_scatter %operand, %source, %init, window = [2, 2], strides = [2, 2], padding = [0, 0, 0, 0], select = ge, scatter = add : (tensor<4x8xf32>, tensor<2x4xf32>, tensor<f32>) -> tensor<4x8xf32>
+                    stablehlo.return %0 : tensor<4x8xf32>
+                  }
+                }
+                """;
+
+            Module module = StableHloParser.parse(mlir);
+            Function func = module.functions().get(0);
+            assertInstanceOf(SelectAndScatterOp.class, func.body().get(0));
+
+            SelectAndScatterOp op = (SelectAndScatterOp) func.body().get(0);
+            assertEquals("ge", op.selectFn());
+            assertEquals("add", op.scatterFn());
+        }
+    }
+
+    // ==================== Control Flow Operations Tests ====================
+
+    @Nested
+    class AdditionalControlFlowOpsTests {
+
+        @Test
+        void parseCase() {
+            String mlir = """
+                module @test {
+                  func.func public @f(%idx: tensor<i32>, %x: tensor<4xf32>) -> (tensor<4xf32>) {
+                    %0 = stablehlo.case %idx {
+                      %a = stablehlo.negate %x : tensor<4xf32>
+                      stablehlo.return %a : tensor<4xf32>
+                    } {
+                      %b = stablehlo.abs %x : tensor<4xf32>
+                      stablehlo.return %b : tensor<4xf32>
+                    } : (tensor<i32>) -> tensor<4xf32>
+                    stablehlo.return %0 : tensor<4xf32>
+                  }
+                }
+                """;
+
+            Module module = StableHloParser.parse(mlir);
+            Function func = module.functions().get(0);
+            assertInstanceOf(CaseOp.class, func.body().get(0));
+
+            CaseOp op = (CaseOp) func.body().get(0);
+            assertEquals("idx", op.index().name());
+            assertEquals(2, op.branches().size());
+        }
+
+        @Test
+        void parseMap() {
+            String mlir = """
+                module @test {
+                  func.func public @f(%x: tensor<4x8xf32>) -> (tensor<4x8xf32>) {
+                    %0 = stablehlo.map %x, dims = [0, 1] {
+                      %a = stablehlo.negate %x : tensor<4x8xf32>
+                      stablehlo.return %a : tensor<4x8xf32>
+                    } : (tensor<4x8xf32>) -> tensor<4x8xf32>
+                    stablehlo.return %0 : tensor<4x8xf32>
+                  }
+                }
+                """;
+
+            Module module = StableHloParser.parse(mlir);
+            Function func = module.functions().get(0);
+            assertInstanceOf(MapOp.class, func.body().get(0));
+
+            MapOp op = (MapOp) func.body().get(0);
+            assertEquals(List.of(0L, 1L), op.dimensions());
+        }
+    }
+
+    // ==================== Distributed/Collective Operations Tests ====================
+
+    @Nested
+    class DistributedOpsTests {
+
+        @Test
+        void parsePartitionId() {
+            String mlir = """
+                module @test {
+                  func.func public @f() -> (tensor<ui32>) {
+                    %0 = stablehlo.partition_id : () -> tensor<ui32>
+                    stablehlo.return %0 : tensor<ui32>
+                  }
+                }
+                """;
+
+            Module module = StableHloParser.parse(mlir);
+            Function func = module.functions().get(0);
+            assertInstanceOf(PartitionIdOp.class, func.body().get(0));
+        }
+
+        @Test
+        void parseReplicaId() {
+            String mlir = """
+                module @test {
+                  func.func public @f() -> (tensor<ui32>) {
+                    %0 = stablehlo.replica_id : () -> tensor<ui32>
+                    stablehlo.return %0 : tensor<ui32>
+                  }
+                }
+                """;
+
+            Module module = StableHloParser.parse(mlir);
+            Function func = module.functions().get(0);
+            assertInstanceOf(ReplicaIdOp.class, func.body().get(0));
+        }
+
+        @Test
+        void parseAllGather() {
+            String mlir = """
+                module @test {
+                  func.func public @f(%x: tensor<4x8xf32>) -> (tensor<8x8xf32>) {
+                    %0 = stablehlo.all_gather %x, all_gather_dim = 0, replica_groups = [[0, 1]], channel_id = 1 : tensor<4x8xf32> -> tensor<8x8xf32>
+                    stablehlo.return %0 : tensor<8x8xf32>
+                  }
+                }
+                """;
+
+            Module module = StableHloParser.parse(mlir);
+            Function func = module.functions().get(0);
+            assertInstanceOf(AllGatherOp.class, func.body().get(0));
+
+            AllGatherOp op = (AllGatherOp) func.body().get(0);
+            assertEquals(0L, op.allGatherDim());
+            assertEquals(1L, op.channelId());
+        }
+
+        @Test
+        void parseAllReduce() {
+            String mlir = """
+                module @test {
+                  func.func public @f(%x: tensor<4x8xf32>) -> (tensor<4x8xf32>) {
+                    %0 = stablehlo.all_reduce %x, replica_groups = [[0, 1]], channel_id = 1, reducer = add : tensor<4x8xf32> -> tensor<4x8xf32>
+                    stablehlo.return %0 : tensor<4x8xf32>
+                  }
+                }
+                """;
+
+            Module module = StableHloParser.parse(mlir);
+            Function func = module.functions().get(0);
+            assertInstanceOf(AllReduceOp.class, func.body().get(0));
+
+            AllReduceOp op = (AllReduceOp) func.body().get(0);
+            assertEquals("add", op.reducer());
+        }
+
+        @Test
+        void parseAllToAll() {
+            String mlir = """
+                module @test {
+                  func.func public @f(%x: tensor<4x8xf32>) -> (tensor<8x4xf32>) {
+                    %0 = stablehlo.all_to_all %x, split_dimension = 1, concat_dimension = 0, split_count = 2, replica_groups = [[0, 1]] : tensor<4x8xf32> -> tensor<8x4xf32>
+                    stablehlo.return %0 : tensor<8x4xf32>
+                  }
+                }
+                """;
+
+            Module module = StableHloParser.parse(mlir);
+            Function func = module.functions().get(0);
+            assertInstanceOf(AllToAllOp.class, func.body().get(0));
+
+            AllToAllOp op = (AllToAllOp) func.body().get(0);
+            assertEquals(1L, op.splitDimension());
+            assertEquals(0L, op.concatDimension());
+            assertEquals(2L, op.splitCount());
+        }
+
+        @Test
+        void parseCollectiveBroadcast() {
+            String mlir = """
+                module @test {
+                  func.func public @f(%x: tensor<4x8xf32>) -> (tensor<4x8xf32>) {
+                    %0 = stablehlo.collective_broadcast %x, replica_groups = [[0, 1]], channel_id = 1 : tensor<4x8xf32> -> tensor<4x8xf32>
+                    stablehlo.return %0 : tensor<4x8xf32>
+                  }
+                }
+                """;
+
+            Module module = StableHloParser.parse(mlir);
+            Function func = module.functions().get(0);
+            assertInstanceOf(CollectiveBroadcastOp.class, func.body().get(0));
+        }
+
+        @Test
+        void parseCollectivePermute() {
+            String mlir = """
+                module @test {
+                  func.func public @f(%x: tensor<4x8xf32>) -> (tensor<4x8xf32>) {
+                    %0 = stablehlo.collective_permute %x, source_target_pairs = [[0, 1], [1, 0]], channel_id = 1 : tensor<4x8xf32> -> tensor<4x8xf32>
+                    stablehlo.return %0 : tensor<4x8xf32>
+                  }
+                }
+                """;
+
+            Module module = StableHloParser.parse(mlir);
+            Function func = module.functions().get(0);
+            assertInstanceOf(CollectivePermuteOp.class, func.body().get(0));
+
+            CollectivePermuteOp op = (CollectivePermuteOp) func.body().get(0);
+            assertEquals(2, op.sourceTargetPairs().size());
+        }
+
+        @Test
+        void parseReduceScatter() {
+            String mlir = """
+                module @test {
+                  func.func public @f(%x: tensor<4x8xf32>) -> (tensor<2x8xf32>) {
+                    %0 = stablehlo.reduce_scatter %x, scatter_dimension = 0, replica_groups = [[0, 1]], channel_id = 1, reducer = add : tensor<4x8xf32> -> tensor<2x8xf32>
+                    stablehlo.return %0 : tensor<2x8xf32>
+                  }
+                }
+                """;
+
+            Module module = StableHloParser.parse(mlir);
+            Function func = module.functions().get(0);
+            assertInstanceOf(ReduceScatterOp.class, func.body().get(0));
+
+            ReduceScatterOp op = (ReduceScatterOp) func.body().get(0);
+            assertEquals(0L, op.scatterDimension());
+            assertEquals("add", op.reducer());
+        }
+    }
+
+    // ==================== Tuple Operations Tests ====================
+
+    @Nested
+    class TupleOpsTests {
+
+        @Test
+        void parseTuple() {
+            String mlir = """
+                module @test {
+                  func.func public @f(%a: tensor<4xf32>, %b: tensor<8xf32>) -> (tensor<4xf32>) {
+                    %t = stablehlo.tuple %a, %b : (tensor<4xf32>, tensor<8xf32>) -> tensor<4xf32>
+                    stablehlo.return %t : tensor<4xf32>
+                  }
+                }
+                """;
+
+            Module module = StableHloParser.parse(mlir);
+            Function func = module.functions().get(0);
+            assertInstanceOf(TupleOp.class, func.body().get(0));
+
+            TupleOp op = (TupleOp) func.body().get(0);
+            assertEquals(2, op.inputs().size());
+            assertEquals("a", op.inputs().get(0).name());
+            assertEquals("b", op.inputs().get(1).name());
+        }
+
+        @Test
+        void parseGetTupleElement() {
+            String mlir = """
+                module @test {
+                  func.func public @f(%t: tensor<4xf32>) -> (tensor<4xf32>) {
+                    %0 = stablehlo.get_tuple_element %t, index = 0 : (tensor<4xf32>) -> tensor<4xf32>
+                    stablehlo.return %0 : tensor<4xf32>
+                  }
+                }
+                """;
+
+            Module module = StableHloParser.parse(mlir);
+            Function func = module.functions().get(0);
+            assertInstanceOf(GetTupleElementOp.class, func.body().get(0));
+
+            GetTupleElementOp op = (GetTupleElementOp) func.body().get(0);
+            assertEquals("t", op.operand().name());
+            assertEquals(0, op.index());
+        }
+    }
+
+    // ==================== Other Operations Tests ====================
+
+    @Nested
+    class OtherOpsTests {
+
+        @Test
+        void parseOptimizationBarrier() {
+            String mlir = """
+                module @test {
+                  func.func public @f(%a: tensor<4xf32>, %b: tensor<4xf32>) -> (tensor<4xf32>) {
+                    %0 = stablehlo.optimization_barrier %a, %b : (tensor<4xf32>, tensor<4xf32>) -> (tensor<4xf32>, tensor<4xf32>)
+                    stablehlo.return %0 : tensor<4xf32>
+                  }
+                }
+                """;
+
+            Module module = StableHloParser.parse(mlir);
+            Function func = module.functions().get(0);
+            assertInstanceOf(OptimizationBarrierOp.class, func.body().get(0));
+
+            OptimizationBarrierOp op = (OptimizationBarrierOp) func.body().get(0);
+            assertEquals(2, op.operands().size());
+        }
+
+        @Test
+        void parseComposite() {
+            String mlir = """
+                module @test {
+                  func.func public @f(%x: tensor<4xf32>) -> (tensor<4xf32>) {
+                    %0 = stablehlo.composite %x, name = "my_custom_op", decomposition = @my_decomp, version = 1 : (tensor<4xf32>) -> tensor<4xf32>
+                    stablehlo.return %0 : tensor<4xf32>
+                  }
+                }
+                """;
+
+            Module module = StableHloParser.parse(mlir);
+            Function func = module.functions().get(0);
+            assertInstanceOf(CompositeOp.class, func.body().get(0));
+
+            CompositeOp op = (CompositeOp) func.body().get(0);
+            assertEquals("my_custom_op", op.name());
+            assertEquals("my_decomp", op.decomposition());
+            assertEquals(1L, op.version());
+        }
+    }
+
+    // ==================== Distributed Training Pattern Test ====================
+
+    @Nested
+    class DistributedPatternTests {
+
+        @Test
+        void parseDataParallelAllReduce() {
+            // Pattern: gradient -> all_reduce -> update
+            String mlir = """
+                module @data_parallel {
+                  func.func public @gradient_sync(%grad: tensor<1024x1024xf32>) -> (tensor<1024x1024xf32>) {
+                    %0 = stablehlo.all_reduce %grad, replica_groups = [[0, 1, 2, 3]], channel_id = 1, reducer = add : tensor<1024x1024xf32> -> tensor<1024x1024xf32>
+                    %num_replicas = stablehlo.constant dense<4.0> : tensor<1024x1024xf32>
+                    %avg = stablehlo.divide %0, %num_replicas : tensor<1024x1024xf32>
+                    stablehlo.return %avg : tensor<1024x1024xf32>
+                  }
+                }
+                """;
+
+            Module module = StableHloParser.parse(mlir);
+            Function func = module.functions().get(0);
+
+            assertEquals("gradient_sync", func.name());
+            assertInstanceOf(AllReduceOp.class, func.body().get(0));
+            assertInstanceOf(ConstantOp.class, func.body().get(1));
+            assertInstanceOf(DivideOp.class, func.body().get(2));
+        }
+
+        @Test
+        void parseModelParallelGather() {
+            // Pattern: distributed embeddings with all_gather
+            String mlir = """
+                module @model_parallel {
+                  func.func public @gather_embeddings(%local: tensor<256x512xf32>) -> (tensor<1024x512xf32>) {
+                    %0 = stablehlo.all_gather %local, all_gather_dim = 0, replica_groups = [[0, 1, 2, 3]], channel_id = 1 : tensor<256x512xf32> -> tensor<1024x512xf32>
+                    stablehlo.return %0 : tensor<1024x512xf32>
+                  }
+                }
+                """;
+
+            Module module = StableHloParser.parse(mlir);
+            Function func = module.functions().get(0);
+
+            AllGatherOp op = (AllGatherOp) func.body().get(0);
+            assertEquals(0L, op.allGatherDim());
+        }
+    }
 }

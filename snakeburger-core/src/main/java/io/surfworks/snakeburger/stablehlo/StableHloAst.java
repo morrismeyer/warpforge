@@ -262,14 +262,27 @@ public final class StableHloAst {
             ReshapeOp, TransposeOp, BroadcastInDimOp, ConcatenateOp, SliceOp,
             ReverseOp, PadOp, IotaOp, GatherOp, ScatterOp,
             DynamicSliceOp, DynamicUpdateSliceOp,
+            // Dynamic shape operations
+            DynamicBroadcastInDimOp, DynamicGatherOp, DynamicIotaOp, DynamicPadOp,
+            DynamicReshapeOp, DynamicConvOp, GetDimensionSizeOp,
             // Type conversion
             ConvertOp, BitcastConvertOp,
+            // Quantization
+            UniformQuantizeOp, UniformDequantizeOp,
             // Reduction
-            ReduceOp, ReduceWindowOp,
+            ReduceOp, ReduceWindowOp, ReducePrecisionOp, SelectAndScatterOp,
             // Convolution and neural network
-            ConvolutionOp, BatchNormTrainingOp, BatchNormInferenceOp,
+            ConvolutionOp, BatchNormTrainingOp, BatchNormInferenceOp, BatchNormGradOp,
             // Control flow
-            IfOp, WhileOp,
+            IfOp, WhileOp, CaseOp, MapOp,
+            // Distributed/collective operations
+            AfterAllOp, AllGatherOp, AllReduceOp, AllToAllOp,
+            CollectiveBroadcastOp, CollectivePermuteOp, PartitionIdOp,
+            ReduceScatterOp, ReplicaIdOp,
+            // Communication operations
+            InfeedOp, OutfeedOp, RecvOp, SendOp,
+            // Tuple operations
+            TupleOp, GetTupleElementOp,
             // Linear algebra
             DotOp, CholeskyOp, TriangularSolveOp,
             // Complex numbers
@@ -277,7 +290,7 @@ public final class StableHloAst {
             // Signal processing
             FftOp,
             // Other
-            SortOp, RngOp, RngBitGeneratorOp {
+            SortOp, RngOp, RngBitGeneratorOp, OptimizationBarrierOp, CompositeOp {
 
         String opName();
         List<Value> results();
@@ -1340,6 +1353,454 @@ public final class StableHloAst {
 
         @Override
         public TensorType tensorResultType() { return null; }
+    }
+
+    // ==================== Dynamic Shape Operations ====================
+
+    /** stablehlo.dynamic_broadcast_in_dim - Dynamic broadcast. */
+    public record DynamicBroadcastInDimOp(
+            Value result,
+            Value operand,
+            Value outputDimensions,
+            List<Long> broadcastDimensions,
+            List<Long> knownExpandingDimensions,
+            List<Long> knownNonexpandingDimensions,
+            TensorType tensorResultType
+    ) implements Operation {
+        @Override public String opName() { return "stablehlo.dynamic_broadcast_in_dim"; }
+        @Override public List<Value> results() { return List.of(result); }
+        @Override public List<Value> operands() { return List.of(operand, outputDimensions); }
+    }
+
+    /** stablehlo.dynamic_gather - Dynamic gather. */
+    public record DynamicGatherOp(
+            Value result,
+            Value operand,
+            Value startIndices,
+            Value sliceSizes,
+            List<Long> offsetDims,
+            List<Long> collapsedSliceDims,
+            List<Long> startIndexMap,
+            long indexVectorDim,
+            TensorType tensorResultType
+    ) implements Operation {
+        @Override public String opName() { return "stablehlo.dynamic_gather"; }
+        @Override public List<Value> results() { return List.of(result); }
+        @Override public List<Value> operands() { return List.of(operand, startIndices, sliceSizes); }
+    }
+
+    /** stablehlo.dynamic_iota - Dynamic iota. */
+    public record DynamicIotaOp(
+            Value result,
+            Value outputShape,
+            long iotaDimension,
+            TensorType tensorResultType
+    ) implements Operation {
+        @Override public String opName() { return "stablehlo.dynamic_iota"; }
+        @Override public List<Value> results() { return List.of(result); }
+        @Override public List<Value> operands() { return List.of(outputShape); }
+    }
+
+    /** stablehlo.dynamic_pad - Dynamic padding. */
+    public record DynamicPadOp(
+            Value result,
+            Value operand,
+            Value paddingValue,
+            Value edgePaddingLow,
+            Value edgePaddingHigh,
+            Value interiorPadding,
+            TensorType tensorResultType
+    ) implements Operation {
+        @Override public String opName() { return "stablehlo.dynamic_pad"; }
+        @Override public List<Value> results() { return List.of(result); }
+        @Override public List<Value> operands() { return List.of(operand, paddingValue, edgePaddingLow, edgePaddingHigh, interiorPadding); }
+    }
+
+    /** stablehlo.dynamic_reshape - Dynamic reshape. */
+    public record DynamicReshapeOp(
+            Value result,
+            Value operand,
+            Value outputShape,
+            TensorType tensorResultType
+    ) implements Operation {
+        @Override public String opName() { return "stablehlo.dynamic_reshape"; }
+        @Override public List<Value> results() { return List.of(result); }
+        @Override public List<Value> operands() { return List.of(operand, outputShape); }
+    }
+
+    /** stablehlo.dynamic_conv - Dynamic convolution (same as convolution but with dynamic shapes). */
+    public record DynamicConvOp(
+            Value result,
+            Value lhs,
+            Value rhs,
+            Value padding,
+            List<Long> windowStrides,
+            List<Long> lhsDilation,
+            List<Long> rhsDilation,
+            long featureGroupCount,
+            long batchGroupCount,
+            long inputBatchDimension,
+            long inputFeatureDimension,
+            List<Long> inputSpatialDimensions,
+            long kernelInputFeatureDimension,
+            long kernelOutputFeatureDimension,
+            List<Long> kernelSpatialDimensions,
+            long outputBatchDimension,
+            long outputFeatureDimension,
+            List<Long> outputSpatialDimensions,
+            TensorType tensorResultType
+    ) implements Operation {
+        @Override public String opName() { return "stablehlo.dynamic_conv"; }
+        @Override public List<Value> results() { return List.of(result); }
+        @Override public List<Value> operands() { return List.of(lhs, rhs, padding); }
+    }
+
+    /** stablehlo.get_dimension_size - Get tensor dimension size. */
+    public record GetDimensionSizeOp(
+            Value result,
+            Value operand,
+            long dimension,
+            TensorType tensorResultType
+    ) implements Operation {
+        @Override public String opName() { return "stablehlo.get_dimension_size"; }
+        @Override public List<Value> results() { return List.of(result); }
+        @Override public List<Value> operands() { return List.of(operand); }
+    }
+
+    // ==================== Quantization Operations ====================
+
+    /** stablehlo.uniform_quantize - Quantize to uniform quantized type. */
+    public record UniformQuantizeOp(
+            Value result,
+            Value operand,
+            TensorType tensorResultType
+    ) implements Operation {
+        @Override public String opName() { return "stablehlo.uniform_quantize"; }
+        @Override public List<Value> results() { return List.of(result); }
+        @Override public List<Value> operands() { return List.of(operand); }
+    }
+
+    /** stablehlo.uniform_dequantize - Dequantize from uniform quantized type. */
+    public record UniformDequantizeOp(
+            Value result,
+            Value operand,
+            TensorType tensorResultType
+    ) implements Operation {
+        @Override public String opName() { return "stablehlo.uniform_dequantize"; }
+        @Override public List<Value> results() { return List.of(result); }
+        @Override public List<Value> operands() { return List.of(operand); }
+    }
+
+    // ==================== Additional Reduction Operations ====================
+
+    /** stablehlo.reduce_precision - Reduce floating point precision. */
+    public record ReducePrecisionOp(
+            Value result,
+            Value operand,
+            int exponentBits,
+            int mantissaBits,
+            TensorType tensorResultType
+    ) implements Operation {
+        @Override public String opName() { return "stablehlo.reduce_precision"; }
+        @Override public List<Value> results() { return List.of(result); }
+        @Override public List<Value> operands() { return List.of(operand); }
+    }
+
+    /** stablehlo.select_and_scatter - Select and scatter for pooling gradients. */
+    public record SelectAndScatterOp(
+            Value result,
+            Value operand,
+            Value source,
+            Value initValue,
+            List<Long> windowDimensions,
+            List<Long> windowStrides,
+            List<Long> padding,
+            String selectFn,
+            String scatterFn,
+            TensorType tensorResultType
+    ) implements Operation {
+        @Override public String opName() { return "stablehlo.select_and_scatter"; }
+        @Override public List<Value> results() { return List.of(result); }
+        @Override public List<Value> operands() { return List.of(operand, source, initValue); }
+    }
+
+    // ==================== Additional Neural Network Operations ====================
+
+    /** stablehlo.batch_norm_grad - Batch normalization gradient (backward pass). */
+    public record BatchNormGradOp(
+            Value gradOperand,
+            Value gradScale,
+            Value gradOffset,
+            Value operand,
+            Value scale,
+            Value mean,
+            Value variance,
+            Value gradOutput,
+            float epsilon,
+            long featureIndex,
+            TensorType tensorResultType
+    ) implements Operation {
+        @Override public String opName() { return "stablehlo.batch_norm_grad"; }
+        @Override public List<Value> results() { return List.of(gradOperand, gradScale, gradOffset); }
+        @Override public List<Value> operands() { return List.of(operand, scale, mean, variance, gradOutput); }
+    }
+
+    // ==================== Additional Control Flow Operations ====================
+
+    /** stablehlo.case - Multi-way branch. */
+    public record CaseOp(
+            List<Value> results,
+            Value index,
+            List<List<Operation>> branches,
+            TensorType tensorResultType
+    ) implements Operation {
+        @Override public String opName() { return "stablehlo.case"; }
+        @Override public List<Value> operands() { return List.of(index); }
+    }
+
+    /** stablehlo.map - Apply function element-wise. */
+    public record MapOp(
+            Value result,
+            List<Value> inputs,
+            List<Long> dimensions,
+            List<Operation> computation,
+            TensorType tensorResultType
+    ) implements Operation {
+        @Override public String opName() { return "stablehlo.map"; }
+        @Override public List<Value> results() { return List.of(result); }
+        @Override public List<Value> operands() { return inputs; }
+    }
+
+    // ==================== Distributed/Collective Operations ====================
+
+    /** stablehlo.after_all - Synchronization barrier. */
+    public record AfterAllOp(
+            Value result,
+            List<Value> inputs,
+            TensorType tensorResultType
+    ) implements Operation {
+        @Override public String opName() { return "stablehlo.after_all"; }
+        @Override public List<Value> results() { return List.of(result); }
+        @Override public List<Value> operands() { return inputs; }
+    }
+
+    /** stablehlo.all_gather - Collective gather. */
+    public record AllGatherOp(
+            Value result,
+            Value operand,
+            long allGatherDim,
+            List<List<Long>> replicaGroups,
+            long channelId,
+            boolean useGlobalDeviceIds,
+            TensorType tensorResultType
+    ) implements Operation {
+        @Override public String opName() { return "stablehlo.all_gather"; }
+        @Override public List<Value> results() { return List.of(result); }
+        @Override public List<Value> operands() { return List.of(operand); }
+    }
+
+    /** stablehlo.all_reduce - Collective reduction. */
+    public record AllReduceOp(
+            Value result,
+            Value operand,
+            List<List<Long>> replicaGroups,
+            long channelId,
+            boolean useGlobalDeviceIds,
+            String reducer,
+            TensorType tensorResultType
+    ) implements Operation {
+        @Override public String opName() { return "stablehlo.all_reduce"; }
+        @Override public List<Value> results() { return List.of(result); }
+        @Override public List<Value> operands() { return List.of(operand); }
+    }
+
+    /** stablehlo.all_to_all - Collective transpose/shuffle. */
+    public record AllToAllOp(
+            Value result,
+            Value operand,
+            long splitDimension,
+            long concatDimension,
+            long splitCount,
+            List<List<Long>> replicaGroups,
+            long channelId,
+            TensorType tensorResultType
+    ) implements Operation {
+        @Override public String opName() { return "stablehlo.all_to_all"; }
+        @Override public List<Value> results() { return List.of(result); }
+        @Override public List<Value> operands() { return List.of(operand); }
+    }
+
+    /** stablehlo.collective_broadcast - Broadcast to replicas. */
+    public record CollectiveBroadcastOp(
+            Value result,
+            Value operand,
+            List<List<Long>> replicaGroups,
+            long channelId,
+            TensorType tensorResultType
+    ) implements Operation {
+        @Override public String opName() { return "stablehlo.collective_broadcast"; }
+        @Override public List<Value> results() { return List.of(result); }
+        @Override public List<Value> operands() { return List.of(operand); }
+    }
+
+    /** stablehlo.collective_permute - Permute across replicas. */
+    public record CollectivePermuteOp(
+            Value result,
+            Value operand,
+            List<List<Long>> sourceTargetPairs,
+            long channelId,
+            TensorType tensorResultType
+    ) implements Operation {
+        @Override public String opName() { return "stablehlo.collective_permute"; }
+        @Override public List<Value> results() { return List.of(result); }
+        @Override public List<Value> operands() { return List.of(operand); }
+    }
+
+    /** stablehlo.partition_id - Get partition ID. */
+    public record PartitionIdOp(
+            Value result,
+            TensorType tensorResultType
+    ) implements Operation {
+        @Override public String opName() { return "stablehlo.partition_id"; }
+        @Override public List<Value> results() { return List.of(result); }
+        @Override public List<Value> operands() { return List.of(); }
+    }
+
+    /** stablehlo.reduce_scatter - Reduce and scatter. */
+    public record ReduceScatterOp(
+            Value result,
+            Value operand,
+            long scatterDimension,
+            List<List<Long>> replicaGroups,
+            long channelId,
+            boolean useGlobalDeviceIds,
+            String reducer,
+            TensorType tensorResultType
+    ) implements Operation {
+        @Override public String opName() { return "stablehlo.reduce_scatter"; }
+        @Override public List<Value> results() { return List.of(result); }
+        @Override public List<Value> operands() { return List.of(operand); }
+    }
+
+    /** stablehlo.replica_id - Get replica ID. */
+    public record ReplicaIdOp(
+            Value result,
+            TensorType tensorResultType
+    ) implements Operation {
+        @Override public String opName() { return "stablehlo.replica_id"; }
+        @Override public List<Value> results() { return List.of(result); }
+        @Override public List<Value> operands() { return List.of(); }
+    }
+
+    // ==================== Communication Operations ====================
+
+    /** stablehlo.infeed - Receive data from host. */
+    public record InfeedOp(
+            List<Value> results,
+            Value token,
+            String infeedConfig,
+            TensorType tensorResultType
+    ) implements Operation {
+        @Override public String opName() { return "stablehlo.infeed"; }
+        @Override public List<Value> operands() { return List.of(token); }
+    }
+
+    /** stablehlo.outfeed - Send data to host. */
+    public record OutfeedOp(
+            Value result,
+            List<Value> inputs,
+            Value token,
+            String outfeedConfig,
+            TensorType tensorResultType
+    ) implements Operation {
+        @Override public String opName() { return "stablehlo.outfeed"; }
+        @Override public List<Value> results() { return List.of(result); }
+        @Override public List<Value> operands() {
+            var ops = new java.util.ArrayList<>(inputs);
+            ops.add(token);
+            return ops;
+        }
+    }
+
+    /** stablehlo.recv - Receive from channel. */
+    public record RecvOp(
+            List<Value> results,
+            Value token,
+            long channelId,
+            String channelType,
+            TensorType tensorResultType
+    ) implements Operation {
+        @Override public String opName() { return "stablehlo.recv"; }
+        @Override public List<Value> operands() { return List.of(token); }
+    }
+
+    /** stablehlo.send - Send to channel. */
+    public record SendOp(
+            Value result,
+            List<Value> inputs,
+            Value token,
+            long channelId,
+            String channelType,
+            TensorType tensorResultType
+    ) implements Operation {
+        @Override public String opName() { return "stablehlo.send"; }
+        @Override public List<Value> results() { return List.of(result); }
+        @Override public List<Value> operands() {
+            var ops = new java.util.ArrayList<>(inputs);
+            ops.add(token);
+            return ops;
+        }
+    }
+
+    // ==================== Tuple Operations ====================
+
+    /** stablehlo.tuple - Create tuple from values. */
+    public record TupleOp(
+            Value result,
+            List<Value> inputs,
+            TensorType tensorResultType
+    ) implements Operation {
+        @Override public String opName() { return "stablehlo.tuple"; }
+        @Override public List<Value> results() { return List.of(result); }
+        @Override public List<Value> operands() { return inputs; }
+    }
+
+    /** stablehlo.get_tuple_element - Extract element from tuple. */
+    public record GetTupleElementOp(
+            Value result,
+            Value operand,
+            int index,
+            TensorType tensorResultType
+    ) implements Operation {
+        @Override public String opName() { return "stablehlo.get_tuple_element"; }
+        @Override public List<Value> results() { return List.of(result); }
+        @Override public List<Value> operands() { return List.of(operand); }
+    }
+
+    // ==================== Other Operations ====================
+
+    /** stablehlo.optimization_barrier - Prevent optimization across barrier. */
+    public record OptimizationBarrierOp(
+            List<Value> results,
+            List<Value> operands,
+            TensorType tensorResultType
+    ) implements Operation {
+        @Override public String opName() { return "stablehlo.optimization_barrier"; }
+    }
+
+    /** stablehlo.composite - Composite operation (extensibility point). */
+    public record CompositeOp(
+            Value result,
+            List<Value> inputs,
+            String name,
+            String compositeAttributes,
+            String decomposition,
+            long version,
+            TensorType tensorResultType
+    ) implements Operation {
+        @Override public String opName() { return "stablehlo.composite"; }
+        @Override public List<Value> results() { return List.of(result); }
+        @Override public List<Value> operands() { return inputs; }
     }
 
     // ==================== Function and Module ====================

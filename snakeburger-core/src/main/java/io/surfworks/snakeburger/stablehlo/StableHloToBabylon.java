@@ -186,6 +186,46 @@ public final class StableHloToBabylon {
             case RngBitGeneratorOp r -> emitRngBitGenerator(r, valueTypes);
             case CustomCallOp c -> emitCustomCall(c, valueTypes);
             case ReturnOp r -> emitReturn(r);
+            // Dynamic shape operations
+            case DynamicBroadcastInDimOp d -> emitDynamicBroadcastInDim(d, valueTypes);
+            case DynamicGatherOp d -> emitDynamicGather(d, valueTypes);
+            case DynamicIotaOp d -> emitDynamicIota(d, valueTypes);
+            case DynamicPadOp d -> emitDynamicPad(d, valueTypes);
+            case DynamicReshapeOp d -> emitDynamicReshape(d, valueTypes);
+            case DynamicConvOp d -> emitDynamicConv(d, valueTypes);
+            case GetDimensionSizeOp g -> emitGetDimensionSize(g, valueTypes);
+            // Quantization operations
+            case UniformQuantizeOp u -> emitUniformQuantize(u, valueTypes);
+            case UniformDequantizeOp u -> emitUniformDequantize(u, valueTypes);
+            // Additional reduction operations
+            case ReducePrecisionOp r -> emitReducePrecision(r, valueTypes);
+            case SelectAndScatterOp s -> emitSelectAndScatter(s, valueTypes);
+            // Additional neural network operations
+            case BatchNormGradOp b -> emitBatchNormGrad(b, valueTypes);
+            // Additional control flow operations
+            case CaseOp c -> emitCase(c, valueTypes);
+            case MapOp m -> emitMap(m, valueTypes);
+            // Distributed/collective operations
+            case AfterAllOp a -> emitAfterAll(a, valueTypes);
+            case AllGatherOp a -> emitAllGather(a, valueTypes);
+            case AllReduceOp a -> emitAllReduce(a, valueTypes);
+            case AllToAllOp a -> emitAllToAll(a, valueTypes);
+            case CollectiveBroadcastOp c -> emitCollectiveBroadcast(c, valueTypes);
+            case CollectivePermuteOp c -> emitCollectivePermute(c, valueTypes);
+            case PartitionIdOp p -> emitPartitionId(p, valueTypes);
+            case ReduceScatterOp r -> emitReduceScatter(r, valueTypes);
+            case ReplicaIdOp r -> emitReplicaId(r, valueTypes);
+            // Communication operations
+            case InfeedOp i -> emitInfeed(i, valueTypes);
+            case OutfeedOp o -> emitOutfeed(o, valueTypes);
+            case RecvOp r -> emitRecv(r, valueTypes);
+            case SendOp s -> emitSend(s, valueTypes);
+            // Tuple operations
+            case TupleOp t -> emitTuple(t, valueTypes);
+            case GetTupleElementOp g -> emitGetTupleElement(g, valueTypes);
+            // Other operations
+            case OptimizationBarrierOp o -> emitOptimizationBarrier(o, valueTypes);
+            case CompositeOp c -> emitComposite(c, valueTypes);
         };
 
         emitLine("%s", opText);
@@ -707,5 +747,357 @@ public final class StableHloToBabylon {
         }
         sb.append(String.format(format, args));
         sb.append("\n");
+    }
+
+    // ==================== Dynamic Shape Operations ====================
+
+    private String emitDynamicBroadcastInDim(DynamicBroadcastInDimOp op, Map<String, String> valueTypes) {
+        String resultName = op.result().name();
+        String javaType = typeToJavaType(op.tensorResultType());
+        valueTypes.put(resultName, javaType);
+
+        return String.format("%%%-8s = dynamic_broadcast_in_dim %%%s, %%%s dims=%s  // -> %s",
+                resultName, op.operand().name(), op.outputDimensions().name(),
+                op.broadcastDimensions(), shapeToString(op.tensorResultType()));
+    }
+
+    private String emitDynamicGather(DynamicGatherOp op, Map<String, String> valueTypes) {
+        String resultName = op.result().name();
+        String javaType = typeToJavaType(op.tensorResultType());
+        valueTypes.put(resultName, javaType);
+
+        return String.format("%%%-8s = dynamic_gather %%%s[%%%s, %%%s]  // -> %s",
+                resultName, op.operand().name(), op.startIndices().name(),
+                op.sliceSizes().name(), shapeToString(op.tensorResultType()));
+    }
+
+    private String emitDynamicIota(DynamicIotaOp op, Map<String, String> valueTypes) {
+        String resultName = op.result().name();
+        String javaType = typeToJavaType(op.tensorResultType());
+        valueTypes.put(resultName, javaType);
+
+        return String.format("%%%-8s = dynamic_iota %%%s dim=%d  // -> %s",
+                resultName, op.outputShape().name(), op.iotaDimension(),
+                shapeToString(op.tensorResultType()));
+    }
+
+    private String emitDynamicPad(DynamicPadOp op, Map<String, String> valueTypes) {
+        String resultName = op.result().name();
+        String javaType = typeToJavaType(op.tensorResultType());
+        valueTypes.put(resultName, javaType);
+
+        return String.format("%%%-8s = dynamic_pad %%%s with %%%s  // -> %s",
+                resultName, op.operand().name(), op.paddingValue().name(),
+                shapeToString(op.tensorResultType()));
+    }
+
+    private String emitDynamicReshape(DynamicReshapeOp op, Map<String, String> valueTypes) {
+        String resultName = op.result().name();
+        String javaType = typeToJavaType(op.tensorResultType());
+        valueTypes.put(resultName, javaType);
+
+        return String.format("%%%-8s = dynamic_reshape %%%s, %%%s  // -> %s",
+                resultName, op.operand().name(), op.outputShape().name(),
+                shapeToString(op.tensorResultType()));
+    }
+
+    private String emitDynamicConv(DynamicConvOp op, Map<String, String> valueTypes) {
+        String resultName = op.result().name();
+        String javaType = typeToJavaType(op.tensorResultType());
+        valueTypes.put(resultName, javaType);
+
+        return String.format("%%%-8s = dynamic_conv %%%s, %%%s, %%%s  // -> %s",
+                resultName, op.lhs().name(), op.rhs().name(), op.padding().name(),
+                shapeToString(op.tensorResultType()));
+    }
+
+    private String emitGetDimensionSize(GetDimensionSizeOp op, Map<String, String> valueTypes) {
+        String resultName = op.result().name();
+        String javaType = typeToJavaType(op.tensorResultType());
+        valueTypes.put(resultName, javaType);
+
+        return String.format("%%%-8s = get_dimension_size %%%s dim=%d  // -> %s",
+                resultName, op.operand().name(), op.dimension(),
+                shapeToString(op.tensorResultType()));
+    }
+
+    // ==================== Quantization Operations ====================
+
+    private String emitUniformQuantize(UniformQuantizeOp op, Map<String, String> valueTypes) {
+        String resultName = op.result().name();
+        String javaType = typeToJavaType(op.tensorResultType());
+        valueTypes.put(resultName, javaType);
+
+        return String.format("%%%-8s = uniform_quantize %%%s  // -> %s",
+                resultName, op.operand().name(), shapeToString(op.tensorResultType()));
+    }
+
+    private String emitUniformDequantize(UniformDequantizeOp op, Map<String, String> valueTypes) {
+        String resultName = op.result().name();
+        String javaType = typeToJavaType(op.tensorResultType());
+        valueTypes.put(resultName, javaType);
+
+        return String.format("%%%-8s = uniform_dequantize %%%s  // -> %s",
+                resultName, op.operand().name(), shapeToString(op.tensorResultType()));
+    }
+
+    // ==================== Additional Reduction Operations ====================
+
+    private String emitReducePrecision(ReducePrecisionOp op, Map<String, String> valueTypes) {
+        String resultName = op.result().name();
+        String javaType = typeToJavaType(op.tensorResultType());
+        valueTypes.put(resultName, javaType);
+
+        return String.format("%%%-8s = reduce_precision %%%s exp=%d mant=%d  // -> %s",
+                resultName, op.operand().name(), op.exponentBits(), op.mantissaBits(),
+                shapeToString(op.tensorResultType()));
+    }
+
+    private String emitSelectAndScatter(SelectAndScatterOp op, Map<String, String> valueTypes) {
+        String resultName = op.result().name();
+        String javaType = typeToJavaType(op.tensorResultType());
+        valueTypes.put(resultName, javaType);
+
+        return String.format("%%%-8s = select_and_scatter<%s,%s> %%%s, %%%s, %%%s  // -> %s",
+                resultName, op.selectFn(), op.scatterFn(),
+                op.operand().name(), op.source().name(), op.initValue().name(),
+                shapeToString(op.tensorResultType()));
+    }
+
+    // ==================== Additional Neural Network Operations ====================
+
+    private String emitBatchNormGrad(BatchNormGradOp op, Map<String, String> valueTypes) {
+        String resultName = op.gradOperand().name();
+        String javaType = typeToJavaType(op.tensorResultType());
+        valueTypes.put(resultName, javaType);
+
+        return String.format("%%%-8s = batch_norm_grad %%%s eps=%.6f feature=%d  // -> 3 outputs",
+                resultName, op.operand().name(), op.epsilon(), op.featureIndex());
+    }
+
+    // ==================== Additional Control Flow Operations ====================
+
+    private String emitCase(CaseOp op, Map<String, String> valueTypes) {
+        String resultName = op.results().isEmpty() ? "void" : op.results().get(0).name();
+        if (!op.results().isEmpty()) {
+            String javaType = typeToJavaType(op.tensorResultType());
+            valueTypes.put(resultName, javaType);
+        }
+
+        return String.format("%%%-8s = case %%%s [%d branches]",
+                resultName, op.index().name(), op.branches().size());
+    }
+
+    private String emitMap(MapOp op, Map<String, String> valueTypes) {
+        String resultName = op.result().name();
+        String javaType = typeToJavaType(op.tensorResultType());
+        valueTypes.put(resultName, javaType);
+
+        StringBuilder inputs = new StringBuilder();
+        for (int i = 0; i < op.inputs().size(); i++) {
+            if (i > 0) inputs.append(", ");
+            inputs.append("%").append(op.inputs().get(i).name());
+        }
+
+        return String.format("%%%-8s = map %s dims=%s  // -> %s",
+                resultName, inputs, op.dimensions(), shapeToString(op.tensorResultType()));
+    }
+
+    // ==================== Distributed/Collective Operations ====================
+
+    private String emitAfterAll(AfterAllOp op, Map<String, String> valueTypes) {
+        String resultName = op.result().name();
+        String javaType = typeToJavaType(op.tensorResultType());
+        valueTypes.put(resultName, javaType);
+
+        StringBuilder inputs = new StringBuilder();
+        for (int i = 0; i < op.inputs().size(); i++) {
+            if (i > 0) inputs.append(", ");
+            inputs.append("%").append(op.inputs().get(i).name());
+        }
+
+        return String.format("%%%-8s = after_all %s  // barrier",
+                resultName, inputs);
+    }
+
+    private String emitAllGather(AllGatherOp op, Map<String, String> valueTypes) {
+        String resultName = op.result().name();
+        String javaType = typeToJavaType(op.tensorResultType());
+        valueTypes.put(resultName, javaType);
+
+        return String.format("%%%-8s = all_gather %%%s dim=%d  // -> %s",
+                resultName, op.operand().name(), op.allGatherDim(),
+                shapeToString(op.tensorResultType()));
+    }
+
+    private String emitAllReduce(AllReduceOp op, Map<String, String> valueTypes) {
+        String resultName = op.result().name();
+        String javaType = typeToJavaType(op.tensorResultType());
+        valueTypes.put(resultName, javaType);
+
+        return String.format("%%%-8s = all_reduce<%s> %%%s  // -> %s",
+                resultName, op.reducer(), op.operand().name(),
+                shapeToString(op.tensorResultType()));
+    }
+
+    private String emitAllToAll(AllToAllOp op, Map<String, String> valueTypes) {
+        String resultName = op.result().name();
+        String javaType = typeToJavaType(op.tensorResultType());
+        valueTypes.put(resultName, javaType);
+
+        return String.format("%%%-8s = all_to_all %%%s split=%d concat=%d  // -> %s",
+                resultName, op.operand().name(), op.splitDimension(), op.concatDimension(),
+                shapeToString(op.tensorResultType()));
+    }
+
+    private String emitCollectiveBroadcast(CollectiveBroadcastOp op, Map<String, String> valueTypes) {
+        String resultName = op.result().name();
+        String javaType = typeToJavaType(op.tensorResultType());
+        valueTypes.put(resultName, javaType);
+
+        return String.format("%%%-8s = collective_broadcast %%%s  // -> %s",
+                resultName, op.operand().name(), shapeToString(op.tensorResultType()));
+    }
+
+    private String emitCollectivePermute(CollectivePermuteOp op, Map<String, String> valueTypes) {
+        String resultName = op.result().name();
+        String javaType = typeToJavaType(op.tensorResultType());
+        valueTypes.put(resultName, javaType);
+
+        return String.format("%%%-8s = collective_permute %%%s  // -> %s",
+                resultName, op.operand().name(), shapeToString(op.tensorResultType()));
+    }
+
+    private String emitPartitionId(PartitionIdOp op, Map<String, String> valueTypes) {
+        String resultName = op.result().name();
+        String javaType = typeToJavaType(op.tensorResultType());
+        valueTypes.put(resultName, javaType);
+
+        return String.format("%%%-8s = partition_id  // -> %s",
+                resultName, shapeToString(op.tensorResultType()));
+    }
+
+    private String emitReduceScatter(ReduceScatterOp op, Map<String, String> valueTypes) {
+        String resultName = op.result().name();
+        String javaType = typeToJavaType(op.tensorResultType());
+        valueTypes.put(resultName, javaType);
+
+        return String.format("%%%-8s = reduce_scatter<%s> %%%s dim=%d  // -> %s",
+                resultName, op.reducer(), op.operand().name(), op.scatterDimension(),
+                shapeToString(op.tensorResultType()));
+    }
+
+    private String emitReplicaId(ReplicaIdOp op, Map<String, String> valueTypes) {
+        String resultName = op.result().name();
+        String javaType = typeToJavaType(op.tensorResultType());
+        valueTypes.put(resultName, javaType);
+
+        return String.format("%%%-8s = replica_id  // -> %s",
+                resultName, shapeToString(op.tensorResultType()));
+    }
+
+    // ==================== Communication Operations ====================
+
+    private String emitInfeed(InfeedOp op, Map<String, String> valueTypes) {
+        String resultName = op.results().isEmpty() ? "void" : op.results().get(0).name();
+        if (!op.results().isEmpty()) {
+            String javaType = typeToJavaType(op.tensorResultType());
+            valueTypes.put(resultName, javaType);
+        }
+
+        return String.format("%%%-8s = infeed %%%s config=\"%s\"  // host -> device",
+                resultName, op.token().name(), op.infeedConfig());
+    }
+
+    private String emitOutfeed(OutfeedOp op, Map<String, String> valueTypes) {
+        String resultName = op.result().name();
+        String javaType = typeToJavaType(op.tensorResultType());
+        valueTypes.put(resultName, javaType);
+
+        return String.format("%%%-8s = outfeed %%%s config=\"%s\"  // device -> host",
+                resultName, op.token().name(), op.outfeedConfig());
+    }
+
+    private String emitRecv(RecvOp op, Map<String, String> valueTypes) {
+        String resultName = op.results().isEmpty() ? "void" : op.results().get(0).name();
+        if (!op.results().isEmpty()) {
+            String javaType = typeToJavaType(op.tensorResultType());
+            valueTypes.put(resultName, javaType);
+        }
+
+        return String.format("%%%-8s = recv %%%s channel=%d  // -> %s",
+                resultName, op.token().name(), op.channelId(),
+                shapeToString(op.tensorResultType()));
+    }
+
+    private String emitSend(SendOp op, Map<String, String> valueTypes) {
+        String resultName = op.result().name();
+        String javaType = typeToJavaType(op.tensorResultType());
+        valueTypes.put(resultName, javaType);
+
+        return String.format("%%%-8s = send %%%s channel=%d  // token",
+                resultName, op.token().name(), op.channelId());
+    }
+
+    // ==================== Tuple Operations ====================
+
+    private String emitTuple(TupleOp op, Map<String, String> valueTypes) {
+        String resultName = op.result().name();
+        String javaType = typeToJavaType(op.tensorResultType());
+        valueTypes.put(resultName, javaType);
+
+        StringBuilder inputs = new StringBuilder();
+        for (int i = 0; i < op.inputs().size(); i++) {
+            if (i > 0) inputs.append(", ");
+            inputs.append("%").append(op.inputs().get(i).name());
+        }
+
+        return String.format("%%%-8s = tuple %s  // -> tuple<%d>",
+                resultName, inputs, op.inputs().size());
+    }
+
+    private String emitGetTupleElement(GetTupleElementOp op, Map<String, String> valueTypes) {
+        String resultName = op.result().name();
+        String javaType = typeToJavaType(op.tensorResultType());
+        valueTypes.put(resultName, javaType);
+
+        return String.format("%%%-8s = get_tuple_element %%%s index=%d  // -> %s",
+                resultName, op.operand().name(), op.index(),
+                shapeToString(op.tensorResultType()));
+    }
+
+    // ==================== Other Operations ====================
+
+    private String emitOptimizationBarrier(OptimizationBarrierOp op, Map<String, String> valueTypes) {
+        String resultName = op.results().isEmpty() ? "void" : op.results().get(0).name();
+        if (!op.results().isEmpty()) {
+            String javaType = typeToJavaType(op.tensorResultType());
+            valueTypes.put(resultName, javaType);
+        }
+
+        StringBuilder inputs = new StringBuilder();
+        for (int i = 0; i < op.operands().size(); i++) {
+            if (i > 0) inputs.append(", ");
+            inputs.append("%").append(op.operands().get(i).name());
+        }
+
+        return String.format("%%%-8s = optimization_barrier %s  // pass-through",
+                resultName, inputs);
+    }
+
+    private String emitComposite(CompositeOp op, Map<String, String> valueTypes) {
+        String resultName = op.result().name();
+        String javaType = typeToJavaType(op.tensorResultType());
+        valueTypes.put(resultName, javaType);
+
+        StringBuilder inputs = new StringBuilder();
+        for (int i = 0; i < op.inputs().size(); i++) {
+            if (i > 0) inputs.append(", ");
+            inputs.append("%").append(op.inputs().get(i).name());
+        }
+
+        return String.format("%%%-8s = composite \"%s\" %s version=%d  // -> %s",
+                resultName, op.name(), inputs, op.version(),
+                shapeToString(op.tensorResultType()));
     }
 }

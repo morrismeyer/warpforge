@@ -180,6 +180,46 @@ public final class StableHloTypeChecker {
             case ConstantOp ignored -> {} // Constants are always valid
             case ReturnOp ignored -> {} // Validated separately
             case CustomCallOp ignored -> {} // Custom calls are opaque
+            // Dynamic shape operations
+            case DynamicBroadcastInDimOp o -> {} // Complex validation, skip for now
+            case DynamicGatherOp o -> {} // Complex validation, skip for now
+            case DynamicIotaOp o -> {} // Complex validation, skip for now
+            case DynamicPadOp o -> {} // Complex validation, skip for now
+            case DynamicReshapeOp o -> {} // Complex validation, skip for now
+            case DynamicConvOp o -> {} // Complex validation, skip for now
+            case GetDimensionSizeOp o -> {} // Complex validation, skip for now
+            // Quantization operations
+            case UniformQuantizeOp o -> validateConvert(new ConvertOp(o.result(), o.operand(), o.tensorResultType()));
+            case UniformDequantizeOp o -> validateConvert(new ConvertOp(o.result(), o.operand(), o.tensorResultType()));
+            // Additional reduction operations
+            case ReducePrecisionOp o -> validateUnaryElementwise(o, o.operand(), o.tensorResultType());
+            case SelectAndScatterOp o -> {} // Complex validation, skip for now
+            // Additional neural network operations
+            case BatchNormGradOp o -> {} // Complex validation, skip for now
+            // Additional control flow operations
+            case CaseOp o -> {} // Complex validation, skip for now
+            case MapOp o -> {} // Complex validation, skip for now
+            // Distributed/collective operations
+            case AfterAllOp o -> {} // Complex validation, skip for now
+            case AllGatherOp o -> {} // Complex validation, skip for now
+            case AllReduceOp o -> validateUnaryElementwise(o, o.operand(), o.tensorResultType());
+            case AllToAllOp o -> {} // Complex validation, skip for now
+            case CollectiveBroadcastOp o -> {} // Complex validation, skip for now
+            case CollectivePermuteOp o -> {} // Complex validation, skip for now
+            case PartitionIdOp o -> {} // No operands to validate
+            case ReduceScatterOp o -> {} // Complex validation, skip for now
+            case ReplicaIdOp o -> {} // No operands to validate
+            // Communication operations
+            case InfeedOp o -> {} // Complex validation, skip for now
+            case OutfeedOp o -> {} // Complex validation, skip for now
+            case RecvOp o -> {} // Complex validation, skip for now
+            case SendOp o -> {} // Complex validation, skip for now
+            // Tuple operations
+            case TupleOp o -> {} // Complex validation, skip for now
+            case GetTupleElementOp o -> {} // Complex validation, skip for now
+            // Other operations
+            case OptimizationBarrierOp o -> {} // Pass-through, no validation needed
+            case CompositeOp o -> {} // Opaque, no validation needed
         }
     }
 

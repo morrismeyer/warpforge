@@ -19,14 +19,18 @@ application {
   ]
 }
 
+import org.gradle.jvm.toolchain.JvmVendorSpec
+
 java {
   toolchain {
     languageVersion = JavaLanguageVersion.of(25)
+    vendor = JvmVendorSpec.matching("GraalVM")
   }
 }
 
 def j25Launcher = javaToolchains.launcherFor {
   languageVersion = JavaLanguageVersion.of(25)
+  vendor = JvmVendorSpec.matching("GraalVM")
 }
 
 tasks.withType(JavaExec).configureEach {
@@ -37,12 +41,49 @@ tasks.withType(Test).configureEach {
   javaLauncher.set(j25Launcher)
 }
 
+// Fix broken native-image symlink in Gradle-provisioned GraalVM
+// Gradle auto-provisions GraalVM with a 0-byte native-image placeholder instead of a proper symlink
+tasks.register('fixNativeImageSymlink') {
+  description = 'Fixes broken native-image symlink in Gradle-provisioned GraalVM'
+  doLast {
+    def launcher = j25Launcher.get()
+    def javaHome = launcher.metadata.installationPath.asFile
+    def binNativeImage = new File(javaHome, 'bin/native-image')
+    def svmNativeImage = new File(javaHome, 'lib/svm/bin/native-image')
+
+    if (!svmNativeImage.exists()) {
+      logger.warn("No native-image found at ${svmNativeImage} - skipping symlink fix")
+      return
+    }
+
+    // Fix if bin/native-image is missing, empty, or not a working symlink
+    def needsFix = !binNativeImage.exists() ||
+                   (binNativeImage.isFile() && binNativeImage.length() == 0) ||
+                   (!binNativeImage.canExecute() && !java.nio.file.Files.isSymbolicLink(binNativeImage.toPath()))
+
+    if (needsFix) {
+      logger.lifecycle("Fixing broken native-image symlink in ${javaHome}")
+      binNativeImage.delete()
+      java.nio.file.Files.createSymbolicLink(
+        binNativeImage.toPath(),
+        binNativeImage.parentFile.toPath().relativize(svmNativeImage.toPath())
+      )
+      logger.lifecycle("Created symlink: ${binNativeImage} -> ${svmNativeImage}")
+    }
+  }
+}
+
+tasks.named('nativeCompile') {
+  dependsOn 'fixNativeImageSymlink'
+}
+
 // Native image configuration for GraalPy embedding
 graalvmNative {
   binaries {
     main {
       imageName = 'snakegrinder'
       mainClass = 'io.surfworks.snakegrinder.cli.SnakeGrinderCli'
+      javaLauncher.set(j25Launcher)
 
       // Native image build options
       buildArgs.addAll([

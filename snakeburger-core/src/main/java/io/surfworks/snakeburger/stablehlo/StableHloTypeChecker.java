@@ -92,37 +92,83 @@ public final class StableHloTypeChecker {
         // Operation-specific validation
         switch (op) {
             case DotGeneralOp dotOp -> validateDotGeneral(dotOp);
-            // Binary elementwise ops
-            case AddOp addOp -> validateBinaryElementwise(addOp, addOp.lhs(), addOp.rhs(), addOp.tensorResultType());
-            case SubtractOp subOp -> validateBinaryElementwise(subOp, subOp.lhs(), subOp.rhs(), subOp.tensorResultType());
-            case MultiplyOp mulOp -> validateBinaryElementwise(mulOp, mulOp.lhs(), mulOp.rhs(), mulOp.tensorResultType());
-            case DivideOp divOp -> validateBinaryElementwise(divOp, divOp.lhs(), divOp.rhs(), divOp.tensorResultType());
-            case MaximumOp maxOp -> validateBinaryElementwise(maxOp, maxOp.lhs(), maxOp.rhs(), maxOp.tensorResultType());
-            case MinimumOp minOp -> validateBinaryElementwise(minOp, minOp.lhs(), minOp.rhs(), minOp.tensorResultType());
-            // Unary elementwise ops
-            case NegateOp negOp -> validateUnaryElementwise(negOp, negOp.operand(), negOp.tensorResultType());
-            case AbsOp absOp -> validateUnaryElementwise(absOp, absOp.operand(), absOp.tensorResultType());
-            case ExpOp expOp -> validateUnaryElementwise(expOp, expOp.operand(), expOp.tensorResultType());
-            case LogOp logOp -> validateUnaryElementwise(logOp, logOp.operand(), logOp.tensorResultType());
-            case TanhOp tanhOp -> validateUnaryElementwise(tanhOp, tanhOp.operand(), tanhOp.tensorResultType());
-            case SqrtOp sqrtOp -> validateUnaryElementwise(sqrtOp, sqrtOp.operand(), sqrtOp.tensorResultType());
-            case RsqrtOp rsqrtOp -> validateUnaryElementwise(rsqrtOp, rsqrtOp.operand(), rsqrtOp.tensorResultType());
+            // Binary arithmetic ops
+            case AddOp o -> validateBinaryElementwise(o, o.lhs(), o.rhs(), o.tensorResultType());
+            case SubtractOp o -> validateBinaryElementwise(o, o.lhs(), o.rhs(), o.tensorResultType());
+            case MultiplyOp o -> validateBinaryElementwise(o, o.lhs(), o.rhs(), o.tensorResultType());
+            case DivideOp o -> validateBinaryElementwise(o, o.lhs(), o.rhs(), o.tensorResultType());
+            case MaximumOp o -> validateBinaryElementwise(o, o.lhs(), o.rhs(), o.tensorResultType());
+            case MinimumOp o -> validateBinaryElementwise(o, o.lhs(), o.rhs(), o.tensorResultType());
+            case PowerOp o -> validateBinaryElementwise(o, o.lhs(), o.rhs(), o.tensorResultType());
+            case RemainderOp o -> validateBinaryElementwise(o, o.lhs(), o.rhs(), o.tensorResultType());
+            case Atan2Op o -> validateBinaryElementwise(o, o.lhs(), o.rhs(), o.tensorResultType());
+            // Binary logical/bitwise ops
+            case AndOp o -> validateBinaryElementwise(o, o.lhs(), o.rhs(), o.tensorResultType());
+            case OrOp o -> validateBinaryElementwise(o, o.lhs(), o.rhs(), o.tensorResultType());
+            case XorOp o -> validateBinaryElementwise(o, o.lhs(), o.rhs(), o.tensorResultType());
+            case ShiftLeftOp o -> validateBinaryElementwise(o, o.lhs(), o.rhs(), o.tensorResultType());
+            case ShiftRightArithmeticOp o -> validateBinaryElementwise(o, o.lhs(), o.rhs(), o.tensorResultType());
+            case ShiftRightLogicalOp o -> validateBinaryElementwise(o, o.lhs(), o.rhs(), o.tensorResultType());
+            // Unary math ops
+            case NegateOp o -> validateUnaryElementwise(o, o.operand(), o.tensorResultType());
+            case AbsOp o -> validateUnaryElementwise(o, o.operand(), o.tensorResultType());
+            case ExpOp o -> validateUnaryElementwise(o, o.operand(), o.tensorResultType());
+            case LogOp o -> validateUnaryElementwise(o, o.operand(), o.tensorResultType());
+            case TanhOp o -> validateUnaryElementwise(o, o.operand(), o.tensorResultType());
+            case SqrtOp o -> validateUnaryElementwise(o, o.operand(), o.tensorResultType());
+            case RsqrtOp o -> validateUnaryElementwise(o, o.operand(), o.tensorResultType());
+            case SinOp o -> validateUnaryElementwise(o, o.operand(), o.tensorResultType());
+            case CosOp o -> validateUnaryElementwise(o, o.operand(), o.tensorResultType());
+            case TanOp o -> validateUnaryElementwise(o, o.operand(), o.tensorResultType());
+            case CeilOp o -> validateUnaryElementwise(o, o.operand(), o.tensorResultType());
+            case FloorOp o -> validateUnaryElementwise(o, o.operand(), o.tensorResultType());
+            case SignOp o -> validateUnaryElementwise(o, o.operand(), o.tensorResultType());
+            case LogisticOp o -> validateUnaryElementwise(o, o.operand(), o.tensorResultType());
+            case Expm1Op o -> validateUnaryElementwise(o, o.operand(), o.tensorResultType());
+            case Log1pOp o -> validateUnaryElementwise(o, o.operand(), o.tensorResultType());
+            case CbrtOp o -> validateUnaryElementwise(o, o.operand(), o.tensorResultType());
+            case IsFiniteOp o -> validateIsFinite(o);
+            case PopcntOp o -> validateUnaryElementwise(o, o.operand(), o.tensorResultType());
+            case ClzOp o -> validateUnaryElementwise(o, o.operand(), o.tensorResultType());
+            case RoundNearestEvenOp o -> validateUnaryElementwise(o, o.operand(), o.tensorResultType());
+            case RoundNearestAfzOp o -> validateUnaryElementwise(o, o.operand(), o.tensorResultType());
+            case NotOp o -> validateUnaryElementwise(o, o.operand(), o.tensorResultType());
             // Shape ops
             case ReshapeOp reshapeOp -> validateReshape(reshapeOp);
             case TransposeOp transposeOp -> validateTranspose(transposeOp);
             case BroadcastInDimOp broadcastOp -> validateBroadcastInDim(broadcastOp);
             case ConcatenateOp concatOp -> validateConcatenate(concatOp);
             case SliceOp sliceOp -> validateSlice(sliceOp);
+            case ReverseOp o -> validateReverse(o);
+            case PadOp o -> validatePad(o);
+            case IotaOp o -> {} // Iota has no operands to validate
+            case GatherOp o -> {} // Complex validation, skip for now
+            case ScatterOp o -> {} // Complex validation, skip for now
+            case DynamicSliceOp o -> {} // Complex validation, skip for now
+            case DynamicUpdateSliceOp o -> {} // Complex validation, skip for now
             // Conditional ops
             case CompareOp compareOp -> validateCompare(compareOp);
             case SelectOp selectOp -> validateSelect(selectOp);
             case ClampOp clampOp -> validateClamp(clampOp);
             // Type conversion
             case ConvertOp convertOp -> validateConvert(convertOp);
+            case BitcastConvertOp o -> validateConvert(new ConvertOp(o.result(), o.operand(), o.tensorResultType()));
+            // Reduction
+            case ReduceOp reduceOp -> validateReduce(reduceOp);
+            case ReduceWindowOp o -> {} // Complex validation, skip for now
+            // Convolution and neural network
+            case ConvolutionOp o -> {} // Complex validation, skip for now
+            case BatchNormTrainingOp o -> {} // Complex validation, skip for now
+            case BatchNormInferenceOp o -> {} // Complex validation, skip for now
+            // Control flow
+            case IfOp o -> {} // Complex validation, skip for now
+            case WhileOp o -> {} // Complex validation, skip for now
             // Other
+            case SortOp o -> {} // Complex validation, skip for now
+            case RngOp o -> {} // Complex validation, skip for now
+            case RngBitGeneratorOp o -> {} // Complex validation, skip for now
             case ConstantOp ignored -> {} // Constants are always valid
             case ReturnOp ignored -> {} // Validated separately
-            case ReduceOp reduceOp -> validateReduce(reduceOp);
             case CustomCallOp ignored -> {} // Custom calls are opaque
         }
     }
@@ -631,6 +677,98 @@ public final class StableHloTypeChecker {
                     op.tensorResultType().toMlirString(), operandTensor.toMlirString());
         }
         // Element type can differ (that's the point of convert)
+    }
+
+    private void validateIsFinite(IsFiniteOp op) {
+        if (!(op.operand().type() instanceof TensorType operandTensor)) {
+            error("is_finite operand must be tensor type");
+            return;
+        }
+
+        // Operand must be floating point
+        if (!operandTensor.elementType().isFloatingPoint()) {
+            error("is_finite operand must have floating point element type, got %s",
+                    operandTensor.elementType().toMlirString());
+        }
+
+        // Result must have same shape but i1 element type
+        TensorType resultType = op.tensorResultType();
+        if (!resultType.shape().equals(operandTensor.shape())) {
+            error("is_finite result shape %s must match operand shape %s",
+                    resultType.toMlirString(), operandTensor.toMlirString());
+        }
+        if (!resultType.elementType().equals(ScalarType.I1)) {
+            error("is_finite result must have element type i1, got %s",
+                    resultType.elementType().toMlirString());
+        }
+    }
+
+    private void validateReverse(ReverseOp op) {
+        if (!(op.operand().type() instanceof TensorType operandTensor)) {
+            error("reverse operand must be tensor type");
+            return;
+        }
+
+        // Validate dimensions are in range
+        for (Long dim : op.dimensions()) {
+            if (dim < 0 || dim >= operandTensor.rank()) {
+                error("reverse dimension %d out of range for operand rank %d", dim, operandTensor.rank());
+            }
+        }
+
+        // Result must match operand (reverse preserves shape)
+        if (!op.tensorResultType().equals(operandTensor)) {
+            error("reverse result type %s must match operand type %s",
+                    op.tensorResultType().toMlirString(), operandTensor.toMlirString());
+        }
+    }
+
+    private void validatePad(PadOp op) {
+        if (!(op.operand().type() instanceof TensorType operandTensor)) {
+            error("pad operand must be tensor type");
+            return;
+        }
+
+        int rank = operandTensor.rank();
+
+        // Padding arrays must match rank
+        if (op.edgePaddingLow().size() != rank) {
+            error("pad edge_padding_low size %d must match operand rank %d",
+                    op.edgePaddingLow().size(), rank);
+        }
+        if (op.edgePaddingHigh().size() != rank) {
+            error("pad edge_padding_high size %d must match operand rank %d",
+                    op.edgePaddingHigh().size(), rank);
+        }
+        if (op.interiorPadding().size() != rank) {
+            error("pad interior_padding size %d must match operand rank %d",
+                    op.interiorPadding().size(), rank);
+        }
+
+        // Interior padding must be non-negative
+        for (int i = 0; i < op.interiorPadding().size(); i++) {
+            if (op.interiorPadding().get(i) < 0) {
+                error("pad interior_padding[%d]=%d must be non-negative", i, op.interiorPadding().get(i));
+            }
+        }
+
+        // Compute and validate result shape
+        List<Integer> expectedShape = new ArrayList<>();
+        for (int i = 0; i < rank; i++) {
+            long low = op.edgePaddingLow().get(i);
+            long high = op.edgePaddingHigh().get(i);
+            long interior = op.interiorPadding().get(i);
+            int operandDim = operandTensor.dim(i);
+            // Result dim = low + operandDim + interior * (operandDim - 1) + high
+            long resultDim = low + operandDim + interior * Math.max(0, operandDim - 1) + high;
+            expectedShape.add((int) resultDim);
+        }
+
+        if (!op.tensorResultType().shape().equals(expectedShape)) {
+            error("pad result shape %s doesn't match expected %s",
+                    op.tensorResultType().toMlirString(),
+                    new TensorType(expectedShape, operandTensor.elementType()).toMlirString());
+        }
     }
 
     private void validateReturnTypes(ReturnOp returnOp, Function function) {

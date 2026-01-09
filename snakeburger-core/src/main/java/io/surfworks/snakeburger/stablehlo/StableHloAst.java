@@ -243,11 +243,35 @@ public final class StableHloAst {
      * Base interface for all StableHLO operations.
      */
     public sealed interface Operation permits
-            DotGeneralOp, ConstantOp, MaximumOp, MinimumOp, AddOp, SubtractOp,
-            MultiplyOp, DivideOp, NegateOp, AbsOp, ExpOp, LogOp, TanhOp,
-            SqrtOp, RsqrtOp, ReshapeOp, TransposeOp, ReturnOp, BroadcastInDimOp,
-            ReduceOp, CompareOp, SelectOp, ConcatenateOp, SliceOp, ClampOp,
-            ConvertOp, CustomCallOp {
+            // Core ops
+            DotGeneralOp, ConstantOp, ReturnOp, CustomCallOp,
+            // Binary arithmetic
+            AddOp, SubtractOp, MultiplyOp, DivideOp, MaximumOp, MinimumOp,
+            PowerOp, RemainderOp, Atan2Op,
+            // Unary math
+            NegateOp, AbsOp, ExpOp, LogOp, TanhOp, SqrtOp, RsqrtOp,
+            SinOp, CosOp, TanOp, CeilOp, FloorOp, SignOp, LogisticOp,
+            Expm1Op, Log1pOp, CbrtOp, IsFiniteOp, PopcntOp, ClzOp,
+            RoundNearestEvenOp, RoundNearestAfzOp,
+            // Logical/bitwise
+            NotOp, AndOp, OrOp, XorOp,
+            ShiftLeftOp, ShiftRightArithmeticOp, ShiftRightLogicalOp,
+            // Comparison and selection
+            CompareOp, SelectOp, ClampOp,
+            // Shape manipulation
+            ReshapeOp, TransposeOp, BroadcastInDimOp, ConcatenateOp, SliceOp,
+            ReverseOp, PadOp, IotaOp, GatherOp, ScatterOp,
+            DynamicSliceOp, DynamicUpdateSliceOp,
+            // Type conversion
+            ConvertOp, BitcastConvertOp,
+            // Reduction
+            ReduceOp, ReduceWindowOp,
+            // Convolution and neural network
+            ConvolutionOp, BatchNormTrainingOp, BatchNormInferenceOp,
+            // Control flow
+            IfOp, WhileOp,
+            // Other
+            SortOp, RngOp, RngBitGeneratorOp {
 
         String opName();
         List<Value> results();
@@ -407,6 +431,69 @@ public final class StableHloAst {
         public List<Value> operands() { return List.of(lhs, rhs); }
     }
 
+    /** stablehlo.power - Element-wise power (x^y). */
+    public record PowerOp(Value result, Value lhs, Value rhs, TensorType tensorResultType) implements Operation {
+        @Override public String opName() { return "stablehlo.power"; }
+        @Override public List<Value> results() { return List.of(result); }
+        @Override public List<Value> operands() { return List.of(lhs, rhs); }
+    }
+
+    /** stablehlo.remainder - Element-wise remainder (modulo). */
+    public record RemainderOp(Value result, Value lhs, Value rhs, TensorType tensorResultType) implements Operation {
+        @Override public String opName() { return "stablehlo.remainder"; }
+        @Override public List<Value> results() { return List.of(result); }
+        @Override public List<Value> operands() { return List.of(lhs, rhs); }
+    }
+
+    /** stablehlo.atan2 - Element-wise arctangent of y/x. */
+    public record Atan2Op(Value result, Value lhs, Value rhs, TensorType tensorResultType) implements Operation {
+        @Override public String opName() { return "stablehlo.atan2"; }
+        @Override public List<Value> results() { return List.of(result); }
+        @Override public List<Value> operands() { return List.of(lhs, rhs); }
+    }
+
+    /** stablehlo.and - Element-wise logical/bitwise AND. */
+    public record AndOp(Value result, Value lhs, Value rhs, TensorType tensorResultType) implements Operation {
+        @Override public String opName() { return "stablehlo.and"; }
+        @Override public List<Value> results() { return List.of(result); }
+        @Override public List<Value> operands() { return List.of(lhs, rhs); }
+    }
+
+    /** stablehlo.or - Element-wise logical/bitwise OR. */
+    public record OrOp(Value result, Value lhs, Value rhs, TensorType tensorResultType) implements Operation {
+        @Override public String opName() { return "stablehlo.or"; }
+        @Override public List<Value> results() { return List.of(result); }
+        @Override public List<Value> operands() { return List.of(lhs, rhs); }
+    }
+
+    /** stablehlo.xor - Element-wise logical/bitwise XOR. */
+    public record XorOp(Value result, Value lhs, Value rhs, TensorType tensorResultType) implements Operation {
+        @Override public String opName() { return "stablehlo.xor"; }
+        @Override public List<Value> results() { return List.of(result); }
+        @Override public List<Value> operands() { return List.of(lhs, rhs); }
+    }
+
+    /** stablehlo.shift_left - Element-wise left shift. */
+    public record ShiftLeftOp(Value result, Value lhs, Value rhs, TensorType tensorResultType) implements Operation {
+        @Override public String opName() { return "stablehlo.shift_left"; }
+        @Override public List<Value> results() { return List.of(result); }
+        @Override public List<Value> operands() { return List.of(lhs, rhs); }
+    }
+
+    /** stablehlo.shift_right_arithmetic - Element-wise arithmetic right shift. */
+    public record ShiftRightArithmeticOp(Value result, Value lhs, Value rhs, TensorType tensorResultType) implements Operation {
+        @Override public String opName() { return "stablehlo.shift_right_arithmetic"; }
+        @Override public List<Value> results() { return List.of(result); }
+        @Override public List<Value> operands() { return List.of(lhs, rhs); }
+    }
+
+    /** stablehlo.shift_right_logical - Element-wise logical right shift. */
+    public record ShiftRightLogicalOp(Value result, Value lhs, Value rhs, TensorType tensorResultType) implements Operation {
+        @Override public String opName() { return "stablehlo.shift_right_logical"; }
+        @Override public List<Value> results() { return List.of(result); }
+        @Override public List<Value> operands() { return List.of(lhs, rhs); }
+    }
+
     /**
      * stablehlo.negate - Element-wise negation.
      */
@@ -531,6 +618,118 @@ public final class StableHloAst {
 
         @Override
         public List<Value> operands() { return List.of(operand); }
+    }
+
+    /** stablehlo.sine - Element-wise sine. */
+    public record SinOp(Value result, Value operand, TensorType tensorResultType) implements Operation {
+        @Override public String opName() { return "stablehlo.sine"; }
+        @Override public List<Value> results() { return List.of(result); }
+        @Override public List<Value> operands() { return List.of(operand); }
+    }
+
+    /** stablehlo.cosine - Element-wise cosine. */
+    public record CosOp(Value result, Value operand, TensorType tensorResultType) implements Operation {
+        @Override public String opName() { return "stablehlo.cosine"; }
+        @Override public List<Value> results() { return List.of(result); }
+        @Override public List<Value> operands() { return List.of(operand); }
+    }
+
+    /** stablehlo.tan - Element-wise tangent. */
+    public record TanOp(Value result, Value operand, TensorType tensorResultType) implements Operation {
+        @Override public String opName() { return "stablehlo.tan"; }
+        @Override public List<Value> results() { return List.of(result); }
+        @Override public List<Value> operands() { return List.of(operand); }
+    }
+
+    /** stablehlo.ceil - Element-wise ceiling. */
+    public record CeilOp(Value result, Value operand, TensorType tensorResultType) implements Operation {
+        @Override public String opName() { return "stablehlo.ceil"; }
+        @Override public List<Value> results() { return List.of(result); }
+        @Override public List<Value> operands() { return List.of(operand); }
+    }
+
+    /** stablehlo.floor - Element-wise floor. */
+    public record FloorOp(Value result, Value operand, TensorType tensorResultType) implements Operation {
+        @Override public String opName() { return "stablehlo.floor"; }
+        @Override public List<Value> results() { return List.of(result); }
+        @Override public List<Value> operands() { return List.of(operand); }
+    }
+
+    /** stablehlo.sign - Element-wise sign. */
+    public record SignOp(Value result, Value operand, TensorType tensorResultType) implements Operation {
+        @Override public String opName() { return "stablehlo.sign"; }
+        @Override public List<Value> results() { return List.of(result); }
+        @Override public List<Value> operands() { return List.of(operand); }
+    }
+
+    /** stablehlo.logistic - Element-wise sigmoid (1/(1+e^-x)). */
+    public record LogisticOp(Value result, Value operand, TensorType tensorResultType) implements Operation {
+        @Override public String opName() { return "stablehlo.logistic"; }
+        @Override public List<Value> results() { return List.of(result); }
+        @Override public List<Value> operands() { return List.of(operand); }
+    }
+
+    /** stablehlo.exponential_minus_one - Element-wise e^x - 1. */
+    public record Expm1Op(Value result, Value operand, TensorType tensorResultType) implements Operation {
+        @Override public String opName() { return "stablehlo.exponential_minus_one"; }
+        @Override public List<Value> results() { return List.of(result); }
+        @Override public List<Value> operands() { return List.of(operand); }
+    }
+
+    /** stablehlo.log_plus_one - Element-wise log(1+x). */
+    public record Log1pOp(Value result, Value operand, TensorType tensorResultType) implements Operation {
+        @Override public String opName() { return "stablehlo.log_plus_one"; }
+        @Override public List<Value> results() { return List.of(result); }
+        @Override public List<Value> operands() { return List.of(operand); }
+    }
+
+    /** stablehlo.cbrt - Element-wise cube root. */
+    public record CbrtOp(Value result, Value operand, TensorType tensorResultType) implements Operation {
+        @Override public String opName() { return "stablehlo.cbrt"; }
+        @Override public List<Value> results() { return List.of(result); }
+        @Override public List<Value> operands() { return List.of(operand); }
+    }
+
+    /** stablehlo.is_finite - Element-wise finite check. */
+    public record IsFiniteOp(Value result, Value operand, TensorType tensorResultType) implements Operation {
+        @Override public String opName() { return "stablehlo.is_finite"; }
+        @Override public List<Value> results() { return List.of(result); }
+        @Override public List<Value> operands() { return List.of(operand); }
+    }
+
+    /** stablehlo.popcnt - Element-wise population count (number of set bits). */
+    public record PopcntOp(Value result, Value operand, TensorType tensorResultType) implements Operation {
+        @Override public String opName() { return "stablehlo.popcnt"; }
+        @Override public List<Value> results() { return List.of(result); }
+        @Override public List<Value> operands() { return List.of(operand); }
+    }
+
+    /** stablehlo.count_leading_zeros - Element-wise count of leading zeros. */
+    public record ClzOp(Value result, Value operand, TensorType tensorResultType) implements Operation {
+        @Override public String opName() { return "stablehlo.count_leading_zeros"; }
+        @Override public List<Value> results() { return List.of(result); }
+        @Override public List<Value> operands() { return List.of(operand); }
+    }
+
+    /** stablehlo.round_nearest_even - Round to nearest even. */
+    public record RoundNearestEvenOp(Value result, Value operand, TensorType tensorResultType) implements Operation {
+        @Override public String opName() { return "stablehlo.round_nearest_even"; }
+        @Override public List<Value> results() { return List.of(result); }
+        @Override public List<Value> operands() { return List.of(operand); }
+    }
+
+    /** stablehlo.round_nearest_afz - Round away from zero. */
+    public record RoundNearestAfzOp(Value result, Value operand, TensorType tensorResultType) implements Operation {
+        @Override public String opName() { return "stablehlo.round_nearest_afz"; }
+        @Override public List<Value> results() { return List.of(result); }
+        @Override public List<Value> operands() { return List.of(operand); }
+    }
+
+    /** stablehlo.not - Element-wise logical/bitwise NOT. */
+    public record NotOp(Value result, Value operand, TensorType tensorResultType) implements Operation {
+        @Override public String opName() { return "stablehlo.not"; }
+        @Override public List<Value> results() { return List.of(result); }
+        @Override public List<Value> operands() { return List.of(operand); }
     }
 
     /**
@@ -745,6 +944,280 @@ public final class StableHloAst {
 
         @Override
         public List<Value> operands() { return List.of(operand); }
+    }
+
+    /** stablehlo.bitcast_convert - Bitcast to different element type. */
+    public record BitcastConvertOp(Value result, Value operand, TensorType tensorResultType) implements Operation {
+        @Override public String opName() { return "stablehlo.bitcast_convert"; }
+        @Override public List<Value> results() { return List.of(result); }
+        @Override public List<Value> operands() { return List.of(operand); }
+    }
+
+    // ==================== Additional Shape Operations ====================
+
+    /** stablehlo.reverse - Reverse tensor along dimensions. */
+    public record ReverseOp(Value result, Value operand, List<Long> dimensions, TensorType tensorResultType) implements Operation {
+        @Override public String opName() { return "stablehlo.reverse"; }
+        @Override public List<Value> results() { return List.of(result); }
+        @Override public List<Value> operands() { return List.of(operand); }
+    }
+
+    /** stablehlo.pad - Pad tensor with a value. */
+    public record PadOp(
+            Value result,
+            Value operand,
+            Value paddingValue,
+            List<Long> edgePaddingLow,
+            List<Long> edgePaddingHigh,
+            List<Long> interiorPadding,
+            TensorType tensorResultType
+    ) implements Operation {
+        @Override public String opName() { return "stablehlo.pad"; }
+        @Override public List<Value> results() { return List.of(result); }
+        @Override public List<Value> operands() { return List.of(operand, paddingValue); }
+    }
+
+    /** stablehlo.iota - Generate indices along a dimension. */
+    public record IotaOp(Value result, long iotaDimension, TensorType tensorResultType) implements Operation {
+        @Override public String opName() { return "stablehlo.iota"; }
+        @Override public List<Value> results() { return List.of(result); }
+        @Override public List<Value> operands() { return List.of(); }
+    }
+
+    /** stablehlo.gather - Gather slices from operand. */
+    public record GatherOp(
+            Value result,
+            Value operand,
+            Value startIndices,
+            List<Long> offsetDims,
+            List<Long> collapsedSliceDims,
+            List<Long> startIndexMap,
+            long indexVectorDim,
+            List<Long> sliceSizes,
+            TensorType tensorResultType
+    ) implements Operation {
+        @Override public String opName() { return "stablehlo.gather"; }
+        @Override public List<Value> results() { return List.of(result); }
+        @Override public List<Value> operands() { return List.of(operand, startIndices); }
+    }
+
+    /** stablehlo.scatter - Scatter updates into operand. */
+    public record ScatterOp(
+            Value result,
+            Value operand,
+            Value scatterIndices,
+            Value updates,
+            List<Long> updateWindowDims,
+            List<Long> insertedWindowDims,
+            List<Long> scatterDimsToOperandDims,
+            long indexVectorDim,
+            TensorType tensorResultType
+    ) implements Operation {
+        @Override public String opName() { return "stablehlo.scatter"; }
+        @Override public List<Value> results() { return List.of(result); }
+        @Override public List<Value> operands() { return List.of(operand, scatterIndices, updates); }
+    }
+
+    /** stablehlo.dynamic_slice - Extract slice with dynamic indices. */
+    public record DynamicSliceOp(
+            Value result,
+            Value operand,
+            List<Value> startIndices,
+            List<Long> sliceSizes,
+            TensorType tensorResultType
+    ) implements Operation {
+        @Override public String opName() { return "stablehlo.dynamic_slice"; }
+        @Override public List<Value> results() { return List.of(result); }
+        @Override public List<Value> operands() {
+            var ops = new java.util.ArrayList<Value>();
+            ops.add(operand);
+            ops.addAll(startIndices);
+            return ops;
+        }
+    }
+
+    /** stablehlo.dynamic_update_slice - Update slice at dynamic indices. */
+    public record DynamicUpdateSliceOp(
+            Value result,
+            Value operand,
+            Value update,
+            List<Value> startIndices,
+            TensorType tensorResultType
+    ) implements Operation {
+        @Override public String opName() { return "stablehlo.dynamic_update_slice"; }
+        @Override public List<Value> results() { return List.of(result); }
+        @Override public List<Value> operands() {
+            var ops = new java.util.ArrayList<Value>();
+            ops.add(operand);
+            ops.add(update);
+            ops.addAll(startIndices);
+            return ops;
+        }
+    }
+
+    // ==================== Reduction Operations ====================
+
+    /** stablehlo.reduce_window - Windowed reduction (pooling). */
+    public record ReduceWindowOp(
+            Value result,
+            Value operand,
+            Value initValue,
+            List<Long> windowDimensions,
+            List<Long> windowStrides,
+            List<Long> baseDilations,
+            List<Long> windowDilations,
+            List<Long> paddingLow,
+            List<Long> paddingHigh,
+            String reducer,
+            TensorType tensorResultType
+    ) implements Operation {
+        @Override public String opName() { return "stablehlo.reduce_window"; }
+        @Override public List<Value> results() { return List.of(result); }
+        @Override public List<Value> operands() { return List.of(operand, initValue); }
+    }
+
+    // ==================== Convolution and Neural Network ====================
+
+    /** stablehlo.convolution - Convolution operation. */
+    public record ConvolutionOp(
+            Value result,
+            Value lhs,
+            Value rhs,
+            List<Long> windowStrides,
+            List<Long> paddingLow,
+            List<Long> paddingHigh,
+            List<Long> lhsDilation,
+            List<Long> rhsDilation,
+            long featureGroupCount,
+            long batchGroupCount,
+            // Dimension numbers
+            long inputBatchDimension,
+            long inputFeatureDimension,
+            List<Long> inputSpatialDimensions,
+            long kernelInputFeatureDimension,
+            long kernelOutputFeatureDimension,
+            List<Long> kernelSpatialDimensions,
+            long outputBatchDimension,
+            long outputFeatureDimension,
+            List<Long> outputSpatialDimensions,
+            TensorType tensorResultType
+    ) implements Operation {
+        @Override public String opName() { return "stablehlo.convolution"; }
+        @Override public List<Value> results() { return List.of(result); }
+        @Override public List<Value> operands() { return List.of(lhs, rhs); }
+    }
+
+    /** stablehlo.batch_norm_training - Batch normalization (training). */
+    public record BatchNormTrainingOp(
+            Value output,
+            Value batchMean,
+            Value batchVar,
+            Value operand,
+            Value scale,
+            Value offset,
+            float epsilon,
+            long featureIndex,
+            TensorType tensorResultType
+    ) implements Operation {
+        @Override public String opName() { return "stablehlo.batch_norm_training"; }
+        @Override public List<Value> results() { return List.of(output, batchMean, batchVar); }
+        @Override public List<Value> operands() { return List.of(operand, scale, offset); }
+    }
+
+    /** stablehlo.batch_norm_inference - Batch normalization (inference). */
+    public record BatchNormInferenceOp(
+            Value result,
+            Value operand,
+            Value scale,
+            Value offset,
+            Value mean,
+            Value variance,
+            float epsilon,
+            long featureIndex,
+            TensorType tensorResultType
+    ) implements Operation {
+        @Override public String opName() { return "stablehlo.batch_norm_inference"; }
+        @Override public List<Value> results() { return List.of(result); }
+        @Override public List<Value> operands() { return List.of(operand, scale, offset, mean, variance); }
+    }
+
+    // ==================== Control Flow ====================
+
+    /** stablehlo.if - Conditional execution. */
+    public record IfOp(
+            List<Value> results,
+            Value pred,
+            List<Operation> trueBranch,
+            List<Operation> falseBranch,
+            TensorType tensorResultType
+    ) implements Operation {
+        @Override public String opName() { return "stablehlo.if"; }
+        @Override public List<Value> operands() { return List.of(pred); }
+    }
+
+    /** stablehlo.while - While loop. */
+    public record WhileOp(
+            List<Value> results,
+            List<Value> operands,
+            List<Operation> condBody,
+            List<Operation> body,
+            TensorType tensorResultType
+    ) implements Operation {
+        @Override public String opName() { return "stablehlo.while"; }
+    }
+
+    // ==================== Other Operations ====================
+
+    /** stablehlo.sort - Sort tensor along dimension. */
+    public record SortOp(
+            Value result,
+            List<Value> inputs,
+            long dimension,
+            boolean isStable,
+            TensorType tensorResultType
+    ) implements Operation {
+        @Override public String opName() { return "stablehlo.sort"; }
+        @Override public List<Value> results() { return List.of(result); }
+        @Override public List<Value> operands() { return inputs; }
+    }
+
+    /** RNG algorithm enum. */
+    public enum RngAlgorithm {
+        DEFAULT, THREE_FRY, PHILOX;
+        public static RngAlgorithm fromString(String s) {
+            return switch (s.toUpperCase()) {
+                case "DEFAULT" -> DEFAULT;
+                case "THREE_FRY" -> THREE_FRY;
+                case "PHILOX" -> PHILOX;
+                default -> DEFAULT;
+            };
+        }
+    }
+
+    /** stablehlo.rng - Random number generation. */
+    public record RngOp(
+            Value result,
+            Value a,
+            Value b,
+            String distribution,
+            TensorType tensorResultType
+    ) implements Operation {
+        @Override public String opName() { return "stablehlo.rng"; }
+        @Override public List<Value> results() { return List.of(result); }
+        @Override public List<Value> operands() { return List.of(a, b); }
+    }
+
+    /** stablehlo.rng_bit_generator - Stateful random bit generation. */
+    public record RngBitGeneratorOp(
+            Value outputState,
+            Value output,
+            Value initialState,
+            RngAlgorithm algorithm,
+            TensorType tensorResultType
+    ) implements Operation {
+        @Override public String opName() { return "stablehlo.rng_bit_generator"; }
+        @Override public List<Value> results() { return List.of(outputState, output); }
+        @Override public List<Value> operands() { return List.of(initialState); }
     }
 
     /**

@@ -265,19 +265,18 @@ tasks.register('installGraalPyDeps') {
                 throw new GradleException("Could not detect package manager. Please install dependencies manually.")
             }
 
+            // Check if we have passwordless sudo access
+            def sudoCheck = ['sudo', '-n', 'true'].execute()
+            sudoCheck.waitFor()
+            def hasSudo = (sudoCheck.exitValue() == 0)
+
             def packagesToInstall = []
 
             // g++ / build tools
             if (status.missing.contains('g++') || status.missing.contains('make')) {
                 switch (pkgManager) {
                     case 'apt': packagesToInstall << 'build-essential'; break
-                    case 'dnf': case 'yum':
-                        println "Installing Development Tools group..."
-                        def groupProc = ['sudo', pkgManager, 'groupinstall', '-y', 'Development Tools'].execute()
-                        groupProc.consumeProcessOutput(System.out, System.err)
-                        groupProc.waitFor()
-                        installed << "Development Tools"
-                        break
+                    case 'dnf': case 'yum': packagesToInstall << '@development-tools'; break
                     case 'pacman': packagesToInstall << 'base-devel'; break
                     case 'apk': packagesToInstall << 'build-base'; break
                 }
@@ -305,6 +304,23 @@ tasks.register('installGraalPyDeps') {
             }
 
             if (!packagesToInstall.isEmpty()) {
+                if (!hasSudo) {
+                    // No sudo access - provide manual instructions
+                    def installCmd
+                    switch (pkgManager) {
+                        case 'apt': installCmd = "sudo apt-get install -y ${packagesToInstall.join(' ')}"; break
+                        case 'dnf': installCmd = "sudo dnf install -y ${packagesToInstall.join(' ')}"; break
+                        case 'yum': installCmd = "sudo yum install -y ${packagesToInstall.join(' ')}"; break
+                        case 'pacman': installCmd = "sudo pacman -S --noconfirm ${packagesToInstall.join(' ')}"; break
+                        case 'apk': installCmd = "sudo apk add ${packagesToInstall.join(' ')}"; break
+                    }
+                    throw new GradleException(
+                        "Missing dependencies require sudo to install.\n" +
+                        "Run this command manually (or add to CI runner setup):\n\n" +
+                        "  ${installCmd}\n"
+                    )
+                }
+
                 def installCmd
                 switch (pkgManager) {
                     case 'apt': installCmd = ['sudo', 'apt-get', 'install', '-y'] + packagesToInstall; break

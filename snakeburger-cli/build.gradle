@@ -124,6 +124,15 @@ tasks.register('jlinkRuntime', Exec) {
             '--no-man-pages'
         )
     }
+
+    doLast {
+        // Remove ct.sym (compiler symbols) - not needed at runtime, saves ~11MB
+        def ctSym = new File(outputDir, 'lib/ct.sym')
+        if (ctSym.exists()) {
+            ctSym.delete()
+            println "Removed ct.sym (not needed at runtime)"
+        }
+    }
 }
 
 // Assemble the full distribution: runtime + JARs + launcher
@@ -152,11 +161,14 @@ tasks.register('jlinkDist') {
         }
         distDir.mkdirs()
 
-        // Copy jlink runtime using AntBuilder
+        // Copy jlink runtime preserving permissions
         def runtimeDestDir = new File(distDir, "runtime")
         ant.copy(todir: runtimeDestDir.absolutePath) {
             fileset(dir: runtimeSourceDir.absolutePath)
         }
+        // Restore executable permissions on binaries (ant.copy doesn't preserve them)
+        new File(runtimeDestDir, "bin").listFiles()?.each { it.setExecutable(true) }
+        new File(runtimeDestDir, "lib/jspawnhelper").with { if (it.exists()) it.setExecutable(true) }
 
         // Copy application JARs
         def libDir = new File(distDir, "lib")

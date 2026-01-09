@@ -243,9 +243,11 @@ public final class StableHloAst {
      * Base interface for all StableHLO operations.
      */
     public sealed interface Operation permits
-            DotGeneralOp, ConstantOp, MaximumOp, AddOp, MultiplyOp, DivideOp,
-            NegateOp, ReshapeOp, TransposeOp, ReturnOp, BroadcastInDimOp,
-            ReduceOp, CustomCallOp {
+            DotGeneralOp, ConstantOp, MaximumOp, MinimumOp, AddOp, SubtractOp,
+            MultiplyOp, DivideOp, NegateOp, AbsOp, ExpOp, LogOp, TanhOp,
+            SqrtOp, RsqrtOp, ReshapeOp, TransposeOp, ReturnOp, BroadcastInDimOp,
+            ReduceOp, CompareOp, SelectOp, ConcatenateOp, SliceOp, ClampOp,
+            ConvertOp, CustomCallOp {
 
         String opName();
         List<Value> results();
@@ -368,6 +370,44 @@ public final class StableHloAst {
     }
 
     /**
+     * stablehlo.subtract - Element-wise subtraction.
+     */
+    public record SubtractOp(
+            Value result,
+            Value lhs,
+            Value rhs,
+            TensorType tensorResultType
+    ) implements Operation {
+        @Override
+        public String opName() { return "stablehlo.subtract"; }
+
+        @Override
+        public List<Value> results() { return List.of(result); }
+
+        @Override
+        public List<Value> operands() { return List.of(lhs, rhs); }
+    }
+
+    /**
+     * stablehlo.minimum - Element-wise minimum.
+     */
+    public record MinimumOp(
+            Value result,
+            Value lhs,
+            Value rhs,
+            TensorType tensorResultType
+    ) implements Operation {
+        @Override
+        public String opName() { return "stablehlo.minimum"; }
+
+        @Override
+        public List<Value> results() { return List.of(result); }
+
+        @Override
+        public List<Value> operands() { return List.of(lhs, rhs); }
+    }
+
+    /**
      * stablehlo.negate - Element-wise negation.
      */
     public record NegateOp(
@@ -377,6 +417,114 @@ public final class StableHloAst {
     ) implements Operation {
         @Override
         public String opName() { return "stablehlo.negate"; }
+
+        @Override
+        public List<Value> results() { return List.of(result); }
+
+        @Override
+        public List<Value> operands() { return List.of(operand); }
+    }
+
+    /**
+     * stablehlo.abs - Element-wise absolute value.
+     */
+    public record AbsOp(
+            Value result,
+            Value operand,
+            TensorType tensorResultType
+    ) implements Operation {
+        @Override
+        public String opName() { return "stablehlo.abs"; }
+
+        @Override
+        public List<Value> results() { return List.of(result); }
+
+        @Override
+        public List<Value> operands() { return List.of(operand); }
+    }
+
+    /**
+     * stablehlo.exponential - Element-wise exponential (e^x).
+     */
+    public record ExpOp(
+            Value result,
+            Value operand,
+            TensorType tensorResultType
+    ) implements Operation {
+        @Override
+        public String opName() { return "stablehlo.exponential"; }
+
+        @Override
+        public List<Value> results() { return List.of(result); }
+
+        @Override
+        public List<Value> operands() { return List.of(operand); }
+    }
+
+    /**
+     * stablehlo.log - Element-wise natural logarithm.
+     */
+    public record LogOp(
+            Value result,
+            Value operand,
+            TensorType tensorResultType
+    ) implements Operation {
+        @Override
+        public String opName() { return "stablehlo.log"; }
+
+        @Override
+        public List<Value> results() { return List.of(result); }
+
+        @Override
+        public List<Value> operands() { return List.of(operand); }
+    }
+
+    /**
+     * stablehlo.tanh - Element-wise hyperbolic tangent.
+     */
+    public record TanhOp(
+            Value result,
+            Value operand,
+            TensorType tensorResultType
+    ) implements Operation {
+        @Override
+        public String opName() { return "stablehlo.tanh"; }
+
+        @Override
+        public List<Value> results() { return List.of(result); }
+
+        @Override
+        public List<Value> operands() { return List.of(operand); }
+    }
+
+    /**
+     * stablehlo.sqrt - Element-wise square root.
+     */
+    public record SqrtOp(
+            Value result,
+            Value operand,
+            TensorType tensorResultType
+    ) implements Operation {
+        @Override
+        public String opName() { return "stablehlo.sqrt"; }
+
+        @Override
+        public List<Value> results() { return List.of(result); }
+
+        @Override
+        public List<Value> operands() { return List.of(operand); }
+    }
+
+    /**
+     * stablehlo.rsqrt - Element-wise reciprocal square root (1/sqrt(x)).
+     */
+    public record RsqrtOp(
+            Value result,
+            Value operand,
+            TensorType tensorResultType
+    ) implements Operation {
+        @Override
+        public String opName() { return "stablehlo.rsqrt"; }
 
         @Override
         public List<Value> results() { return List.of(result); }
@@ -460,6 +608,143 @@ public final class StableHloAst {
 
         @Override
         public List<Value> operands() { return List.of(operand, initValue); }
+    }
+
+    /**
+     * Comparison direction for stablehlo.compare.
+     */
+    public enum ComparisonDirection {
+        EQ, NE, GE, GT, LE, LT;
+
+        public static ComparisonDirection fromString(String s) {
+            return switch (s.toUpperCase()) {
+                case "EQ" -> EQ;
+                case "NE" -> NE;
+                case "GE" -> GE;
+                case "GT" -> GT;
+                case "LE" -> LE;
+                case "LT" -> LT;
+                default -> throw new IllegalArgumentException("Unknown comparison direction: " + s);
+            };
+        }
+    }
+
+    /**
+     * stablehlo.compare - Element-wise comparison.
+     */
+    public record CompareOp(
+            Value result,
+            Value lhs,
+            Value rhs,
+            ComparisonDirection direction,
+            TensorType tensorResultType
+    ) implements Operation {
+        @Override
+        public String opName() { return "stablehlo.compare"; }
+
+        @Override
+        public List<Value> results() { return List.of(result); }
+
+        @Override
+        public List<Value> operands() { return List.of(lhs, rhs); }
+    }
+
+    /**
+     * stablehlo.select - Conditional selection (ternary).
+     */
+    public record SelectOp(
+            Value result,
+            Value pred,
+            Value onTrue,
+            Value onFalse,
+            TensorType tensorResultType
+    ) implements Operation {
+        @Override
+        public String opName() { return "stablehlo.select"; }
+
+        @Override
+        public List<Value> results() { return List.of(result); }
+
+        @Override
+        public List<Value> operands() { return List.of(pred, onTrue, onFalse); }
+    }
+
+    /**
+     * stablehlo.concatenate - Concatenate tensors along a dimension.
+     */
+    public record ConcatenateOp(
+            Value result,
+            List<Value> inputs,
+            long dimension,
+            TensorType tensorResultType
+    ) implements Operation {
+        @Override
+        public String opName() { return "stablehlo.concatenate"; }
+
+        @Override
+        public List<Value> results() { return List.of(result); }
+
+        @Override
+        public List<Value> operands() { return inputs; }
+    }
+
+    /**
+     * stablehlo.slice - Extract a slice from a tensor.
+     */
+    public record SliceOp(
+            Value result,
+            Value operand,
+            List<Long> startIndices,
+            List<Long> limitIndices,
+            List<Long> strides,
+            TensorType tensorResultType
+    ) implements Operation {
+        @Override
+        public String opName() { return "stablehlo.slice"; }
+
+        @Override
+        public List<Value> results() { return List.of(result); }
+
+        @Override
+        public List<Value> operands() { return List.of(operand); }
+    }
+
+    /**
+     * stablehlo.clamp - Clamp values to a range.
+     */
+    public record ClampOp(
+            Value result,
+            Value min,
+            Value operand,
+            Value max,
+            TensorType tensorResultType
+    ) implements Operation {
+        @Override
+        public String opName() { return "stablehlo.clamp"; }
+
+        @Override
+        public List<Value> results() { return List.of(result); }
+
+        @Override
+        public List<Value> operands() { return List.of(min, operand, max); }
+    }
+
+    /**
+     * stablehlo.convert - Type conversion.
+     */
+    public record ConvertOp(
+            Value result,
+            Value operand,
+            TensorType tensorResultType
+    ) implements Operation {
+        @Override
+        public String opName() { return "stablehlo.convert"; }
+
+        @Override
+        public List<Value> results() { return List.of(result); }
+
+        @Override
+        public List<Value> operands() { return List.of(operand); }
     }
 
     /**

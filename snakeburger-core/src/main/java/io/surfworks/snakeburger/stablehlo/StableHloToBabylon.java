@@ -99,14 +99,34 @@ public final class StableHloToBabylon {
         String opText = switch (op) {
             case ConstantOp c -> emitConstant(c, valueTypes);
             case DotGeneralOp d -> emitDotGeneral(d, valueTypes);
+            // Binary elementwise ops
             case AddOp a -> emitBinaryOp(a, "add", a.lhs(), a.rhs(), valueTypes);
+            case SubtractOp s -> emitBinaryOp(s, "sub", s.lhs(), s.rhs(), valueTypes);
             case MultiplyOp m -> emitBinaryOp(m, "mul", m.lhs(), m.rhs(), valueTypes);
             case DivideOp d -> emitBinaryOp(d, "div", d.lhs(), d.rhs(), valueTypes);
             case MaximumOp m -> emitBinaryOp(m, "max", m.lhs(), m.rhs(), valueTypes);
+            case MinimumOp m -> emitBinaryOp(m, "min", m.lhs(), m.rhs(), valueTypes);
+            // Unary elementwise ops
             case NegateOp n -> emitUnaryOp(n, "neg", n.operand(), valueTypes);
+            case AbsOp a -> emitUnaryOp(a, "abs", a.operand(), valueTypes);
+            case ExpOp e -> emitUnaryOp(e, "exp", e.operand(), valueTypes);
+            case LogOp l -> emitUnaryOp(l, "log", l.operand(), valueTypes);
+            case TanhOp t -> emitUnaryOp(t, "tanh", t.operand(), valueTypes);
+            case SqrtOp s -> emitUnaryOp(s, "sqrt", s.operand(), valueTypes);
+            case RsqrtOp r -> emitUnaryOp(r, "rsqrt", r.operand(), valueTypes);
+            // Shape ops
             case ReshapeOp r -> emitReshape(r, valueTypes);
             case TransposeOp t -> emitTranspose(t, valueTypes);
             case BroadcastInDimOp b -> emitBroadcast(b, valueTypes);
+            case ConcatenateOp c -> emitConcatenate(c, valueTypes);
+            case SliceOp s -> emitSlice(s, valueTypes);
+            // Conditional ops
+            case CompareOp c -> emitCompare(c, valueTypes);
+            case SelectOp s -> emitSelect(s, valueTypes);
+            case ClampOp c -> emitClamp(c, valueTypes);
+            // Type conversion
+            case ConvertOp c -> emitConvert(c, valueTypes);
+            // Other
             case ReduceOp r -> emitReduce(r, valueTypes);
             case CustomCallOp c -> emitCustomCall(c, valueTypes);
             case ReturnOp r -> emitReturn(r);
@@ -191,6 +211,71 @@ public final class StableHloToBabylon {
 
         return String.format("%%%-8s = broadcast %%%s dims=%s -> %s",
                 resultName, op.operand().name(), op.broadcastDimensions(), shapeToString(op.tensorResultType()));
+    }
+
+    private String emitConcatenate(ConcatenateOp op, Map<String, String> valueTypes) {
+        String resultName = op.result().name();
+        String javaType = typeToJavaType(op.tensorResultType());
+        valueTypes.put(resultName, javaType);
+
+        StringBuilder inputs = new StringBuilder();
+        for (int i = 0; i < op.inputs().size(); i++) {
+            if (i > 0) inputs.append(", ");
+            inputs.append("%").append(op.inputs().get(i).name());
+        }
+
+        return String.format("%%%-8s = concatenate %s dim=%d  // -> %s",
+                resultName, inputs, op.dimension(), shapeToString(op.tensorResultType()));
+    }
+
+    private String emitSlice(SliceOp op, Map<String, String> valueTypes) {
+        String resultName = op.result().name();
+        String javaType = typeToJavaType(op.tensorResultType());
+        valueTypes.put(resultName, javaType);
+
+        return String.format("%%%-8s = slice %%%s [%s:%s:%s]  // -> %s",
+                resultName, op.operand().name(),
+                op.startIndices(), op.limitIndices(), op.strides(),
+                shapeToString(op.tensorResultType()));
+    }
+
+    private String emitCompare(CompareOp op, Map<String, String> valueTypes) {
+        String resultName = op.result().name();
+        String javaType = typeToJavaType(op.tensorResultType());
+        valueTypes.put(resultName, javaType);
+
+        return String.format("%%%-8s = compare<%s> %%%s, %%%s  // -> %s",
+                resultName, op.direction(), op.lhs().name(), op.rhs().name(),
+                shapeToString(op.tensorResultType()));
+    }
+
+    private String emitSelect(SelectOp op, Map<String, String> valueTypes) {
+        String resultName = op.result().name();
+        String javaType = typeToJavaType(op.tensorResultType());
+        valueTypes.put(resultName, javaType);
+
+        return String.format("%%%-8s = select %%%s ? %%%s : %%%s  // -> %s",
+                resultName, op.pred().name(), op.onTrue().name(), op.onFalse().name(),
+                shapeToString(op.tensorResultType()));
+    }
+
+    private String emitClamp(ClampOp op, Map<String, String> valueTypes) {
+        String resultName = op.result().name();
+        String javaType = typeToJavaType(op.tensorResultType());
+        valueTypes.put(resultName, javaType);
+
+        return String.format("%%%-8s = clamp %%%s, %%%s, %%%s  // -> %s",
+                resultName, op.min().name(), op.operand().name(), op.max().name(),
+                shapeToString(op.tensorResultType()));
+    }
+
+    private String emitConvert(ConvertOp op, Map<String, String> valueTypes) {
+        String resultName = op.result().name();
+        String javaType = typeToJavaType(op.tensorResultType());
+        valueTypes.put(resultName, javaType);
+
+        return String.format("%%%-8s = convert %%%s  // -> %s",
+                resultName, op.operand().name(), shapeToString(op.tensorResultType()));
     }
 
     private String emitReduce(ReduceOp op, Map<String, String> valueTypes) {

@@ -92,14 +92,34 @@ public final class StableHloTypeChecker {
         // Operation-specific validation
         switch (op) {
             case DotGeneralOp dotOp -> validateDotGeneral(dotOp);
+            // Binary elementwise ops
             case AddOp addOp -> validateBinaryElementwise(addOp, addOp.lhs(), addOp.rhs(), addOp.tensorResultType());
+            case SubtractOp subOp -> validateBinaryElementwise(subOp, subOp.lhs(), subOp.rhs(), subOp.tensorResultType());
             case MultiplyOp mulOp -> validateBinaryElementwise(mulOp, mulOp.lhs(), mulOp.rhs(), mulOp.tensorResultType());
             case DivideOp divOp -> validateBinaryElementwise(divOp, divOp.lhs(), divOp.rhs(), divOp.tensorResultType());
             case MaximumOp maxOp -> validateBinaryElementwise(maxOp, maxOp.lhs(), maxOp.rhs(), maxOp.tensorResultType());
+            case MinimumOp minOp -> validateBinaryElementwise(minOp, minOp.lhs(), minOp.rhs(), minOp.tensorResultType());
+            // Unary elementwise ops
             case NegateOp negOp -> validateUnaryElementwise(negOp, negOp.operand(), negOp.tensorResultType());
+            case AbsOp absOp -> validateUnaryElementwise(absOp, absOp.operand(), absOp.tensorResultType());
+            case ExpOp expOp -> validateUnaryElementwise(expOp, expOp.operand(), expOp.tensorResultType());
+            case LogOp logOp -> validateUnaryElementwise(logOp, logOp.operand(), logOp.tensorResultType());
+            case TanhOp tanhOp -> validateUnaryElementwise(tanhOp, tanhOp.operand(), tanhOp.tensorResultType());
+            case SqrtOp sqrtOp -> validateUnaryElementwise(sqrtOp, sqrtOp.operand(), sqrtOp.tensorResultType());
+            case RsqrtOp rsqrtOp -> validateUnaryElementwise(rsqrtOp, rsqrtOp.operand(), rsqrtOp.tensorResultType());
+            // Shape ops
             case ReshapeOp reshapeOp -> validateReshape(reshapeOp);
             case TransposeOp transposeOp -> validateTranspose(transposeOp);
             case BroadcastInDimOp broadcastOp -> validateBroadcastInDim(broadcastOp);
+            case ConcatenateOp concatOp -> validateConcatenate(concatOp);
+            case SliceOp sliceOp -> validateSlice(sliceOp);
+            // Conditional ops
+            case CompareOp compareOp -> validateCompare(compareOp);
+            case SelectOp selectOp -> validateSelect(selectOp);
+            case ClampOp clampOp -> validateClamp(clampOp);
+            // Type conversion
+            case ConvertOp convertOp -> validateConvert(convertOp);
+            // Other
             case ConstantOp ignored -> {} // Constants are always valid
             case ReturnOp ignored -> {} // Validated separately
             case ReduceOp reduceOp -> validateReduce(reduceOp);
@@ -396,6 +416,221 @@ public final class StableHloTypeChecker {
                     op.tensorResultType().toMlirString(),
                     new TensorType(expectedShape, operandTensor.elementType()).toMlirString());
         }
+    }
+
+    private void validateCompare(CompareOp op) {
+        if (!(op.lhs().type() instanceof TensorType lhsTensor)) {
+            error("compare lhs must be tensor type");
+            return;
+        }
+        if (!(op.rhs().type() instanceof TensorType rhsTensor)) {
+            error("compare rhs must be tensor type");
+            return;
+        }
+
+        // Shapes must match
+        if (!lhsTensor.shape().equals(rhsTensor.shape())) {
+            error("compare operand shapes must match: %s vs %s",
+                    lhsTensor.toMlirString(), rhsTensor.toMlirString());
+        }
+
+        // Element types must match
+        if (!lhsTensor.elementType().equals(rhsTensor.elementType())) {
+            error("compare operand element types must match: %s vs %s",
+                    lhsTensor.elementType().toMlirString(),
+                    rhsTensor.elementType().toMlirString());
+        }
+
+        // Result must be i1 tensor with same shape
+        TensorType resultType = op.tensorResultType();
+        if (!resultType.shape().equals(lhsTensor.shape())) {
+            error("compare result shape %s must match operand shape %s",
+                    resultType.toMlirString(), lhsTensor.toMlirString());
+        }
+        if (!resultType.elementType().equals(ScalarType.I1)) {
+            error("compare result must have element type i1, got %s",
+                    resultType.elementType().toMlirString());
+        }
+    }
+
+    private void validateSelect(SelectOp op) {
+        if (!(op.pred().type() instanceof TensorType predTensor)) {
+            error("select predicate must be tensor type");
+            return;
+        }
+        if (!(op.onTrue().type() instanceof TensorType trueTensor)) {
+            error("select on_true must be tensor type");
+            return;
+        }
+        if (!(op.onFalse().type() instanceof TensorType falseTensor)) {
+            error("select on_false must be tensor type");
+            return;
+        }
+
+        // Predicate must be i1
+        if (!predTensor.elementType().equals(ScalarType.I1)) {
+            error("select predicate must have element type i1, got %s",
+                    predTensor.elementType().toMlirString());
+        }
+
+        // All shapes must match
+        if (!predTensor.shape().equals(trueTensor.shape())) {
+            error("select predicate shape %s must match on_true shape %s",
+                    predTensor.toMlirString(), trueTensor.toMlirString());
+        }
+        if (!trueTensor.shape().equals(falseTensor.shape())) {
+            error("select on_true shape %s must match on_false shape %s",
+                    trueTensor.toMlirString(), falseTensor.toMlirString());
+        }
+
+        // on_true and on_false element types must match
+        if (!trueTensor.elementType().equals(falseTensor.elementType())) {
+            error("select on_true and on_false element types must match: %s vs %s",
+                    trueTensor.elementType().toMlirString(),
+                    falseTensor.elementType().toMlirString());
+        }
+
+        // Result must match on_true/on_false
+        TensorType resultType = op.tensorResultType();
+        if (!resultType.equals(trueTensor)) {
+            error("select result type %s must match on_true type %s",
+                    resultType.toMlirString(), trueTensor.toMlirString());
+        }
+    }
+
+    private void validateConcatenate(ConcatenateOp op) {
+        if (op.inputs().isEmpty()) {
+            error("concatenate requires at least one input");
+            return;
+        }
+
+        TensorType firstType = null;
+        for (Value input : op.inputs()) {
+            if (!(input.type() instanceof TensorType inputTensor)) {
+                error("concatenate input must be tensor type");
+                return;
+            }
+            if (firstType == null) {
+                firstType = inputTensor;
+            }
+        }
+
+        int dim = (int) op.dimension();
+        if (dim < 0 || dim >= firstType.rank()) {
+            error("concatenate dimension %d out of range for rank %d", dim, firstType.rank());
+            return;
+        }
+
+        // All inputs must have same rank and matching non-concat dimensions
+        long totalConcatSize = 0;
+        for (Value input : op.inputs()) {
+            TensorType inputTensor = (TensorType) input.type();
+            if (inputTensor.rank() != firstType.rank()) {
+                error("concatenate inputs must have same rank: %d vs %d",
+                        inputTensor.rank(), firstType.rank());
+                continue;
+            }
+            for (int i = 0; i < inputTensor.rank(); i++) {
+                if (i != dim && inputTensor.dim(i) != firstType.dim(i)) {
+                    error("concatenate inputs must have matching dimensions except concat axis");
+                    break;
+                }
+            }
+            totalConcatSize += inputTensor.dim(dim);
+        }
+
+        // Validate result shape
+        List<Integer> expectedShape = new ArrayList<>(firstType.shape());
+        expectedShape.set(dim, (int) totalConcatSize);
+        if (!op.tensorResultType().shape().equals(expectedShape)) {
+            error("concatenate result shape %s doesn't match expected %s",
+                    op.tensorResultType().toMlirString(),
+                    new TensorType(expectedShape, firstType.elementType()).toMlirString());
+        }
+    }
+
+    private void validateSlice(SliceOp op) {
+        if (!(op.operand().type() instanceof TensorType operandTensor)) {
+            error("slice operand must be tensor type");
+            return;
+        }
+
+        int rank = operandTensor.rank();
+        if (op.startIndices().size() != rank || op.limitIndices().size() != rank || op.strides().size() != rank) {
+            error("slice start/limit/strides must have same size as operand rank %d", rank);
+            return;
+        }
+
+        // Validate indices are in range and compute result shape
+        List<Integer> expectedShape = new ArrayList<>();
+        for (int i = 0; i < rank; i++) {
+            long start = op.startIndices().get(i);
+            long limit = op.limitIndices().get(i);
+            long stride = op.strides().get(i);
+
+            if (start < 0 || start > operandTensor.dim(i)) {
+                error("slice start[%d]=%d out of range [0, %d]", i, start, operandTensor.dim(i));
+            }
+            if (limit < start || limit > operandTensor.dim(i)) {
+                error("slice limit[%d]=%d invalid (start=%d, dim=%d)", i, limit, start, operandTensor.dim(i));
+            }
+            if (stride <= 0) {
+                error("slice stride[%d]=%d must be positive", i, stride);
+            }
+
+            // Result size = ceil((limit - start) / stride)
+            int size = (int) ((limit - start + stride - 1) / stride);
+            expectedShape.add(size);
+        }
+
+        if (!op.tensorResultType().shape().equals(expectedShape)) {
+            error("slice result shape %s doesn't match expected %s",
+                    op.tensorResultType().toMlirString(),
+                    new TensorType(expectedShape, operandTensor.elementType()).toMlirString());
+        }
+    }
+
+    private void validateClamp(ClampOp op) {
+        if (!(op.min().type() instanceof TensorType minTensor)) {
+            error("clamp min must be tensor type");
+            return;
+        }
+        if (!(op.operand().type() instanceof TensorType operandTensor)) {
+            error("clamp operand must be tensor type");
+            return;
+        }
+        if (!(op.max().type() instanceof TensorType maxTensor)) {
+            error("clamp max must be tensor type");
+            return;
+        }
+
+        // min and max can be scalar (rank 0) or match operand shape
+        if (minTensor.rank() != 0 && !minTensor.shape().equals(operandTensor.shape())) {
+            error("clamp min must be scalar or match operand shape");
+        }
+        if (maxTensor.rank() != 0 && !maxTensor.shape().equals(operandTensor.shape())) {
+            error("clamp max must be scalar or match operand shape");
+        }
+
+        // Result must match operand
+        if (!op.tensorResultType().equals(operandTensor)) {
+            error("clamp result type %s must match operand type %s",
+                    op.tensorResultType().toMlirString(), operandTensor.toMlirString());
+        }
+    }
+
+    private void validateConvert(ConvertOp op) {
+        if (!(op.operand().type() instanceof TensorType operandTensor)) {
+            error("convert operand must be tensor type");
+            return;
+        }
+
+        // Result must have same shape as operand
+        if (!op.tensorResultType().shape().equals(operandTensor.shape())) {
+            error("convert result shape %s must match operand shape %s",
+                    op.tensorResultType().toMlirString(), operandTensor.toMlirString());
+        }
+        // Element type can differ (that's the point of convert)
     }
 
     private void validateReturnTypes(ReturnOp returnOp, Function function) {

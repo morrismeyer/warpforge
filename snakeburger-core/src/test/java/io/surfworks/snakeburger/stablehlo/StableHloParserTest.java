@@ -583,6 +583,267 @@ class StableHloParserTest {
             assertEquals(List.of(4, 8), broadcastOp.tensorResultType().shape());
         }
 
+        // ==================== New 80/20 Operations ====================
+
+        @Test
+        void parseSubtract() {
+            String mlir = """
+                module @test {
+                  func.func public @sub(%a: tensor<4xf32>, %b: tensor<4xf32>) -> (tensor<4xf32>) {
+                    %0 = stablehlo.subtract %a, %b : tensor<4xf32>
+                    stablehlo.return %0 : tensor<4xf32>
+                  }
+                }
+                """;
+
+            Module module = StableHloParser.parse(mlir);
+            SubtractOp subOp = (SubtractOp) module.functions().get(0).body().get(0);
+
+            assertEquals("a", subOp.lhs().name());
+            assertEquals("b", subOp.rhs().name());
+            assertEquals("stablehlo.subtract", subOp.opName());
+        }
+
+        @Test
+        void parseMinimum() {
+            String mlir = """
+                module @test {
+                  func.func public @min(%a: tensor<4xf32>, %b: tensor<4xf32>) -> (tensor<4xf32>) {
+                    %0 = stablehlo.minimum %a, %b : tensor<4xf32>
+                    stablehlo.return %0 : tensor<4xf32>
+                  }
+                }
+                """;
+
+            Module module = StableHloParser.parse(mlir);
+            MinimumOp minOp = (MinimumOp) module.functions().get(0).body().get(0);
+
+            assertEquals("a", minOp.lhs().name());
+            assertEquals("b", minOp.rhs().name());
+        }
+
+        @Test
+        void parseAbs() {
+            String mlir = """
+                module @test {
+                  func.func public @abs(%a: tensor<4xf32>) -> (tensor<4xf32>) {
+                    %0 = stablehlo.abs %a : tensor<4xf32>
+                    stablehlo.return %0 : tensor<4xf32>
+                  }
+                }
+                """;
+
+            Module module = StableHloParser.parse(mlir);
+            AbsOp absOp = (AbsOp) module.functions().get(0).body().get(0);
+
+            assertEquals("a", absOp.operand().name());
+            assertEquals("stablehlo.abs", absOp.opName());
+        }
+
+        @Test
+        void parseExp() {
+            String mlir = """
+                module @test {
+                  func.func public @exp(%a: tensor<4xf32>) -> (tensor<4xf32>) {
+                    %0 = stablehlo.exponential %a : tensor<4xf32>
+                    stablehlo.return %0 : tensor<4xf32>
+                  }
+                }
+                """;
+
+            Module module = StableHloParser.parse(mlir);
+            ExpOp expOp = (ExpOp) module.functions().get(0).body().get(0);
+
+            assertEquals("a", expOp.operand().name());
+            assertEquals("stablehlo.exponential", expOp.opName());
+        }
+
+        @Test
+        void parseLog() {
+            String mlir = """
+                module @test {
+                  func.func public @log(%a: tensor<4xf32>) -> (tensor<4xf32>) {
+                    %0 = stablehlo.log %a : tensor<4xf32>
+                    stablehlo.return %0 : tensor<4xf32>
+                  }
+                }
+                """;
+
+            Module module = StableHloParser.parse(mlir);
+            LogOp logOp = (LogOp) module.functions().get(0).body().get(0);
+
+            assertEquals("a", logOp.operand().name());
+        }
+
+        @Test
+        void parseTanh() {
+            String mlir = """
+                module @test {
+                  func.func public @tanh(%a: tensor<4xf32>) -> (tensor<4xf32>) {
+                    %0 = stablehlo.tanh %a : tensor<4xf32>
+                    stablehlo.return %0 : tensor<4xf32>
+                  }
+                }
+                """;
+
+            Module module = StableHloParser.parse(mlir);
+            TanhOp tanhOp = (TanhOp) module.functions().get(0).body().get(0);
+
+            assertEquals("a", tanhOp.operand().name());
+        }
+
+        @Test
+        void parseSqrt() {
+            String mlir = """
+                module @test {
+                  func.func public @sqrt(%a: tensor<4xf32>) -> (tensor<4xf32>) {
+                    %0 = stablehlo.sqrt %a : tensor<4xf32>
+                    stablehlo.return %0 : tensor<4xf32>
+                  }
+                }
+                """;
+
+            Module module = StableHloParser.parse(mlir);
+            SqrtOp sqrtOp = (SqrtOp) module.functions().get(0).body().get(0);
+
+            assertEquals("a", sqrtOp.operand().name());
+        }
+
+        @Test
+        void parseRsqrt() {
+            String mlir = """
+                module @test {
+                  func.func public @rsqrt(%a: tensor<4xf32>) -> (tensor<4xf32>) {
+                    %0 = stablehlo.rsqrt %a : tensor<4xf32>
+                    stablehlo.return %0 : tensor<4xf32>
+                  }
+                }
+                """;
+
+            Module module = StableHloParser.parse(mlir);
+            RsqrtOp rsqrtOp = (RsqrtOp) module.functions().get(0).body().get(0);
+
+            assertEquals("a", rsqrtOp.operand().name());
+        }
+
+        @Test
+        void parseCompare() {
+            String mlir = """
+                module @test {
+                  func.func public @cmp(%a: tensor<4xf32>, %b: tensor<4xf32>) -> (tensor<4xi1>) {
+                    %0 = stablehlo.compare %a, %b, direction = GT : (tensor<4xf32>, tensor<4xf32>) -> tensor<4xi1>
+                    stablehlo.return %0 : tensor<4xi1>
+                  }
+                }
+                """;
+
+            Module module = StableHloParser.parse(mlir);
+            CompareOp compareOp = (CompareOp) module.functions().get(0).body().get(0);
+
+            assertEquals("a", compareOp.lhs().name());
+            assertEquals("b", compareOp.rhs().name());
+            assertEquals(ComparisonDirection.GT, compareOp.direction());
+            assertEquals(ScalarType.I1, compareOp.tensorResultType().elementType());
+        }
+
+        @Test
+        void parseSelect() {
+            String mlir = """
+                module @test {
+                  func.func public @sel(%pred: tensor<4xi1>, %a: tensor<4xf32>, %b: tensor<4xf32>) -> (tensor<4xf32>) {
+                    %0 = stablehlo.select %pred, %a, %b : (tensor<4xi1>, tensor<4xf32>, tensor<4xf32>) -> tensor<4xf32>
+                    stablehlo.return %0 : tensor<4xf32>
+                  }
+                }
+                """;
+
+            Module module = StableHloParser.parse(mlir);
+            SelectOp selectOp = (SelectOp) module.functions().get(0).body().get(0);
+
+            assertEquals("pred", selectOp.pred().name());
+            assertEquals("a", selectOp.onTrue().name());
+            assertEquals("b", selectOp.onFalse().name());
+        }
+
+        @Test
+        void parseConcatenate() {
+            String mlir = """
+                module @test {
+                  func.func public @concat(%a: tensor<4x8xf32>, %b: tensor<4x8xf32>) -> (tensor<8x8xf32>) {
+                    %0 = stablehlo.concatenate %a, %b, dim = 0 : (tensor<4x8xf32>, tensor<4x8xf32>) -> tensor<8x8xf32>
+                    stablehlo.return %0 : tensor<8x8xf32>
+                  }
+                }
+                """;
+
+            Module module = StableHloParser.parse(mlir);
+            ConcatenateOp concatOp = (ConcatenateOp) module.functions().get(0).body().get(0);
+
+            assertEquals(2, concatOp.inputs().size());
+            assertEquals("a", concatOp.inputs().get(0).name());
+            assertEquals("b", concatOp.inputs().get(1).name());
+            assertEquals(0, concatOp.dimension());
+            assertEquals(List.of(8, 8), concatOp.tensorResultType().shape());
+        }
+
+        @Test
+        void parseSlice() {
+            String mlir = """
+                module @test {
+                  func.func public @slice(%a: tensor<8x8xf32>) -> (tensor<4x4xf32>) {
+                    %0 = stablehlo.slice %a, starts = [0, 0], limits = [4, 4], strides = [1, 1] : tensor<8x8xf32> -> tensor<4x4xf32>
+                    stablehlo.return %0 : tensor<4x4xf32>
+                  }
+                }
+                """;
+
+            Module module = StableHloParser.parse(mlir);
+            SliceOp sliceOp = (SliceOp) module.functions().get(0).body().get(0);
+
+            assertEquals("a", sliceOp.operand().name());
+            assertEquals(List.of(0L, 0L), sliceOp.startIndices());
+            assertEquals(List.of(4L, 4L), sliceOp.limitIndices());
+            assertEquals(List.of(1L, 1L), sliceOp.strides());
+            assertEquals(List.of(4, 4), sliceOp.tensorResultType().shape());
+        }
+
+        @Test
+        void parseClamp() {
+            String mlir = """
+                module @test {
+                  func.func public @clamp(%min: tensor<4xf32>, %x: tensor<4xf32>, %max: tensor<4xf32>) -> (tensor<4xf32>) {
+                    %0 = stablehlo.clamp %min, %x, %max : (tensor<4xf32>, tensor<4xf32>, tensor<4xf32>) -> tensor<4xf32>
+                    stablehlo.return %0 : tensor<4xf32>
+                  }
+                }
+                """;
+
+            Module module = StableHloParser.parse(mlir);
+            ClampOp clampOp = (ClampOp) module.functions().get(0).body().get(0);
+
+            assertEquals("min", clampOp.min().name());
+            assertEquals("x", clampOp.operand().name());
+            assertEquals("max", clampOp.max().name());
+        }
+
+        @Test
+        void parseConvert() {
+            String mlir = """
+                module @test {
+                  func.func public @convert(%a: tensor<4xf32>) -> (tensor<4xf16>) {
+                    %0 = stablehlo.convert %a : tensor<4xf32> -> tensor<4xf16>
+                    stablehlo.return %0 : tensor<4xf16>
+                  }
+                }
+                """;
+
+            Module module = StableHloParser.parse(mlir);
+            ConvertOp convertOp = (ConvertOp) module.functions().get(0).body().get(0);
+
+            assertEquals("a", convertOp.operand().name());
+            assertEquals(ScalarType.F16, convertOp.tensorResultType().elementType());
+        }
+
         @Test
         void parseReturnSingleValue() {
             String mlir = """

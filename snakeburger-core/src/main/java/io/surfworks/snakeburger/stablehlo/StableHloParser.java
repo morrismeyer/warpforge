@@ -1,6 +1,7 @@
 package io.surfworks.snakeburger.stablehlo;
 
 import io.surfworks.snakeburger.stablehlo.StableHloAst.*;
+import io.surfworks.snakeburger.stablehlo.StableHloAst.ComparisonDirection;
 import io.surfworks.snakeburger.stablehlo.StableHloAst.Module;
 import io.surfworks.snakeburger.stablehlo.StableHloTokenizer.Token;
 import io.surfworks.snakeburger.stablehlo.StableHloTokenizer.TokenType;
@@ -192,14 +193,33 @@ public final class StableHloParser {
         return switch (opName) {
             case "stablehlo.dot_general" -> parseDotGeneral(resultName);
             case "stablehlo.constant" -> parseConstant(resultName);
-            case "stablehlo.maximum" -> parseMaximum(resultName);
+            // Binary elementwise ops
             case "stablehlo.add" -> parseAdd(resultName);
+            case "stablehlo.subtract" -> parseSubtract(resultName);
             case "stablehlo.multiply" -> parseMultiply(resultName);
             case "stablehlo.divide" -> parseDivide(resultName);
+            case "stablehlo.maximum" -> parseMaximum(resultName);
+            case "stablehlo.minimum" -> parseMinimum(resultName);
+            // Unary elementwise ops
             case "stablehlo.negate" -> parseNegate(resultName);
+            case "stablehlo.abs" -> parseAbs(resultName);
+            case "stablehlo.exponential" -> parseExp(resultName);
+            case "stablehlo.log" -> parseLog(resultName);
+            case "stablehlo.tanh" -> parseTanh(resultName);
+            case "stablehlo.sqrt" -> parseSqrt(resultName);
+            case "stablehlo.rsqrt" -> parseRsqrt(resultName);
+            // Shape ops
             case "stablehlo.reshape" -> parseReshape(resultName);
             case "stablehlo.transpose" -> parseTranspose(resultName);
             case "stablehlo.broadcast_in_dim" -> parseBroadcastInDim(resultName);
+            case "stablehlo.concatenate" -> parseConcatenate(resultName);
+            case "stablehlo.slice" -> parseSlice(resultName);
+            // Conditional ops
+            case "stablehlo.compare" -> parseCompare(resultName);
+            case "stablehlo.select" -> parseSelect(resultName);
+            case "stablehlo.clamp" -> parseClamp(resultName);
+            // Type conversion
+            case "stablehlo.convert" -> parseConvert(resultName);
             default -> throw error("Unsupported operation: " + opName);
         };
     }
@@ -423,6 +443,266 @@ public final class StableHloParser {
         valueMap.put(resultName, result);
 
         return new BroadcastInDimOp(result, operand, dims, resultType);
+    }
+
+    // ==================== New Binary Ops ====================
+
+    private SubtractOp parseSubtract(String resultName) {
+        Value lhs = lookupValue(parsePercentId());
+        expect(TokenType.COMMA);
+        Value rhs = lookupValue(parsePercentId());
+        expect(TokenType.COLON);
+        TensorType resultType = parseTensorType();
+
+        Value result = new Value(resultName, resultType);
+        valueMap.put(resultName, result);
+
+        return new SubtractOp(result, lhs, rhs, resultType);
+    }
+
+    private MinimumOp parseMinimum(String resultName) {
+        Value lhs = lookupValue(parsePercentId());
+        expect(TokenType.COMMA);
+        Value rhs = lookupValue(parsePercentId());
+        expect(TokenType.COLON);
+        TensorType resultType = parseTensorType();
+
+        Value result = new Value(resultName, resultType);
+        valueMap.put(resultName, result);
+
+        return new MinimumOp(result, lhs, rhs, resultType);
+    }
+
+    // ==================== New Unary Math Ops ====================
+
+    private AbsOp parseAbs(String resultName) {
+        Value operand = lookupValue(parsePercentId());
+        expect(TokenType.COLON);
+        TensorType resultType = parseTensorType();
+
+        Value result = new Value(resultName, resultType);
+        valueMap.put(resultName, result);
+
+        return new AbsOp(result, operand, resultType);
+    }
+
+    private ExpOp parseExp(String resultName) {
+        Value operand = lookupValue(parsePercentId());
+        expect(TokenType.COLON);
+        TensorType resultType = parseTensorType();
+
+        Value result = new Value(resultName, resultType);
+        valueMap.put(resultName, result);
+
+        return new ExpOp(result, operand, resultType);
+    }
+
+    private LogOp parseLog(String resultName) {
+        Value operand = lookupValue(parsePercentId());
+        expect(TokenType.COLON);
+        TensorType resultType = parseTensorType();
+
+        Value result = new Value(resultName, resultType);
+        valueMap.put(resultName, result);
+
+        return new LogOp(result, operand, resultType);
+    }
+
+    private TanhOp parseTanh(String resultName) {
+        Value operand = lookupValue(parsePercentId());
+        expect(TokenType.COLON);
+        TensorType resultType = parseTensorType();
+
+        Value result = new Value(resultName, resultType);
+        valueMap.put(resultName, result);
+
+        return new TanhOp(result, operand, resultType);
+    }
+
+    private SqrtOp parseSqrt(String resultName) {
+        Value operand = lookupValue(parsePercentId());
+        expect(TokenType.COLON);
+        TensorType resultType = parseTensorType();
+
+        Value result = new Value(resultName, resultType);
+        valueMap.put(resultName, result);
+
+        return new SqrtOp(result, operand, resultType);
+    }
+
+    private RsqrtOp parseRsqrt(String resultName) {
+        Value operand = lookupValue(parsePercentId());
+        expect(TokenType.COLON);
+        TensorType resultType = parseTensorType();
+
+        Value result = new Value(resultName, resultType);
+        valueMap.put(resultName, result);
+
+        return new RsqrtOp(result, operand, resultType);
+    }
+
+    // ==================== New Shape Ops ====================
+
+    private ConcatenateOp parseConcatenate(String resultName) {
+        // %c = stablehlo.concatenate %a, %b, dim = 0 : (t, t) -> t
+        List<Value> inputs = new ArrayList<>();
+        inputs.add(lookupValue(parsePercentId()));
+
+        while (check(TokenType.COMMA)) {
+            advance();
+            if (checkIdentifier("dim")) {
+                break;
+            }
+            inputs.add(lookupValue(parsePercentId()));
+        }
+
+        expect(TokenType.IDENTIFIER, "dim");
+        expect(TokenType.EQUALS);
+        long dimension = Long.parseLong(expect(TokenType.INTEGER).value());
+
+        expect(TokenType.COLON);
+        // Skip input types
+        expect(TokenType.LPAREN);
+        while (!check(TokenType.RPAREN)) {
+            parseType();
+            if (check(TokenType.COMMA)) advance();
+        }
+        expect(TokenType.RPAREN);
+        expect(TokenType.ARROW);
+        TensorType resultType = parseTensorType();
+
+        Value result = new Value(resultName, resultType);
+        valueMap.put(resultName, result);
+
+        return new ConcatenateOp(result, inputs, dimension, resultType);
+    }
+
+    private SliceOp parseSlice(String resultName) {
+        // %s = stablehlo.slice %op, starts = [...], limits = [...], strides = [...] : t -> t
+        Value operand = lookupValue(parsePercentId());
+        expect(TokenType.COMMA);
+
+        expect(TokenType.IDENTIFIER, "starts");
+        expect(TokenType.EQUALS);
+        List<Long> starts = parseIntegerList();
+
+        expect(TokenType.COMMA);
+        expect(TokenType.IDENTIFIER, "limits");
+        expect(TokenType.EQUALS);
+        List<Long> limits = parseIntegerList();
+
+        expect(TokenType.COMMA);
+        expect(TokenType.IDENTIFIER, "strides");
+        expect(TokenType.EQUALS);
+        List<Long> strides = parseIntegerList();
+
+        expect(TokenType.COLON);
+        parseType(); // input type
+        expect(TokenType.ARROW);
+        TensorType resultType = parseTensorType();
+
+        Value result = new Value(resultName, resultType);
+        valueMap.put(resultName, result);
+
+        return new SliceOp(result, operand, starts, limits, strides, resultType);
+    }
+
+    // ==================== New Conditional Ops ====================
+
+    private CompareOp parseCompare(String resultName) {
+        // %c = stablehlo.compare %a, %b, direction = GT : (t, t) -> tensor<...xi1>
+        Value lhs = lookupValue(parsePercentId());
+        expect(TokenType.COMMA);
+        Value rhs = lookupValue(parsePercentId());
+        expect(TokenType.COMMA);
+
+        expect(TokenType.IDENTIFIER, "direction");
+        expect(TokenType.EQUALS);
+        String dirStr = expect(TokenType.IDENTIFIER).value();
+        ComparisonDirection direction = ComparisonDirection.fromString(dirStr);
+
+        expect(TokenType.COLON);
+        // Skip input types
+        expect(TokenType.LPAREN);
+        parseType();
+        expect(TokenType.COMMA);
+        parseType();
+        expect(TokenType.RPAREN);
+        expect(TokenType.ARROW);
+        TensorType resultType = parseTensorType();
+
+        Value result = new Value(resultName, resultType);
+        valueMap.put(resultName, result);
+
+        return new CompareOp(result, lhs, rhs, direction, resultType);
+    }
+
+    private SelectOp parseSelect(String resultName) {
+        // %s = stablehlo.select %pred, %on_true, %on_false : (pred_t, t, t) -> t
+        Value pred = lookupValue(parsePercentId());
+        expect(TokenType.COMMA);
+        Value onTrue = lookupValue(parsePercentId());
+        expect(TokenType.COMMA);
+        Value onFalse = lookupValue(parsePercentId());
+
+        expect(TokenType.COLON);
+        // Skip input types
+        expect(TokenType.LPAREN);
+        parseType();
+        expect(TokenType.COMMA);
+        parseType();
+        expect(TokenType.COMMA);
+        parseType();
+        expect(TokenType.RPAREN);
+        expect(TokenType.ARROW);
+        TensorType resultType = parseTensorType();
+
+        Value result = new Value(resultName, resultType);
+        valueMap.put(resultName, result);
+
+        return new SelectOp(result, pred, onTrue, onFalse, resultType);
+    }
+
+    private ClampOp parseClamp(String resultName) {
+        // %c = stablehlo.clamp %min, %operand, %max : (t, t, t) -> t
+        Value min = lookupValue(parsePercentId());
+        expect(TokenType.COMMA);
+        Value operand = lookupValue(parsePercentId());
+        expect(TokenType.COMMA);
+        Value max = lookupValue(parsePercentId());
+
+        expect(TokenType.COLON);
+        // Skip input types
+        expect(TokenType.LPAREN);
+        parseType();
+        expect(TokenType.COMMA);
+        parseType();
+        expect(TokenType.COMMA);
+        parseType();
+        expect(TokenType.RPAREN);
+        expect(TokenType.ARROW);
+        TensorType resultType = parseTensorType();
+
+        Value result = new Value(resultName, resultType);
+        valueMap.put(resultName, result);
+
+        return new ClampOp(result, min, operand, max, resultType);
+    }
+
+    // ==================== Type Conversion ====================
+
+    private ConvertOp parseConvert(String resultName) {
+        // %c = stablehlo.convert %op : tensor<...xf32> -> tensor<...xf16>
+        Value operand = lookupValue(parsePercentId());
+        expect(TokenType.COLON);
+        parseType(); // input type
+        expect(TokenType.ARROW);
+        TensorType resultType = parseTensorType();
+
+        Value result = new Value(resultName, resultType);
+        valueMap.put(resultName, result);
+
+        return new ConvertOp(result, operand, resultType);
     }
 
     private ReturnOp parseReturn() {

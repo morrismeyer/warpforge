@@ -27,3 +27,351 @@ java {
     languageVersion = JavaLanguageVersion.of(25)
   }
 }
+
+// =============================================================================
+// GraalPy PyTorch Build Dependency Detection and Installation
+// =============================================================================
+// PyTorch must be built from source for GraalPy (no prebuilt wheels available).
+// Required: cmake >= 3.18, C++ compiler (Xcode on macOS, g++ on Linux)
+// Optional: ninja (significantly speeds up builds)
+
+// Helper to detect the Linux package manager
+def detectLinuxPackageManager = {
+    def osName = System.getProperty('os.name', '').toLowerCase(Locale.ROOT)
+    if (!osName.contains('linux')) return null
+
+    def managers = ['apt-get': 'apt', 'dnf': 'dnf', 'yum': 'yum', 'pacman': 'pacman', 'apk': 'apk']
+    for (entry in managers) {
+        def check = ['bash', '-c', "command -v ${entry.key}"].execute()
+        check.waitFor()
+        if (check.exitValue() == 0) return entry.value
+    }
+    return null
+}
+
+tasks.register('checkGraalPyDeps') {
+    group = 'graalpy'
+    description = 'Check GraalPy PyTorch build dependencies (cmake, ninja, C++ compiler)'
+
+    doLast {
+        def osName = System.getProperty('os.name', '').toLowerCase(Locale.ROOT)
+        def isMacOS = osName.contains('mac')
+        def isLinux = osName.contains('linux')
+
+        if (!isMacOS && !isLinux) {
+            println "This task supports macOS and Linux only."
+            return
+        }
+
+        def issues = []
+        def fixes = []
+        def pkgManager = isLinux ? detectLinuxPackageManager() : null
+
+        println "Platform: ${isMacOS ? 'macOS' : 'Linux'}"
+        if (isLinux && pkgManager) {
+            println "Package manager: ${pkgManager}"
+        }
+        println ""
+        println "Checking GraalPy PyTorch build dependencies..."
+        println ""
+
+        // ---- C++ Compiler ----
+        if (isMacOS) {
+            println "Checking Xcode Command Line Tools..."
+            def xcodeCheck = ['bash', '-c', 'xcode-select -p 2>/dev/null'].execute()
+            xcodeCheck.waitFor()
+            if (xcodeCheck.exitValue() == 0) {
+                def xcPath = xcodeCheck.text.trim()
+                println "  [OK] Xcode CLI tools installed at: ${xcPath}"
+            } else {
+                issues << "Xcode Command Line Tools not installed"
+                fixes << "xcode-select --install"
+            }
+
+            println "Checking clang++..."
+            def clangCheck = ['bash', '-c', 'command -v clang++'].execute()
+            clangCheck.waitFor()
+            if (clangCheck.exitValue() == 0) {
+                def clangVersion = ['bash', '-c', 'clang++ --version | head -1'].execute().text.trim()
+                println "  [OK] clang++ available: ${clangVersion}"
+            } else {
+                issues << "clang++ not found"
+                fixes << "xcode-select --install"
+            }
+        } else {
+            println "Checking g++..."
+            def gppCheck = ['bash', '-c', 'command -v g++'].execute()
+            gppCheck.waitFor()
+            if (gppCheck.exitValue() == 0) {
+                def gppVersion = ['bash', '-c', 'g++ --version | head -1'].execute().text.trim()
+                println "  [OK] g++ available: ${gppVersion}"
+            } else {
+                issues << "g++ not installed"
+                switch (pkgManager) {
+                    case 'apt': fixes << "sudo apt-get install -y build-essential"; break
+                    case 'dnf': fixes << "sudo dnf groupinstall -y 'Development Tools'"; break
+                    case 'yum': fixes << "sudo yum groupinstall -y 'Development Tools'"; break
+                    case 'pacman': fixes << "sudo pacman -S --noconfirm base-devel"; break
+                    case 'apk': fixes << "sudo apk add build-base"; break
+                    default: fixes << "Install g++ via your package manager"
+                }
+            }
+        }
+
+        // ---- cmake (>= 3.18) ----
+        println "Checking cmake..."
+        def cmakeCheck = ['bash', '-c', 'command -v cmake'].execute()
+        cmakeCheck.waitFor()
+        if (cmakeCheck.exitValue() == 0) {
+            def cmakeVersionOut = ['bash', '-c', 'cmake --version | head -1'].execute().text.trim()
+            println "  [OK] cmake available: ${cmakeVersionOut}"
+
+            // Check version >= 3.18
+            def versionMatch = cmakeVersionOut =~ /(\d+)\.(\d+)/
+            if (versionMatch.find()) {
+                def major = versionMatch.group(1) as int
+                def minor = versionMatch.group(2) as int
+                if (major < 3 || (major == 3 && minor < 18)) {
+                    issues << "cmake version ${major}.${minor} is too old (need >= 3.18)"
+                    if (isMacOS) {
+                        fixes << "brew upgrade cmake"
+                    } else {
+                        fixes << "Upgrade cmake to >= 3.18 (may need to install from source or use pip)"
+                    }
+                }
+            }
+        } else {
+            issues << "cmake not installed (need >= 3.18)"
+            if (isMacOS) {
+                fixes << "brew install cmake"
+            } else {
+                switch (pkgManager) {
+                    case 'apt': fixes << "sudo apt-get install -y cmake"; break
+                    case 'dnf': fixes << "sudo dnf install -y cmake"; break
+                    case 'yum': fixes << "sudo yum install -y cmake3"; break
+                    case 'pacman': fixes << "sudo pacman -S --noconfirm cmake"; break
+                    case 'apk': fixes << "sudo apk add cmake"; break
+                    default: fixes << "Install cmake via your package manager"
+                }
+            }
+        }
+
+        // ---- ninja (optional but recommended) ----
+        println "Checking ninja..."
+        def ninjaCheck = ['bash', '-c', 'command -v ninja'].execute()
+        ninjaCheck.waitFor()
+        if (ninjaCheck.exitValue() == 0) {
+            def ninjaVersion = ['bash', '-c', 'ninja --version'].execute().text.trim()
+            println "  [OK] ninja available: ${ninjaVersion}"
+        } else {
+            println "  [WARN] ninja not installed (optional, but speeds up PyTorch build significantly)"
+            if (isMacOS) {
+                fixes << "brew install ninja  # optional but recommended"
+            } else {
+                switch (pkgManager) {
+                    case 'apt': fixes << "sudo apt-get install -y ninja-build  # optional but recommended"; break
+                    case 'dnf': fixes << "sudo dnf install -y ninja-build  # optional but recommended"; break
+                    case 'yum': fixes << "sudo yum install -y ninja-build  # optional but recommended"; break
+                    case 'pacman': fixes << "sudo pacman -S --noconfirm ninja  # optional but recommended"; break
+                    case 'apk': fixes << "sudo apk add ninja  # optional but recommended"; break
+                    default: fixes << "Install ninja via your package manager (optional but recommended)"
+                }
+            }
+        }
+
+        // ---- make ----
+        println "Checking make..."
+        def makeCheck = ['bash', '-c', 'command -v make'].execute()
+        makeCheck.waitFor()
+        if (makeCheck.exitValue() == 0) {
+            println "  [OK] make available"
+        } else {
+            issues << "make not installed"
+            if (isMacOS) {
+                fixes << "xcode-select --install"
+            } else {
+                switch (pkgManager) {
+                    case 'apt': fixes << "sudo apt-get install -y build-essential"; break
+                    case 'dnf': fixes << "sudo dnf install -y make"; break
+                    case 'yum': fixes << "sudo yum install -y make"; break
+                    case 'pacman': fixes << "sudo pacman -S --noconfirm make"; break
+                    case 'apk': fixes << "sudo apk add make"; break
+                    default: fixes << "Install make via your package manager"
+                }
+            }
+        }
+
+        // ---- Summary ----
+        println ""
+        fixes = fixes.unique()
+
+        if (issues.isEmpty()) {
+            println "All GraalPy PyTorch build dependencies are satisfied!"
+            println ""
+            println "PyTorch will be built from source when first needed (~30-60 minutes)."
+        } else {
+            println "Found ${issues.size()} issue(s):"
+            issues.eachWithIndex { issue, idx ->
+                println "  ${idx + 1}. ${issue}"
+            }
+            println ""
+            println "To fix, run these commands:"
+            fixes.each { fix ->
+                println "  ${fix}"
+            }
+            println ""
+            println "Or run:  ./gradlew :snakegrinder-core:installGraalPyDeps"
+
+            throw new GradleException("Missing GraalPy PyTorch build dependencies. See above for details.")
+        }
+    }
+}
+
+tasks.register('installGraalPyDeps') {
+    group = 'graalpy'
+    description = 'Install missing GraalPy PyTorch build dependencies (cmake, ninja, C++ compiler)'
+
+    doLast {
+        def osName = System.getProperty('os.name', '').toLowerCase(Locale.ROOT)
+        def isMacOS = osName.contains('mac')
+        def isLinux = osName.contains('linux')
+
+        if (!isMacOS && !isLinux) {
+            throw new GradleException("This task supports macOS and Linux only.")
+        }
+
+        def installed = []
+
+        if (isMacOS) {
+            // Check if Homebrew is available
+            def brewCheck = ['bash', '-c', 'command -v brew'].execute()
+            brewCheck.waitFor()
+            if (brewCheck.exitValue() != 0) {
+                throw new GradleException(
+                    "Homebrew is not installed. Install it first:\n" +
+                    "  /bin/bash -c \"\$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\""
+                )
+            }
+
+            // Check Xcode CLI tools
+            def xcodeCheck = ['bash', '-c', 'xcode-select -p 2>/dev/null'].execute()
+            xcodeCheck.waitFor()
+            if (xcodeCheck.exitValue() != 0) {
+                println "Installing Xcode Command Line Tools..."
+                println "  A dialog will appear - please follow the prompts."
+                def proc = ['xcode-select', '--install'].execute()
+                proc.waitFor()
+                installed << "Xcode CLI tools (installation started)"
+            }
+
+            // Check and install cmake
+            def cmakeCheck = ['bash', '-c', 'command -v cmake'].execute()
+            cmakeCheck.waitFor()
+            if (cmakeCheck.exitValue() != 0) {
+                println "Installing cmake via Homebrew..."
+                def proc = ['brew', 'install', 'cmake'].execute()
+                proc.consumeProcessOutput(System.out, System.err)
+                if (proc.waitFor() != 0) {
+                    throw new GradleException("Failed to install cmake")
+                }
+                installed << "cmake"
+            }
+
+            // Check and install ninja
+            def ninjaCheck = ['bash', '-c', 'command -v ninja'].execute()
+            ninjaCheck.waitFor()
+            if (ninjaCheck.exitValue() != 0) {
+                println "Installing ninja via Homebrew..."
+                def proc = ['brew', 'install', 'ninja'].execute()
+                proc.consumeProcessOutput(System.out, System.err)
+                if (proc.waitFor() != 0) {
+                    throw new GradleException("Failed to install ninja")
+                }
+                installed << "ninja"
+            }
+        } else {
+            // Linux
+            def pkgManager = detectLinuxPackageManager()
+            if (pkgManager == null) {
+                throw new GradleException("Could not detect package manager. Please install dependencies manually.")
+            }
+
+            def packagesToInstall = []
+
+            // Check g++
+            def gppCheck = ['bash', '-c', 'command -v g++'].execute()
+            gppCheck.waitFor()
+            if (gppCheck.exitValue() != 0) {
+                switch (pkgManager) {
+                    case 'apt': packagesToInstall << 'build-essential'; break
+                    case 'dnf': case 'yum':
+                        println "Installing Development Tools group..."
+                        def groupProc = ['sudo', pkgManager, 'groupinstall', '-y', 'Development Tools'].execute()
+                        groupProc.consumeProcessOutput(System.out, System.err)
+                        groupProc.waitFor()
+                        installed << "Development Tools"
+                        break
+                    case 'pacman': packagesToInstall << 'base-devel'; break
+                    case 'apk': packagesToInstall << 'build-base'; break
+                }
+            }
+
+            // Check cmake
+            def cmakeCheck = ['bash', '-c', 'command -v cmake'].execute()
+            cmakeCheck.waitFor()
+            if (cmakeCheck.exitValue() != 0) {
+                switch (pkgManager) {
+                    case 'apt': packagesToInstall << 'cmake'; break
+                    case 'dnf': packagesToInstall << 'cmake'; break
+                    case 'yum': packagesToInstall << 'cmake3'; break
+                    case 'pacman': packagesToInstall << 'cmake'; break
+                    case 'apk': packagesToInstall << 'cmake'; break
+                }
+            }
+
+            // Check ninja
+            def ninjaCheck = ['bash', '-c', 'command -v ninja'].execute()
+            ninjaCheck.waitFor()
+            if (ninjaCheck.exitValue() != 0) {
+                switch (pkgManager) {
+                    case 'apt': packagesToInstall << 'ninja-build'; break
+                    case 'dnf': case 'yum': packagesToInstall << 'ninja-build'; break
+                    case 'pacman': packagesToInstall << 'ninja'; break
+                    case 'apk': packagesToInstall << 'ninja'; break
+                }
+            }
+
+            if (!packagesToInstall.isEmpty()) {
+                def installCmd
+                switch (pkgManager) {
+                    case 'apt': installCmd = ['sudo', 'apt-get', 'install', '-y'] + packagesToInstall; break
+                    case 'dnf': installCmd = ['sudo', 'dnf', 'install', '-y'] + packagesToInstall; break
+                    case 'yum': installCmd = ['sudo', 'yum', 'install', '-y'] + packagesToInstall; break
+                    case 'pacman': installCmd = ['sudo', 'pacman', '-S', '--noconfirm'] + packagesToInstall; break
+                    case 'apk': installCmd = ['sudo', 'apk', 'add'] + packagesToInstall; break
+                }
+
+                println "Installing: ${packagesToInstall.join(', ')}"
+                println "Running: ${installCmd.join(' ')}"
+
+                def proc = installCmd.execute()
+                proc.consumeProcessOutput(System.out, System.err)
+                def exitCode = proc.waitFor()
+
+                if (exitCode != 0) {
+                    throw new GradleException("Package installation failed with exit code ${exitCode}")
+                }
+                installed.addAll(packagesToInstall)
+            }
+        }
+
+        println ""
+        if (installed.isEmpty()) {
+            println "All GraalPy PyTorch build dependencies are already installed!"
+        } else {
+            println "Installed: ${installed.join(', ')}"
+            println ""
+            println "Run './gradlew :snakegrinder-core:checkGraalPyDeps' to verify."
+        }
+    }
+}

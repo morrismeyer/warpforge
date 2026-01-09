@@ -62,10 +62,10 @@ git clone https://github.com/openjdk/babylon.git ~/surfworks/babylon
 
 #### Quick Start (Recommended)
 
-Use `ensureBabylonReady` - it handles everything automatically:
+Use `ensureBabylonReady` - it handles everything automatically (boot JDK is auto-detected):
 ```bash
 # Pull latest, check deps, build (with auto-recovery on failure)
-./gradlew :babylon-runtime:ensureBabylonReady -Pbabylon.bootJdk=$(/usr/libexec/java_home)
+./gradlew :babylon-runtime:ensureBabylonReady
 
 # Now snakeburger tasks will work
 ./gradlew :snakeburger-cli:run
@@ -76,17 +76,18 @@ Use `ensureBabylonReady` - it handles everything automatically:
 For development, enable auto-update to always use the latest Babylon:
 ```bash
 # Automatically pulls and rebuilds Babylon before compiling snakeburger
-./gradlew :snakeburger-cli:run -Pbabylon.autoUpdate=true -Pbabylon.bootJdk=$(/usr/libexec/java_home)
+./gradlew :snakeburger-cli:run -Pbabylon.autoUpdate=true
 ```
 
 #### Manual Setup (Step-by-Step)
 
 ```bash
-# 0. Check/install build dependencies (macOS)
+# 0. Check/install build dependencies
 ./gradlew :babylon-runtime:checkBabylonDeps
 
-# 1. Build Babylon (requires boot JDK path)
-./gradlew :babylon-runtime:buildBabylonImages -Pbabylon.bootJdk=/path/to/jdk
+# 1. Build Babylon (boot JDK auto-detected, or specify explicitly)
+./gradlew :babylon-runtime:buildBabylonImages
+# Or with explicit boot JDK: ./gradlew :babylon-runtime:buildBabylonImages -Pbabylon.bootJdk=/path/to/jdk
 
 # 2. Generate and source environment (optional, for IDE integration)
 ./gradlew :babylon-runtime:writeBabylonToolchainEnv
@@ -122,13 +123,47 @@ source babylon-runtime/build/babylon.toolchain.env
 
 These two projects have distinct architectural goals and distribution paths:
 
-### SnakeGrinder (GraalPy + native-image)
+### SnakeGrinder (GraalPy + Real PyTorch + native-image)
 
-- **Runtime**: GraalPy (Python on GraalVM)
-- **Distribution**: GraalVM `native-image` → single-file executable
-- **Key constraint**: **No pip install dependencies**. All Python code must be pure Python bundled as resources. This eliminates Python configuration hassle and enables true single-file distribution.
-- **Why mock tracer**: The mock torch/jax modules exist because real PyTorch/JAX require pip install and native extensions incompatible with native-image bundling.
-- **StableHLO output**: Text format (MLIR), emitted by pure Python code
+- **Runtime**: GraalPy 25.0.1 with **real PyTorch 2.7.0** (built from source with GraalPy patches)
+- **Tracing**: `torch.fx.symbolic_trace` for full-fidelity model capture
+- **Distribution**: GraalVM `native-image` executable (~736MB) + PyTorch native libs (~210MB)
+- **StableHLO output**: Text format (MLIR), converted from FX graph
+
+#### Validated Capabilities (January 2025)
+
+| Feature | Status |
+|---------|--------|
+| PyTorch 2.7.0 on GraalPy | ✅ Works (builds from source) |
+| `torch.fx.symbolic_trace` | ✅ Full support |
+| `torch.jit.trace` | ✅ Full support |
+| `torch.jit.script` | ✅ Full support |
+| `torch.export` (dynamo) | ❌ Not supported on GraalPy |
+| FX → StableHLO conversion | ✅ Working prototype |
+| Native-image build | ✅ Works (~4 min build) |
+| Native executable runs | ✅ Works (with DYLD_LIBRARY_PATH) |
+
+#### Build Requirements
+
+PyTorch must be built from source for GraalPy (no prebuilt wheels available):
+- cmake >= 3.18
+- C++ compiler (Xcode on macOS, gcc on Linux)
+- ~30-60 minutes first-time build
+- ~2-5GB disk space
+
+#### Distribution Structure
+
+```
+snakegrinder-dist/
+├── snakegrinder              # Native executable (736MB)
+└── lib/
+    ├── libtorch_cpu.dylib    # PyTorch native libs (~210MB total)
+    ├── libc10.dylib
+    ├── libtorch_python.dylib
+    └── ...
+```
+
+Run with: `DYLD_LIBRARY_PATH=lib ./snakegrinder`
 
 ### SnakeBurger (Babylon JDK)
 
@@ -141,27 +176,42 @@ These two projects have distinct architectural goals and distribution paths:
 ### Data Flow
 
 ```
-Python ML code
-      │
-      ▼
-┌─────────────────┐
-│  SnakeGrinder   │  GraalPy + mock tracer
-│  (native-image) │  Emits StableHLO text
-└────────┬────────┘
-         │ .mlir file
+PyTorch Model (nn.Module)
+         │
          ▼
-┌─────────────────┐
-│  SnakeBurger    │  Babylon JDK
-│  (jlink)        │  Parses StableHLO → Babylon IR
-└─────────────────┘
+┌─────────────────────────────────────┐
+│  SnakeGrinder                       │
+│  ┌───────────────────────────────┐  │
+│  │ torch.fx.symbolic_trace       │  │
+│  │         ↓                     │  │
+│  │ FX Graph (real PyTorch ops)   │  │
+│  │         ↓                     │  │
+│  │ FXToStableHLO converter       │  │
+│  └───────────────────────────────┘  │
+│  Native executable + libs           │
+└──────────────┬──────────────────────┘
+               │ .mlir file (StableHLO text)
+               ▼
+┌─────────────────────────────────────┐
+│  SnakeBurger                        │
+│  ┌───────────────────────────────┐  │
+│  │ StableHLO Parser              │  │
+│  │         ↓                     │  │
+│  │ Type Checker                  │  │
+│  │         ↓                     │  │
+│  │ Babylon Code Reflection IR    │  │
+│  └───────────────────────────────┘  │
+│  jlink/jpackage executable          │
+└─────────────────────────────────────┘
 ```
 
 ### Design Implications
 
-- SnakeGrinder Python code must remain **pure Python** (no C extensions, no pip packages)
+- SnakeGrinder uses **real PyTorch** for full-fidelity tracing (not mock modules)
+- Distribution is **executable + lib folder** (not single file, but still "just works")
 - SnakeBurger Java code must handle **Babylon API instability** gracefully
 - The two projects communicate via **StableHLO text format** as a stable interface
-- Both aim for **single-file executable** distribution but via different toolchains
+- Build requires cmake/C++ toolchain (one-time setup, then cached)
 
 ## Testing
 

@@ -10,6 +10,9 @@ plugins {
     id 'base'
 }
 
+import org.gradle.jvm.toolchain.JavaLanguageVersion
+import org.gradle.jvm.toolchain.JavaToolchainService
+
 def shQuote = { String s ->
     // Safe single-quote for bash
     return "'" + (s ?: '').replace("'", "'\"'\"'") + "'"
@@ -37,7 +40,13 @@ def arch = {
     return a
 }.call()
 
-def os = 'macosx'
+def os = {
+    def osName = System.getProperty('os.name', '').toLowerCase(Locale.ROOT)
+    if (osName.contains('mac')) return 'macosx'
+    if (osName.contains('linux')) return 'linux'
+    if (osName.contains('windows')) return 'windows'
+    return osName.replaceAll('[^a-z0-9]', '')
+}.call()
 
 def defaultConfNameProvider = debugLevelProvider.map { dl -> "${os}-${arch}-server-${dl}" }
 
@@ -53,15 +62,114 @@ def resolveRepoDir = {
 }
 
 
+// Auto-detect boot JDK using Gradle toolchains or common locations
+def detectBootJdk = {
+    // 1. Check explicit property first
+    def explicit = babylonBootJdkProvider.orNull
+    if (explicit != null && !explicit.trim().isEmpty()) {
+        def explicitDir = new File(explicit.trim())
+        if (new File(explicitDir, 'bin/java').exists()) {
+            return explicitDir.absolutePath
+        }
+    }
+
+    // 2. Check JAVA_HOME environment variable
+    def javaHome = System.getenv('JAVA_HOME')
+    if (javaHome != null && !javaHome.trim().isEmpty()) {
+        def javaHomeDir = new File(javaHome.trim())
+        if (new File(javaHomeDir, 'bin/java').exists()) {
+            return javaHomeDir.absolutePath
+        }
+    }
+
+    // 3. Try to use Gradle toolchain to find a JDK 21+ (required for building JDK 26)
+    try {
+        def toolchainService = project.extensions.findByType(JavaToolchainService)
+        if (toolchainService != null) {
+            // Try JDK versions in order of preference: 25, 24, 23, 22, 21
+            for (int version in [25, 24, 23, 22, 21]) {
+                try {
+                    def launcher = toolchainService.launcherFor { spec ->
+                        spec.languageVersion = JavaLanguageVersion.of(version)
+                    }.orNull
+                    if (launcher != null) {
+                        def jdkHome = launcher.metadata.installationPath.asFile
+                        if (new File(jdkHome, 'bin/java').exists()) {
+                            return jdkHome.absolutePath
+                        }
+                    }
+                } catch (Exception ignored) {
+                    // Version not available, try next
+                }
+            }
+        }
+    } catch (Exception e) {
+        // Toolchain service not available
+    }
+
+    // 4. Check common Linux JDK locations
+    def osName = System.getProperty('os.name', '').toLowerCase(Locale.ROOT)
+    if (osName.contains('linux')) {
+        def jvmDir = new File('/usr/lib/jvm')
+        if (jvmDir.isDirectory()) {
+            def candidates = (jvmDir.listFiles() ?: [])
+                .findAll { it.isDirectory() && new File(it, 'bin/java').exists() }
+                .sort { a, b ->
+                    // Prefer higher version numbers
+                    def extractVersion = { File f ->
+                        def m = f.name =~ /(\d+)/
+                        m.find() ? (m.group(1) as int) : 0
+                    }
+                    extractVersion(b) <=> extractVersion(a)
+                }
+            if (!candidates.isEmpty()) {
+                return candidates[0].absolutePath
+            }
+        }
+    }
+
+    // 5. macOS: try /usr/libexec/java_home
+    if (osName.contains('mac')) {
+        try {
+            def proc = ['/usr/libexec/java_home'].execute()
+            proc.waitFor()
+            if (proc.exitValue() == 0) {
+                def path = proc.text.trim()
+                if (new File(path, 'bin/java').exists()) {
+                    return path
+                }
+            }
+        } catch (Exception ignored) {}
+    }
+
+    // 6. Fall back to the JVM running Gradle
+    def gradleJavaHome = System.getProperty('java.home')
+    if (gradleJavaHome != null) {
+        def gradleJdk = new File(gradleJavaHome)
+        // java.home might point to jre subdirectory
+        if (gradleJdk.name == 'jre') {
+            gradleJdk = gradleJdk.parentFile
+        }
+        if (new File(gradleJdk, 'bin/java').exists()) {
+            return gradleJdk.absolutePath
+        }
+    }
+
+    return null
+}
+
 def requireBootJdk = {
-    def boot = babylonBootJdkProvider.orNull
-    if (boot == null || boot.trim().isEmpty()) {
+    def bootJdk = detectBootJdk()
+    if (bootJdk == null) {
         throw new GradleException(
-                "Missing required Gradle property for Babylon tasks: -Pbabylon.bootJdk=<JDK_HOME>\n" +
-                "Tip: on macOS, run /usr/libexec/java_home to print a JDK home, then pass it in."
+                "Could not auto-detect a boot JDK for Babylon build.\n" +
+                "Options to fix:\n" +
+                "  1. Set JAVA_HOME environment variable\n" +
+                "  2. Pass -Pbabylon.bootJdk=/path/to/jdk\n" +
+                "  3. Install a JDK 21+ that Gradle toolchains can discover"
         )
     }
-    return boot.trim()
+    return bootJdk
 }
 
 

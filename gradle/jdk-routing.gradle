@@ -12,6 +12,10 @@
 //  - Some plugins (notably `application`) may set `javaLauncher` late during project evaluation.
 //    To avoid being overwritten, we wire snakegrinder launchers in `gradle.projectsEvaluated { ... }`
 //    so this script runs last.
+//
+// Babylon Auto-Update:
+//  - Pass -Pbabylon.autoUpdate=true to automatically pull and rebuild Babylon before snakeburger tasks
+//  - This ensures jdk.incubator.code APIs are always up-to-date
 
 import org.gradle.api.Action
 import org.gradle.api.tasks.JavaExec
@@ -121,10 +125,26 @@ def configureSnakeBurgerProject = { Project p ->
     }
 }
 
+// Check if auto-update is enabled
+def autoUpdateEnabled = project.hasProperty('babylon.autoUpdate') &&
+    project.property('babylon.autoUpdate').toString().toLowerCase() in ['true', '1', 'yes']
+
 // Configure snakeburger during normal configuration.
 subprojects { p ->
     if (p.name.startsWith("snakeburger")) {
         configureSnakeBurgerProject.call(p)
+
+        // If auto-update is enabled, make snakeburger compile tasks depend on ensureBabylonReady
+        if (autoUpdateEnabled) {
+            p.afterEvaluate {
+                def babylonRuntime = rootProject.findProject(':babylon-runtime')
+                if (babylonRuntime != null) {
+                    p.tasks.withType(JavaCompile).configureEach { compileTask ->
+                        compileTask.dependsOn(babylonRuntime.tasks.named('ensureBabylonReady'))
+                    }
+                }
+            }
+        }
     }
 }
 

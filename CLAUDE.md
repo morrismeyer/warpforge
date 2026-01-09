@@ -45,17 +45,67 @@ The build routes projects to different JDKs via `gradle/jdk-routing.gradle`:
 
 ### Babylon JDK Setup (for SnakeBurger)
 
+**Prerequisite**: Clone the Babylon repository to `~/surfworks/babylon`:
 ```bash
-# 1. Build Babylon (requires boot JDK path)
-./gradlew buildBabylonImages -Pbabylon.bootJdk=/path/to/jdk
+git clone https://github.com/openjdk/babylon.git ~/surfworks/babylon
+```
 
-# 2. Generate and source environment
-./gradlew writeBabylonToolchainEnv
+**Build dependencies** (checked automatically by `checkBabylonDeps`):
+
+| macOS | Linux (apt) |
+|-------|-------------|
+| Xcode CLI tools | build-essential |
+| autoconf (via Homebrew) | autoconf, libcups2-dev |
+| | libx11-dev, libxext-dev, libxrender-dev |
+| | libxrandr-dev, libxtst-dev, libxt-dev |
+| | libfontconfig1-dev, libasound2-dev |
+
+#### Quick Start (Recommended)
+
+Use `ensureBabylonReady` - it handles everything automatically:
+```bash
+# Pull latest, check deps, build (with auto-recovery on failure)
+./gradlew :babylon-runtime:ensureBabylonReady -Pbabylon.bootJdk=$(/usr/libexec/java_home)
+
+# Now snakeburger tasks will work
+./gradlew :snakeburger-cli:run
+```
+
+#### Auto-Update Mode
+
+For development, enable auto-update to always use the latest Babylon:
+```bash
+# Automatically pulls and rebuilds Babylon before compiling snakeburger
+./gradlew :snakeburger-cli:run -Pbabylon.autoUpdate=true -Pbabylon.bootJdk=$(/usr/libexec/java_home)
+```
+
+#### Manual Setup (Step-by-Step)
+
+```bash
+# 0. Check/install build dependencies (macOS)
+./gradlew :babylon-runtime:checkBabylonDeps
+
+# 1. Build Babylon (requires boot JDK path)
+./gradlew :babylon-runtime:buildBabylonImages -Pbabylon.bootJdk=/path/to/jdk
+
+# 2. Generate and source environment (optional, for IDE integration)
+./gradlew :babylon-runtime:writeBabylonToolchainEnv
 source babylon-runtime/build/babylon.toolchain.env
 
 # 3. Now snakeburger tasks will work
 ./gradlew :snakeburger-cli:run
 ```
+
+#### Babylon Tasks Reference
+
+| Task | Description |
+|------|-------------|
+| `ensureBabylonReady` | Pull latest, check deps, build with auto-recovery |
+| `babylonUpdate` | Alias for `ensureBabylonReady` |
+| `checkBabylonDeps` | Verify build dependencies are installed |
+| `installBabylonDeps` | Auto-install missing deps via Homebrew |
+| `configureBabylon` | Run `./configure` in Babylon repo |
+| `buildBabylonImages` | Run `make images` in Babylon repo |
 
 ## Project Structure
 

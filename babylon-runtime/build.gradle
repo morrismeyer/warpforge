@@ -226,3 +226,783 @@ export GRADLE_OPTS="-Dorg.gradle.java.installations.paths=__JDK_HOME__ -Dorg.gra
         println("GRADLE_OPTS set to: -Dorg.gradle.java.installations.paths=<BABYLON_JDK_HOME> -Dorg.gradle.java.installations.auto-detect=false -Dorg.gradle.java.installations.auto-download=false")
     }
 }
+
+
+// =============================================================================
+// Build Dependency Detection and Installation (macOS and Linux)
+// =============================================================================
+
+// Helper to detect the Linux package manager
+def detectLinuxPackageManager = {
+    def osName = System.getProperty('os.name', '').toLowerCase(Locale.ROOT)
+    if (!osName.contains('linux')) return null
+
+    // Check for apt (Debian/Ubuntu)
+    def aptCheck = ['bash', '-c', 'command -v apt-get'].execute()
+    aptCheck.waitFor()
+    if (aptCheck.exitValue() == 0) return 'apt'
+
+    // Check for dnf (Fedora/RHEL 8+)
+    def dnfCheck = ['bash', '-c', 'command -v dnf'].execute()
+    dnfCheck.waitFor()
+    if (dnfCheck.exitValue() == 0) return 'dnf'
+
+    // Check for yum (RHEL/CentOS 7)
+    def yumCheck = ['bash', '-c', 'command -v yum'].execute()
+    yumCheck.waitFor()
+    if (yumCheck.exitValue() == 0) return 'yum'
+
+    // Check for pacman (Arch)
+    def pacmanCheck = ['bash', '-c', 'command -v pacman'].execute()
+    pacmanCheck.waitFor()
+    if (pacmanCheck.exitValue() == 0) return 'pacman'
+
+    // Check for apk (Alpine)
+    def apkCheck = ['bash', '-c', 'command -v apk'].execute()
+    apkCheck.waitFor()
+    if (apkCheck.exitValue() == 0) return 'apk'
+
+    return null
+}
+
+tasks.register('checkBabylonDeps') {
+    group = 'babylon'
+    description = 'Check Babylon JDK build dependencies on macOS or Linux'
+
+    doLast {
+        def osName = System.getProperty('os.name', '').toLowerCase(Locale.ROOT)
+        def isMacOS = osName.contains('mac')
+        def isLinux = osName.contains('linux')
+
+        if (!isMacOS && !isLinux) {
+            println "This task supports macOS and Linux only."
+            println "For Windows, see: https://openjdk.org/groups/build/doc/building.html"
+            return
+        }
+
+        def issues = []
+        def fixes = []
+        def pkgManager = isLinux ? detectLinuxPackageManager() : null
+
+        println "Platform: ${isMacOS ? 'macOS' : 'Linux'}"
+        if (isLinux && pkgManager) {
+            println "Package manager: ${pkgManager}"
+        }
+        println ""
+
+        // ---- macOS: Xcode Command Line Tools ----
+        if (isMacOS) {
+            println "Checking Xcode Command Line Tools..."
+            def xcodeCheck = ['bash', '-c', 'xcode-select -p 2>/dev/null'].execute()
+            xcodeCheck.waitFor()
+            if (xcodeCheck.exitValue() == 0) {
+                def xcPath = xcodeCheck.text.trim()
+                println "  [OK] Xcode CLI tools installed at: ${xcPath}"
+            } else {
+                issues << "Xcode Command Line Tools not installed"
+                fixes << "xcode-select --install"
+            }
+        }
+
+        // ---- C Compiler (gcc on Linux, clang on macOS) ----
+        if (isLinux) {
+            println "Checking C compiler (gcc)..."
+            def gccCheck = ['bash', '-c', 'command -v gcc'].execute()
+            gccCheck.waitFor()
+            if (gccCheck.exitValue() == 0) {
+                def gccVersion = ['bash', '-c', 'gcc --version | head -1'].execute().text.trim()
+                println "  [OK] gcc available: ${gccVersion}"
+            } else {
+                issues << "gcc not installed"
+                switch (pkgManager) {
+                    case 'apt': fixes << "sudo apt-get install build-essential"; break
+                    case 'dnf': fixes << "sudo dnf groupinstall 'Development Tools'"; break
+                    case 'yum': fixes << "sudo yum groupinstall 'Development Tools'"; break
+                    case 'pacman': fixes << "sudo pacman -S base-devel"; break
+                    case 'apk': fixes << "sudo apk add build-base"; break
+                    default: fixes << "Install gcc via your package manager"
+                }
+            }
+
+            println "Checking C++ compiler (g++)..."
+            def gppCheck = ['bash', '-c', 'command -v g++'].execute()
+            gppCheck.waitFor()
+            if (gppCheck.exitValue() == 0) {
+                def gppVersion = ['bash', '-c', 'g++ --version | head -1'].execute().text.trim()
+                println "  [OK] g++ available: ${gppVersion}"
+            } else {
+                issues << "g++ not installed"
+                // Fix already added above with build-essential/Development Tools
+            }
+        } else {
+            println "Checking C compiler (clang)..."
+            def clangCheck = ['bash', '-c', 'command -v clang'].execute()
+            clangCheck.waitFor()
+            if (clangCheck.exitValue() == 0) {
+                def clangVersion = ['bash', '-c', 'clang --version | head -1'].execute().text.trim()
+                println "  [OK] clang available: ${clangVersion}"
+            } else {
+                issues << "clang not found"
+                fixes << "xcode-select --install"
+            }
+        }
+
+        // ---- make ----
+        println "Checking make..."
+        def makeCheck = ['bash', '-c', 'command -v make'].execute()
+        makeCheck.waitFor()
+        if (makeCheck.exitValue() == 0) {
+            def makeVersion = ['bash', '-c', 'make --version | head -1'].execute().text.trim()
+            println "  [OK] make available: ${makeVersion}"
+        } else {
+            issues << "make not installed"
+            if (isMacOS) {
+                fixes << "xcode-select --install"
+            } else {
+                switch (pkgManager) {
+                    case 'apt': fixes << "sudo apt-get install build-essential"; break
+                    case 'dnf': fixes << "sudo dnf install make"; break
+                    case 'yum': fixes << "sudo yum install make"; break
+                    case 'pacman': fixes << "sudo pacman -S make"; break
+                    case 'apk': fixes << "sudo apk add make"; break
+                    default: fixes << "Install make via your package manager"
+                }
+            }
+        }
+
+        // ---- autoconf (version >= 2.69) ----
+        println "Checking autoconf..."
+        def autoconfCheck = ['bash', '-c', 'command -v autoconf'].execute()
+        autoconfCheck.waitFor()
+        if (autoconfCheck.exitValue() == 0) {
+            def autoconfVersionOut = ['bash', '-c', 'autoconf --version | head -1'].execute().text.trim()
+            println "  [OK] autoconf available: ${autoconfVersionOut}"
+
+            def versionMatch = autoconfVersionOut =~ /(\d+)\.(\d+)/
+            if (versionMatch.find()) {
+                def major = versionMatch.group(1) as int
+                def minor = versionMatch.group(2) as int
+                if (major < 2 || (major == 2 && minor < 69)) {
+                    issues << "autoconf version ${major}.${minor} is too old (need >= 2.69)"
+                    if (isMacOS) {
+                        fixes << "brew upgrade autoconf"
+                    } else {
+                        fixes << "Upgrade autoconf to >= 2.69"
+                    }
+                }
+            }
+        } else {
+            issues << "autoconf not installed"
+            if (isMacOS) {
+                fixes << "brew install autoconf"
+            } else {
+                switch (pkgManager) {
+                    case 'apt': fixes << "sudo apt-get install autoconf"; break
+                    case 'dnf': fixes << "sudo dnf install autoconf"; break
+                    case 'yum': fixes << "sudo yum install autoconf"; break
+                    case 'pacman': fixes << "sudo pacman -S autoconf"; break
+                    case 'apk': fixes << "sudo apk add autoconf"; break
+                    default: fixes << "Install autoconf via your package manager"
+                }
+            }
+        }
+
+        // ---- Linux-specific: additional build dependencies ----
+        if (isLinux) {
+            // Check for zip (needed for JDK build)
+            println "Checking zip..."
+            def zipCheck = ['bash', '-c', 'command -v zip'].execute()
+            zipCheck.waitFor()
+            if (zipCheck.exitValue() == 0) {
+                println "  [OK] zip available"
+            } else {
+                issues << "zip not installed"
+                switch (pkgManager) {
+                    case 'apt': fixes << "sudo apt-get install zip"; break
+                    case 'dnf': fixes << "sudo dnf install zip"; break
+                    case 'yum': fixes << "sudo yum install zip"; break
+                    case 'pacman': fixes << "sudo pacman -S zip"; break
+                    case 'apk': fixes << "sudo apk add zip"; break
+                    default: fixes << "Install zip via your package manager"
+                }
+            }
+
+            // Check for unzip
+            println "Checking unzip..."
+            def unzipCheck = ['bash', '-c', 'command -v unzip'].execute()
+            unzipCheck.waitFor()
+            if (unzipCheck.exitValue() == 0) {
+                println "  [OK] unzip available"
+            } else {
+                issues << "unzip not installed"
+                switch (pkgManager) {
+                    case 'apt': fixes << "sudo apt-get install unzip"; break
+                    case 'dnf': fixes << "sudo dnf install unzip"; break
+                    case 'yum': fixes << "sudo yum install unzip"; break
+                    case 'pacman': fixes << "sudo pacman -S unzip"; break
+                    case 'apk': fixes << "sudo apk add unzip"; break
+                    default: fixes << "Install unzip via your package manager"
+                }
+            }
+
+            // Check for libcups (X11 headers) - needed for JDK build
+            println "Checking CUPS development headers..."
+            def cupsConfigCheck = ['bash', '-c', 'command -v cups-config'].execute()
+            cupsConfigCheck.waitFor()
+            // Also check for the header file directly
+            def cupsHeaderCheck = ['bash', '-c', 'test -f /usr/include/cups/cups.h'].execute()
+            cupsHeaderCheck.waitFor()
+            if (cupsConfigCheck.exitValue() == 0 || cupsHeaderCheck.exitValue() == 0) {
+                println "  [OK] CUPS development headers available"
+            } else {
+                issues << "CUPS development headers not installed"
+                switch (pkgManager) {
+                    case 'apt': fixes << "sudo apt-get install libcups2-dev"; break
+                    case 'dnf': fixes << "sudo dnf install cups-devel"; break
+                    case 'yum': fixes << "sudo yum install cups-devel"; break
+                    case 'pacman': fixes << "sudo pacman -S cups"; break
+                    case 'apk': fixes << "sudo apk add cups-dev"; break
+                    default: fixes << "Install CUPS development headers"
+                }
+            }
+
+            // Check for X11 headers
+            println "Checking X11 development headers..."
+            def x11HeaderCheck = ['bash', '-c', 'test -f /usr/include/X11/Xlib.h'].execute()
+            x11HeaderCheck.waitFor()
+            if (x11HeaderCheck.exitValue() == 0) {
+                println "  [OK] X11 development headers available"
+            } else {
+                issues << "X11 development headers not installed"
+                switch (pkgManager) {
+                    case 'apt': fixes << "sudo apt-get install libx11-dev libxext-dev libxrender-dev libxrandr-dev libxtst-dev libxt-dev"; break
+                    case 'dnf': fixes << "sudo dnf install libX11-devel libXext-devel libXrender-devel libXrandr-devel libXtst-devel libXt-devel"; break
+                    case 'yum': fixes << "sudo yum install libX11-devel libXext-devel libXrender-devel libXrandr-devel libXtst-devel libXt-devel"; break
+                    case 'pacman': fixes << "sudo pacman -S libx11 libxext libxrender libxrandr libxtst libxt"; break
+                    case 'apk': fixes << "sudo apk add libx11-dev libxext-dev libxrender-dev libxrandr-dev libxtst-dev libxt-dev"; break
+                    default: fixes << "Install X11 development headers"
+                }
+            }
+
+            // Check for fontconfig
+            println "Checking fontconfig development headers..."
+            def fcHeaderCheck = ['bash', '-c', 'test -f /usr/include/fontconfig/fontconfig.h'].execute()
+            fcHeaderCheck.waitFor()
+            if (fcHeaderCheck.exitValue() == 0) {
+                println "  [OK] fontconfig development headers available"
+            } else {
+                issues << "fontconfig development headers not installed"
+                switch (pkgManager) {
+                    case 'apt': fixes << "sudo apt-get install libfontconfig1-dev"; break
+                    case 'dnf': fixes << "sudo dnf install fontconfig-devel"; break
+                    case 'yum': fixes << "sudo yum install fontconfig-devel"; break
+                    case 'pacman': fixes << "sudo pacman -S fontconfig"; break
+                    case 'apk': fixes << "sudo apk add fontconfig-dev"; break
+                    default: fixes << "Install fontconfig development headers"
+                }
+            }
+
+            // Check for ALSA (Linux audio)
+            println "Checking ALSA development headers..."
+            def alsaHeaderCheck = ['bash', '-c', 'test -f /usr/include/alsa/asoundlib.h'].execute()
+            alsaHeaderCheck.waitFor()
+            if (alsaHeaderCheck.exitValue() == 0) {
+                println "  [OK] ALSA development headers available"
+            } else {
+                issues << "ALSA development headers not installed"
+                switch (pkgManager) {
+                    case 'apt': fixes << "sudo apt-get install libasound2-dev"; break
+                    case 'dnf': fixes << "sudo dnf install alsa-lib-devel"; break
+                    case 'yum': fixes << "sudo yum install alsa-lib-devel"; break
+                    case 'pacman': fixes << "sudo pacman -S alsa-lib"; break
+                    case 'apk': fixes << "sudo apk add alsa-lib-dev"; break
+                    default: fixes << "Install ALSA development headers"
+                }
+            }
+        }
+
+        // ---- Package manager (macOS: Homebrew, Linux: detected above) ----
+        if (isMacOS) {
+            println "Checking Homebrew..."
+            def brewCheck = ['bash', '-c', 'command -v brew'].execute()
+            brewCheck.waitFor()
+            if (brewCheck.exitValue() == 0) {
+                println "  [OK] Homebrew available"
+            } else {
+                println "  [INFO] Homebrew not installed (optional, but recommended for managing dependencies)"
+            }
+        }
+
+        // ---- Babylon repository ----
+        println "Checking Babylon repository..."
+        def babylonDir = new File(System.getProperty('user.home'), 'surfworks/babylon')
+        if (babylonDir.exists() && new File(babylonDir, 'configure').exists()) {
+            println "  [OK] Babylon repository found at: ${babylonDir.absolutePath}"
+        } else {
+            issues << "Babylon repository not found at ~/surfworks/babylon"
+            fixes << "git clone https://github.com/openjdk/babylon.git ~/surfworks/babylon"
+        }
+
+        // ---- Summary ----
+        println ""
+        // Deduplicate fixes
+        fixes = fixes.unique()
+
+        if (issues.isEmpty()) {
+            println "All Babylon JDK build dependencies are satisfied!"
+            println ""
+            println "Next steps:"
+            if (isMacOS) {
+                println "  ./gradlew :babylon-runtime:ensureBabylonReady -Pbabylon.bootJdk=\$(/usr/libexec/java_home)"
+            } else {
+                println "  ./gradlew :babylon-runtime:ensureBabylonReady -Pbabylon.bootJdk=\$JAVA_HOME"
+            }
+        } else {
+            println "Found ${issues.size()} issue(s):"
+            issues.eachWithIndex { issue, idx ->
+                println "  ${idx + 1}. ${issue}"
+            }
+            println ""
+            println "To fix, run these commands:"
+            fixes.each { fix ->
+                println "  ${fix}"
+            }
+
+            // Offer auto-install
+            if (isMacOS) {
+                def brewFixes = fixes.findAll { it.startsWith('brew ') }
+                def brewCheck = ['bash', '-c', 'command -v brew'].execute()
+                brewCheck.waitFor()
+                if (brewCheck.exitValue() == 0 && !brewFixes.isEmpty()) {
+                    println ""
+                    println "To auto-install missing Homebrew packages, run:"
+                    println "  ./gradlew :babylon-runtime:installBabylonDeps"
+                }
+            } else if (pkgManager in ['apt', 'dnf', 'yum']) {
+                println ""
+                println "To auto-install missing packages (requires sudo), run:"
+                println "  ./gradlew :babylon-runtime:installBabylonDeps"
+            }
+
+            throw new GradleException("Missing Babylon build dependencies. See above for details.")
+        }
+    }
+}
+
+
+tasks.register('installBabylonDeps') {
+    group = 'babylon'
+    description = 'Install missing Babylon JDK build dependencies (macOS via Homebrew, Linux via apt/dnf/yum)'
+
+    doLast {
+        def osName = System.getProperty('os.name', '').toLowerCase(Locale.ROOT)
+        def isMacOS = osName.contains('mac')
+        def isLinux = osName.contains('linux')
+
+        if (!isMacOS && !isLinux) {
+            throw new GradleException("This task supports macOS and Linux only.")
+        }
+
+        def packagesToInstall = []
+        def installCmd = []
+
+        if (isMacOS) {
+            // Check if Homebrew is available
+            def brewCheck = ['bash', '-c', 'command -v brew'].execute()
+            brewCheck.waitFor()
+            if (brewCheck.exitValue() != 0) {
+                throw new GradleException(
+                    "Homebrew is not installed. Install it first:\n" +
+                    "  /bin/bash -c \"\$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\""
+                )
+            }
+
+            // Check autoconf
+            def autoconfCheck = ['bash', '-c', 'command -v autoconf'].execute()
+            autoconfCheck.waitFor()
+            if (autoconfCheck.exitValue() != 0) {
+                packagesToInstall << 'autoconf'
+            }
+
+            if (packagesToInstall.isEmpty()) {
+                println "All Homebrew dependencies are already installed."
+                return
+            }
+
+            installCmd = ['brew', 'install'] + packagesToInstall
+        } else {
+            // Linux
+            def pkgManager = detectLinuxPackageManager()
+            if (pkgManager == null) {
+                throw new GradleException("Could not detect package manager. Please install dependencies manually.")
+            }
+
+            // Build package list based on what's missing
+            def missing = []
+
+            // gcc/g++
+            def gccCheck = ['bash', '-c', 'command -v gcc'].execute()
+            gccCheck.waitFor()
+            if (gccCheck.exitValue() != 0) missing << 'compiler'
+
+            // make
+            def makeCheck = ['bash', '-c', 'command -v make'].execute()
+            makeCheck.waitFor()
+            if (makeCheck.exitValue() != 0) missing << 'make'
+
+            // autoconf
+            def autoconfCheck = ['bash', '-c', 'command -v autoconf'].execute()
+            autoconfCheck.waitFor()
+            if (autoconfCheck.exitValue() != 0) missing << 'autoconf'
+
+            // zip
+            def zipCheck = ['bash', '-c', 'command -v zip'].execute()
+            zipCheck.waitFor()
+            if (zipCheck.exitValue() != 0) missing << 'zip'
+
+            // unzip
+            def unzipCheck = ['bash', '-c', 'command -v unzip'].execute()
+            unzipCheck.waitFor()
+            if (unzipCheck.exitValue() != 0) missing << 'unzip'
+
+            // CUPS headers
+            def cupsCheck = ['bash', '-c', 'test -f /usr/include/cups/cups.h'].execute()
+            cupsCheck.waitFor()
+            if (cupsCheck.exitValue() != 0) missing << 'cups'
+
+            // X11 headers
+            def x11Check = ['bash', '-c', 'test -f /usr/include/X11/Xlib.h'].execute()
+            x11Check.waitFor()
+            if (x11Check.exitValue() != 0) missing << 'x11'
+
+            // fontconfig headers
+            def fcCheck = ['bash', '-c', 'test -f /usr/include/fontconfig/fontconfig.h'].execute()
+            fcCheck.waitFor()
+            if (fcCheck.exitValue() != 0) missing << 'fontconfig'
+
+            // ALSA headers
+            def alsaCheck = ['bash', '-c', 'test -f /usr/include/alsa/asoundlib.h'].execute()
+            alsaCheck.waitFor()
+            if (alsaCheck.exitValue() != 0) missing << 'alsa'
+
+            if (missing.isEmpty()) {
+                println "All build dependencies are already installed."
+                return
+            }
+
+            println "Missing: ${missing.join(', ')}"
+
+            switch (pkgManager) {
+                case 'apt':
+                    packagesToInstall = ['build-essential', 'autoconf', 'zip', 'unzip',
+                                        'libcups2-dev', 'libx11-dev', 'libxext-dev', 'libxrender-dev',
+                                        'libxrandr-dev', 'libxtst-dev', 'libxt-dev',
+                                        'libfontconfig1-dev', 'libasound2-dev']
+                    installCmd = ['sudo', 'apt-get', 'install', '-y'] + packagesToInstall
+                    break
+                case 'dnf':
+                    // For dnf, we use groupinstall for dev tools
+                    println "Installing Development Tools group..."
+                    def groupProc = ['sudo', 'dnf', 'groupinstall', '-y', 'Development Tools'].execute()
+                    groupProc.consumeProcessOutput(System.out, System.err)
+                    groupProc.waitFor()
+
+                    packagesToInstall = ['autoconf', 'zip', 'unzip', 'cups-devel',
+                                        'libX11-devel', 'libXext-devel', 'libXrender-devel',
+                                        'libXrandr-devel', 'libXtst-devel', 'libXt-devel',
+                                        'fontconfig-devel', 'alsa-lib-devel']
+                    installCmd = ['sudo', 'dnf', 'install', '-y'] + packagesToInstall
+                    break
+                case 'yum':
+                    println "Installing Development Tools group..."
+                    def groupProc = ['sudo', 'yum', 'groupinstall', '-y', 'Development Tools'].execute()
+                    groupProc.consumeProcessOutput(System.out, System.err)
+                    groupProc.waitFor()
+
+                    packagesToInstall = ['autoconf', 'zip', 'unzip', 'cups-devel',
+                                        'libX11-devel', 'libXext-devel', 'libXrender-devel',
+                                        'libXrandr-devel', 'libXtst-devel', 'libXt-devel',
+                                        'fontconfig-devel', 'alsa-lib-devel']
+                    installCmd = ['sudo', 'yum', 'install', '-y'] + packagesToInstall
+                    break
+                default:
+                    throw new GradleException(
+                        "Auto-install not supported for package manager: ${pkgManager}\n" +
+                        "Please install dependencies manually."
+                    )
+            }
+        }
+
+        println "Installing: ${packagesToInstall.join(', ')}"
+        println "Running: ${installCmd.join(' ')}"
+
+        def proc = installCmd.execute()
+        proc.consumeProcessOutput(System.out, System.err)
+        def exitCode = proc.waitFor()
+
+        if (exitCode != 0) {
+            throw new GradleException("Package installation failed with exit code ${exitCode}")
+        }
+
+        println ""
+        println "Installation complete! Run checkBabylonDeps to verify."
+    }
+}
+
+
+// Make configureBabylon depend on checkBabylonDeps for better error messages
+tasks.named('configureBabylon').configure {
+    dependsOn 'checkBabylonDeps'
+}
+
+
+// =============================================================================
+// Supervisor Task: ensureBabylonReady
+// =============================================================================
+// This task orchestrates the full Babylon JDK update cycle:
+//   1. git pull (fetch latest changes)
+//   2. Check build dependencies
+//   3. Try incremental make images
+//   4. If make fails, do: make clean -> configure -> make images
+//
+// Use this task as a prerequisite before snakeburger compilation to ensure
+// the Babylon JDK is always up-to-date with the latest jdk.incubator.code changes.
+
+tasks.register('ensureBabylonReady') {
+    group = 'babylon'
+    description = 'Pull latest Babylon, check deps, and build JDK with automatic recovery on failure'
+
+    // Track outputs for up-to-date checking
+    def stateFile = file("$buildDir/babylon-ready.state")
+    outputs.file(stateFile)
+
+    doLast {
+        def repoDir = resolveRepoDir()
+        if (!repoDir.exists()) {
+            throw new GradleException(
+                "Babylon repo directory does not exist: ${repoDir.absolutePath}\n" +
+                "Clone it first: git clone https://github.com/openjdk/babylon.git ${repoDir.absolutePath}"
+            )
+        }
+
+        def bootJdk = requireBootJdk()
+        def confName = confNameProvider.get()
+        def debugLevel = debugLevelProvider.get()
+        def linkableRuntime = linkableRuntimeProvider.get().toBoolean()
+        def extraArgs = extraConfigureArgsProvider.get().trim()
+
+        // Helper to run shell commands
+        def runCmd = { String cmd, File workDir = repoDir, boolean failOnError = true ->
+            println "  > ${cmd}"
+            def proc = ['bash', '-lc', cmd].execute([], workDir)
+            def stdout = new StringBuilder()
+            def stderr = new StringBuilder()
+            proc.consumeProcessOutput(stdout, stderr)
+            proc.waitFor()
+            if (stdout.toString().trim()) println stdout.toString().trim()
+            if (stderr.toString().trim()) System.err.println stderr.toString().trim()
+            if (failOnError && proc.exitValue() != 0) {
+                throw new GradleException("Command failed (exit ${proc.exitValue()}): ${cmd}")
+            }
+            return [exitValue: proc.exitValue(), stdout: stdout.toString(), stderr: stderr.toString()]
+        }
+
+        // Helper to run shell commands and capture result without failing
+        def tryCmd = { String cmd, File workDir = repoDir ->
+            return runCmd(cmd, workDir, false)
+        }
+
+        // Step 1: Check dependencies first (fail fast)
+        println "\n[Step 1/4] Checking build dependencies..."
+        def osName = System.getProperty('os.name', '').toLowerCase(Locale.ROOT)
+        def isMacOS = osName.contains('mac')
+        def isLinux = osName.contains('linux')
+
+        if (isMacOS) {
+            // macOS: Check Xcode CLI tools and autoconf
+            def xcodeCheck = tryCmd('xcode-select -p 2>/dev/null', project.projectDir)
+            if (xcodeCheck.exitValue != 0) {
+                throw new GradleException("Xcode CLI tools not installed. Run: xcode-select --install")
+            }
+            def autoconfCheck = tryCmd('command -v autoconf', project.projectDir)
+            if (autoconfCheck.exitValue != 0) {
+                throw new GradleException("autoconf not installed. Run: brew install autoconf")
+            }
+        } else if (isLinux) {
+            // Linux: Check gcc, make, autoconf
+            def gccCheck = tryCmd('command -v gcc', project.projectDir)
+            if (gccCheck.exitValue != 0) {
+                throw new GradleException("gcc not installed. Run: sudo apt-get install build-essential (or equivalent)")
+            }
+            def makeCheck = tryCmd('command -v make', project.projectDir)
+            if (makeCheck.exitValue != 0) {
+                throw new GradleException("make not installed. Run: sudo apt-get install build-essential (or equivalent)")
+            }
+            def autoconfCheck = tryCmd('command -v autoconf', project.projectDir)
+            if (autoconfCheck.exitValue != 0) {
+                throw new GradleException("autoconf not installed. Run: sudo apt-get install autoconf (or equivalent)")
+            }
+            // Check for critical headers
+            def cupsCheck = tryCmd('test -f /usr/include/cups/cups.h', project.projectDir)
+            if (cupsCheck.exitValue != 0) {
+                throw new GradleException("CUPS headers not installed. Run: sudo apt-get install libcups2-dev (or equivalent)")
+            }
+            def x11Check = tryCmd('test -f /usr/include/X11/Xlib.h', project.projectDir)
+            if (x11Check.exitValue != 0) {
+                throw new GradleException("X11 headers not installed. Run: sudo apt-get install libx11-dev libxext-dev libxrender-dev libxrandr-dev libxtst-dev libxt-dev (or equivalent)")
+            }
+            def alsaCheck = tryCmd('test -f /usr/include/alsa/asoundlib.h', project.projectDir)
+            if (alsaCheck.exitValue != 0) {
+                throw new GradleException("ALSA headers not installed. Run: sudo apt-get install libasound2-dev (or equivalent)")
+            }
+        }
+        println "  [OK] Build dependencies satisfied"
+
+        // Step 2: Git pull latest changes
+        println "\n[Step 2/4] Pulling latest Babylon changes..."
+        def gitStatusBefore = tryCmd('git rev-parse HEAD', repoDir)
+        def commitBefore = gitStatusBefore.stdout.trim()
+
+        // Fetch and pull (handles both clean and dirty states)
+        def fetchResult = tryCmd('git fetch origin', repoDir)
+        if (fetchResult.exitValue != 0) {
+            println "  [WARN] git fetch failed, continuing with local state"
+        }
+
+        // Check if we're on a branch that tracks a remote
+        def branchResult = tryCmd('git symbolic-ref --short HEAD 2>/dev/null', repoDir)
+        if (branchResult.exitValue == 0) {
+            def branch = branchResult.stdout.trim()
+            def pullResult = tryCmd("git pull --ff-only origin ${branch} 2>&1", repoDir)
+            if (pullResult.exitValue != 0) {
+                if (pullResult.stderr.contains('not possible to fast-forward') ||
+                    pullResult.stdout.contains('not possible to fast-forward')) {
+                    println "  [WARN] Cannot fast-forward, local changes exist. Using local state."
+                } else {
+                    println "  [WARN] git pull failed: ${pullResult.stderr}"
+                }
+            }
+        }
+
+        def gitStatusAfter = tryCmd('git rev-parse HEAD', repoDir)
+        def commitAfter = gitStatusAfter.stdout.trim()
+
+        if (commitBefore != commitAfter) {
+            println "  [OK] Updated: ${commitBefore.take(8)} -> ${commitAfter.take(8)}"
+        } else {
+            println "  [OK] Already at latest: ${commitAfter.take(8)}"
+        }
+
+        // Step 3: Try incremental make
+        println "\n[Step 3/4] Building Babylon JDK (incremental)..."
+        def buildDir = new File(repoDir, "build/${confName}")
+        def specFile = new File(buildDir, "spec.gmk")
+        def needsConfigure = !specFile.exists()
+
+        if (needsConfigure) {
+            println "  [INFO] No existing configuration found, running configure first..."
+            def configureCmd = "./configure " +
+                "--with-boot-jdk=${shQuote(bootJdk)} " +
+                "--with-debug-level=${shQuote(debugLevel)} " +
+                "--with-conf-name=${shQuote(confName)}"
+            if (linkableRuntime) {
+                configureCmd += " --enable-linkable-runtime"
+            }
+            if (!extraArgs.isEmpty()) {
+                configureCmd += " " + extraArgs
+            }
+            runCmd(configureCmd, repoDir)
+        }
+
+        def makeResult = tryCmd('make images JOBS=$(sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 4)', repoDir)
+
+        if (makeResult.exitValue != 0) {
+            // Step 4: Recovery - clean, reconfigure, rebuild
+            println "\n[Step 4/4] Incremental build failed, attempting full rebuild..."
+
+            def errorOutput = makeResult.stdout + makeResult.stderr
+
+            // Check if it's a configuration mismatch
+            def needsReconfigure = errorOutput.contains('configure has changed') ||
+                                   errorOutput.contains('spec.gmk') ||
+                                   errorOutput.contains('Configuration') ||
+                                   errorOutput.contains('older configuration') ||
+                                   errorOutput.contains('run configure')
+
+            if (needsReconfigure || true) { // Always try full recovery
+                println "  [INFO] Running make clean..."
+                tryCmd("make clean CONF=${confName}", repoDir)
+
+                println "  [INFO] Running configure..."
+                def configureCmd = "./configure " +
+                    "--with-boot-jdk=${shQuote(bootJdk)} " +
+                    "--with-debug-level=${shQuote(debugLevel)} " +
+                    "--with-conf-name=${shQuote(confName)}"
+                if (linkableRuntime) {
+                    configureCmd += " --enable-linkable-runtime"
+                }
+                if (!extraArgs.isEmpty()) {
+                    configureCmd += " " + extraArgs
+                }
+                runCmd(configureCmd, repoDir)
+
+                println "  [INFO] Running make images (clean build)..."
+                runCmd('make images JOBS=$(sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 4)', repoDir)
+            }
+        }
+
+        // Verify the JDK was built
+        def jdkHome = babylonJdkHomeProvider.get()
+        def javaExe = new File(jdkHome, "bin/java")
+        def javacExe = new File(jdkHome, "bin/javac")
+
+        // On macOS, the actual executables are under Contents/Home
+        def isMac = System.getProperty('os.name', '').toLowerCase(Locale.ROOT).contains('mac')
+        if (isMac && !javaExe.exists()) {
+            def macJdkHome = new File(jdkHome, "Contents/Home")
+            if (macJdkHome.exists()) {
+                javaExe = new File(macJdkHome, "bin/java")
+                javacExe = new File(macJdkHome, "bin/javac")
+            }
+        }
+
+        if (!javaExe.exists() || !javacExe.exists()) {
+            throw new GradleException(
+                "Babylon JDK build completed but executables not found.\n" +
+                "Expected: ${jdkHome}/bin/java (or Contents/Home/bin/java on macOS)"
+            )
+        }
+
+        // Get Java version for confirmation
+        def versionResult = tryCmd("${shQuote(javaExe.absolutePath)} -version 2>&1 | head -1", project.projectDir)
+        def javaVersion = versionResult.stdout.trim()
+
+        println "\n=========================================="
+        println "Babylon JDK is ready!"
+        println "  Commit: ${commitAfter.take(8)}"
+        println "  JDK Home: ${jdkHome}"
+        println "  Version: ${javaVersion}"
+        println "=========================================="
+
+        // Write state file for up-to-date checking
+        stateFile.parentFile.mkdirs()
+        stateFile.text = """\
+            commit=${commitAfter}
+            confName=${confName}
+            debugLevel=${debugLevel}
+            linkableRuntime=${linkableRuntime}
+            timestamp=${System.currentTimeMillis()}
+            """.stripIndent()
+    }
+}
+
+
+// =============================================================================
+// Convenience task aliases
+// =============================================================================
+
+tasks.register('babylonUpdate') {
+    group = 'babylon'
+    description = 'Alias for ensureBabylonReady - pull, check, and build Babylon JDK'
+    dependsOn 'ensureBabylonReady'
+}

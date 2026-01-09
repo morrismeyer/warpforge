@@ -83,3 +83,7 @@ GitHub Actions workflow (`holmes-mark1-ci.yml`) orchestrates:
 4. Wake and test on AMD box
 
 Required secrets: `HOLMES_NUC_HOST`, `HOLMES_NUC_USER`, `HOLMES_NUC_SSH_KEY`
+
+## Git Commit Preferences
+
+- **Never include Co-Authored-By lines** in commit messages under any circumstances

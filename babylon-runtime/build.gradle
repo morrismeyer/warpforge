@@ -880,12 +880,23 @@ tasks.register('ensureBabylonReady') {
     group = 'babylon'
     description = 'Pull latest Babylon, check deps, and build JDK with automatic recovery on failure'
 
-    // Track outputs for up-to-date checking
+    // Mark task as not configuration cache compatible due to external process execution
+    notCompatibleWithConfigurationCache("Executes external build processes")
+
+    // Capture configuration-time values that don't require external processes
+    def projectDir = project.projectDir
     def stateFile = file("$buildDir/babylon-ready.state")
+    def repoDir = resolveRepoDir()
+    def confName = confNameProvider.get()
+    def debugLevel = debugLevelProvider.get()
+    def linkableRuntime = linkableRuntimeProvider.get().toBoolean()
+    def extraArgs = extraConfigureArgsProvider.get().trim()
+    def jdkHome = babylonJdkHomeProvider.get()
+    def explicitBootJdk = babylonBootJdkProvider.orNull
+
     outputs.file(stateFile)
 
     doLast {
-        def repoDir = resolveRepoDir()
         if (!repoDir.exists()) {
             throw new GradleException(
                 "Babylon repo directory does not exist: ${repoDir.absolutePath}\n" +
@@ -893,11 +904,92 @@ tasks.register('ensureBabylonReady') {
             )
         }
 
-        def bootJdk = requireBootJdk()
-        def confName = confNameProvider.get()
-        def debugLevel = debugLevelProvider.get()
-        def linkableRuntime = linkableRuntimeProvider.get().toBoolean()
-        def extraArgs = extraConfigureArgsProvider.get().trim()
+        // Detect boot JDK at execution time (allows external process calls)
+        def bootJdk = null
+
+        // 1. Check explicit property
+        if (explicitBootJdk != null && !explicitBootJdk.trim().isEmpty()) {
+            def explicitDir = new File(explicitBootJdk.trim())
+            if (new File(explicitDir, 'bin/java').exists()) {
+                bootJdk = explicitDir.absolutePath
+            }
+        }
+
+        // 2. Check JAVA_HOME
+        if (bootJdk == null) {
+            def javaHomeEnv = System.getenv('JAVA_HOME')
+            if (javaHomeEnv != null && !javaHomeEnv.trim().isEmpty()) {
+                def javaHomeDir = new File(javaHomeEnv.trim())
+                if (new File(javaHomeDir, 'bin/java').exists()) {
+                    bootJdk = javaHomeDir.absolutePath
+                }
+            }
+        }
+
+        // 3. Check common Linux JDK locations
+        if (bootJdk == null) {
+            def osNameLower = System.getProperty('os.name', '').toLowerCase(Locale.ROOT)
+            if (osNameLower.contains('linux')) {
+                def jvmDir = new File('/usr/lib/jvm')
+                if (jvmDir.isDirectory()) {
+                    def candidates = (jvmDir.listFiles() ?: [])
+                        .findAll { it.isDirectory() && new File(it, 'bin/java').exists() }
+                        .sort { a, b ->
+                            def extractVersion = { File f ->
+                                def m = f.name =~ /(\d+)/
+                                m.find() ? (m.group(1) as int) : 0
+                            }
+                            extractVersion(b) <=> extractVersion(a)
+                        }
+                    if (!candidates.isEmpty()) {
+                        bootJdk = candidates[0].absolutePath
+                    }
+                }
+            }
+        }
+
+        // 4. macOS: try /usr/libexec/java_home
+        if (bootJdk == null) {
+            def osNameLower = System.getProperty('os.name', '').toLowerCase(Locale.ROOT)
+            if (osNameLower.contains('mac')) {
+                try {
+                    def proc = ['/usr/libexec/java_home'].execute()
+                    proc.waitFor()
+                    if (proc.exitValue() == 0) {
+                        def path = proc.text.trim()
+                        if (new File(path, 'bin/java').exists()) {
+                            bootJdk = path
+                        }
+                    }
+                } catch (Exception ignored) {}
+            }
+        }
+
+        // 5. Fall back to JVM running Gradle
+        if (bootJdk == null) {
+            def gradleJavaHome = System.getProperty('java.home')
+            if (gradleJavaHome != null) {
+                def gradleJdk = new File(gradleJavaHome)
+                if (gradleJdk.name == 'jre') {
+                    gradleJdk = gradleJdk.parentFile
+                }
+                if (new File(gradleJdk, 'bin/java').exists()) {
+                    bootJdk = gradleJdk.absolutePath
+                }
+            }
+        }
+
+        if (bootJdk == null) {
+            throw new GradleException(
+                "Could not auto-detect a boot JDK for Babylon build.\n" +
+                "Options to fix:\n" +
+                "  1. Set JAVA_HOME environment variable\n" +
+                "  2. Pass -Pbabylon.bootJdk=/path/to/jdk\n" +
+                "  3. Install a JDK 21+ in /usr/lib/jvm"
+            )
+        }
+
+        println "Using boot JDK: ${bootJdk}"
 
         // Helper to run shell commands
         def runCmd = { String cmd, File workDir = repoDir, boolean failOnError = true ->
@@ -928,38 +1020,38 @@ tasks.register('ensureBabylonReady') {
 
         if (isMacOS) {
             // macOS: Check Xcode CLI tools and autoconf
-            def xcodeCheck = tryCmd('xcode-select -p 2>/dev/null', project.projectDir)
+            def xcodeCheck = tryCmd('xcode-select -p 2>/dev/null', projectDir)
             if (xcodeCheck.exitValue != 0) {
                 throw new GradleException("Xcode CLI tools not installed. Run: xcode-select --install")
             }
-            def autoconfCheck = tryCmd('command -v autoconf', project.projectDir)
+            def autoconfCheck = tryCmd('command -v autoconf', projectDir)
             if (autoconfCheck.exitValue != 0) {
                 throw new GradleException("autoconf not installed. Run: brew install autoconf")
             }
         } else if (isLinux) {
             // Linux: Check gcc, make, autoconf
-            def gccCheck = tryCmd('command -v gcc', project.projectDir)
+            def gccCheck = tryCmd('command -v gcc', projectDir)
             if (gccCheck.exitValue != 0) {
                 throw new GradleException("gcc not installed. Run: sudo apt-get install build-essential (or equivalent)")
             }
-            def makeCheck = tryCmd('command -v make', project.projectDir)
+            def makeCheck = tryCmd('command -v make', projectDir)
             if (makeCheck.exitValue != 0) {
                 throw new GradleException("make not installed. Run: sudo apt-get install build-essential (or equivalent)")
             }
-            def autoconfCheck = tryCmd('command -v autoconf', project.projectDir)
+            def autoconfCheck = tryCmd('command -v autoconf', projectDir)
             if (autoconfCheck.exitValue != 0) {
                 throw new GradleException("autoconf not installed. Run: sudo apt-get install autoconf (or equivalent)")
             }
             // Check for critical headers
-            def cupsCheck = tryCmd('test -f /usr/include/cups/cups.h', project.projectDir)
+            def cupsCheck = tryCmd('test -f /usr/include/cups/cups.h', projectDir)
             if (cupsCheck.exitValue != 0) {
                 throw new GradleException("CUPS headers not installed. Run: sudo apt-get install libcups2-dev (or equivalent)")
             }
-            def x11Check = tryCmd('test -f /usr/include/X11/Xlib.h', project.projectDir)
+            def x11Check = tryCmd('test -f /usr/include/X11/Xlib.h', projectDir)
             if (x11Check.exitValue != 0) {
                 throw new GradleException("X11 headers not installed. Run: sudo apt-get install libx11-dev libxext-dev libxrender-dev libxrandr-dev libxtst-dev libxt-dev (or equivalent)")
             }
-            def alsaCheck = tryCmd('test -f /usr/include/alsa/asoundlib.h', project.projectDir)
+            def alsaCheck = tryCmd('test -f /usr/include/alsa/asoundlib.h', projectDir)
             if (alsaCheck.exitValue != 0) {
                 throw new GradleException("ALSA headers not installed. Run: sudo apt-get install libasound2-dev (or equivalent)")
             }
@@ -1060,13 +1152,11 @@ tasks.register('ensureBabylonReady') {
         }
 
         // Verify the JDK was built
-        def jdkHome = babylonJdkHomeProvider.get()
         def javaExe = new File(jdkHome, "bin/java")
         def javacExe = new File(jdkHome, "bin/javac")
 
         // On macOS, the actual executables are under Contents/Home
-        def isMac = System.getProperty('os.name', '').toLowerCase(Locale.ROOT).contains('mac')
-        if (isMac && !javaExe.exists()) {
+        if (isMacOS && !javaExe.exists()) {
             def macJdkHome = new File(jdkHome, "Contents/Home")
             if (macJdkHome.exists()) {
                 javaExe = new File(macJdkHome, "bin/java")
@@ -1082,7 +1172,7 @@ tasks.register('ensureBabylonReady') {
         }
 
         // Get Java version for confirmation
-        def versionResult = tryCmd("${shQuote(javaExe.absolutePath)} -version 2>&1 | head -1", project.projectDir)
+        def versionResult = tryCmd("${shQuote(javaExe.absolutePath)} -version 2>&1 | head -1", projectDir)
         def javaVersion = versionResult.stdout.trim()
 
         println "\n=========================================="

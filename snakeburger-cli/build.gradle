@@ -76,6 +76,9 @@ tasks.register('jlinkRuntime', Exec) {
     group = 'distribution'
     description = 'Create a minimal JDK runtime with jdk.incubator.code using jlink'
 
+    // Mark as not compatible with configuration cache (runs external jlink process)
+    notCompatibleWithConfigurationCache("Runs external jlink process")
+
     def outputDir = file("${buildDir}/jlink-runtime")
     outputs.dir(outputDir)
 
@@ -94,9 +97,9 @@ tasks.register('jlinkRuntime', Exec) {
             throw new GradleException("jlink not found at: ${jlink.absolutePath}")
         }
 
-        // Clean output directory
+        // Clean output directory (use File.deleteDir() for config cache compatibility)
         if (outputDir.exists()) {
-            delete(outputDir)
+            outputDir.deleteDir()
         }
 
         // Modules to include - jdk.incubator.code plus standard modules needed
@@ -128,36 +131,44 @@ tasks.register('jlinkDist') {
     group = 'distribution'
     description = 'Create a self-contained distribution with jlink runtime and application JARs'
 
+    // Mark as not compatible with configuration cache (uses file operations)
+    notCompatibleWithConfigurationCache("Assembles distribution with file copies")
+
     dependsOn 'jlinkRuntime', 'jar', ':snakeburger-core:jar'
 
     def distDir = file("${buildDir}/snakeburger-dist")
+    def runtimeSourceDir = file("${buildDir}/jlink-runtime")
     outputs.dir(distDir)
 
+    // Capture values at configuration time for config cache compatibility
+    def cliJarFile = tasks.jar.archiveFile
+    def coreJarFile = project(':snakeburger-core').tasks.jar.archiveFile
+    def mainClassName = application.mainClass
+
     doLast {
-        // Clean and create dist directory
+        // Clean and create dist directory (use File method, not Gradle's delete())
         if (distDir.exists()) {
-            delete(distDir)
+            distDir.deleteDir()
         }
         distDir.mkdirs()
 
-        // Copy jlink runtime
-        copy {
-            from "${buildDir}/jlink-runtime"
-            into "${distDir}/runtime"
+        // Copy jlink runtime using AntBuilder
+        def runtimeDestDir = new File(distDir, "runtime")
+        ant.copy(todir: runtimeDestDir.absolutePath) {
+            fileset(dir: runtimeSourceDir.absolutePath)
         }
 
         // Copy application JARs
-        def libDir = file("${distDir}/lib")
+        def libDir = new File(distDir, "lib")
         libDir.mkdirs()
-        copy {
-            from tasks.jar.archiveFile
-            from project(':snakeburger-core').tasks.jar.archiveFile
-            into libDir
+        ant.copy(todir: libDir.absolutePath) {
+            fileset(file: cliJarFile.get().asFile.absolutePath)
+            fileset(file: coreJarFile.get().asFile.absolutePath)
         }
 
         // Create launcher script (Unix)
-        def launcherUnix = file("${distDir}/snakeburger")
-        def mainClass = application.mainClass.get()
+        def launcherUnix = new File(distDir, "snakeburger")
+        def mainClass = mainClassName.get()
         launcherUnix.text = """\
 #!/bin/sh
 SCRIPT_DIR="\$(cd "\$(dirname "\$0")" && pwd)"
@@ -169,7 +180,7 @@ exec "\$SCRIPT_DIR/runtime/bin/java" \\
         launcherUnix.setExecutable(true)
 
         // Create launcher script (Windows)
-        def launcherWin = file("${distDir}/snakeburger.bat")
+        def launcherWin = new File(distDir, "snakeburger.bat")
         launcherWin.text = """\
 @echo off
 set SCRIPT_DIR=%~dp0
@@ -181,7 +192,7 @@ set SCRIPT_DIR=%~dp0
 
         // Report sizes
         def runtimeSize = 0
-        file("${distDir}/runtime").eachFileRecurse { runtimeSize += it.size() }
+        runtimeDestDir.eachFileRecurse { runtimeSize += it.size() }
         def libSize = 0
         libDir.eachFile { libSize += it.size() }
 

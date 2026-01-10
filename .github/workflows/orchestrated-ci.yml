@@ -1,4 +1,4 @@
-name: Lab CI (NUC orchestrator baseline)
+name: Lab CI (NUC + snakeburger verification)
 
 on:
   push:

@@ -337,6 +337,16 @@ The build script checks dependencies and provides install instructions:
 | `brew install cmake ninja` | `sudo apt install cmake ninja-build build-essential` |
 | Xcode CLI: `xcode-select --install` | |
 
+### Checking for New PyTorch Patches
+
+GraalPy periodically adds patches for newer PyTorch versions. Check for updates:
+
+```bash
+./snakegrinder-dist/scripts/check-graalpy-patches.sh
+```
+
+Track the upstream issue for PyTorch 2.8+ support: https://github.com/oracle/graalpython/issues/588
+
 ## Development Workflow: Fixes Must Survive Cleanup
 
 When fixing build issues, **never make manual edits to generated or downloaded artifacts** (e.g., files inside `.pytorch-venv/`, `build/`, or any directory that gets deleted on clean rebuild).

@@ -1,0 +1,5 @@
+# PyTorch virtualenv (built from source, platform-specific, ~2GB)
+.pytorch-venv/
+
+# Build output
+build/

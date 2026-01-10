@@ -119,6 +119,34 @@ source babylon-runtime/build/babylon.toolchain.env
 - **build-logic** - Gradle convention plugins
 - **holmes-lab/mark1/ci-scripts** - Hardware CI orchestration scripts
 
+## Design Philosophy: "It Just Works"
+
+Inspired by Steve Jobs' NeXT and Apple philosophy: **software should just work**.
+
+There must be zero developer configuration, environment variables, secondary installs, futzing around, twiddling, head scratching, or other headache inducing shenanigans in this code.
+
+When a developer downloads WarpForge tools, they should be able to run them immediately without any setup steps beyond extracting the archive.
+
+### Self-Contained Build Artifacts
+
+All build artifacts must be self-contained. The executable and all libraries it depends on must reside in the same build output directory.
+
+"Eating your own dogfood" doesn't mean spreading it all over the kitchen floor for the dog to eat. It means putting it neatly in a bowl.
+
+Even WarpForge developers should have a clean, encapsulated testing and verification path:
+
+```
+build/snakegrinder-dist/
+├── bin/
+│   └── snakegrinder          # Native executable (or wrapper script)
+└── lib/
+    └── *.dylib               # All dependent libraries
+```
+
+Run from the build directory: `./build/snakegrinder-dist/bin/snakegrinder`
+
+No environment variables. No paths pointing elsewhere. One directory contains everything needed to run.
+
 ## SnakeGrinder vs SnakeBurger Architecture
 
 These two projects have distinct architectural goals and distribution paths:
@@ -127,7 +155,7 @@ These two projects have distinct architectural goals and distribution paths:
 
 - **Runtime**: GraalPy 25.0.1 with **real PyTorch 2.7.0** (built from source with GraalPy patches)
 - **Tracing**: `torch.fx.symbolic_trace` for full-fidelity model capture
-- **Distribution**: GraalVM `native-image` executable (~736MB) + PyTorch native libs (~210MB)
+- **Distribution**: Self-contained directory with native executable + bundled libs
 - **StableHLO output**: Text format (MLIR), converted from FX graph
 
 #### Validated Capabilities (January 2025)
@@ -141,9 +169,8 @@ These two projects have distinct architectural goals and distribution paths:
 | `torch.export` (dynamo) | ❌ Not supported on GraalPy |
 | FX → StableHLO conversion | ✅ Working prototype |
 | Native-image build | ✅ Works (~4 min build) |
-| Native executable runs | ✅ Works (with DYLD_LIBRARY_PATH) |
 
-#### Build Requirements
+#### Build Requirements (for WarpForge developers only)
 
 PyTorch must be built from source for GraalPy (no prebuilt wheels available):
 - cmake >= 3.18
@@ -151,19 +178,21 @@ PyTorch must be built from source for GraalPy (no prebuilt wheels available):
 - ~30-60 minutes first-time build
 - ~2-5GB disk space
 
-#### Distribution Structure
+#### Distribution Structure (end-user receives this)
 
 ```
-snakegrinder-dist/
-├── snakegrinder              # Native executable (736MB)
+snakegrinder/
+├── bin/
+│   └── snakegrinder          # Native executable
 └── lib/
-    ├── libtorch_cpu.dylib    # PyTorch native libs (~210MB total)
+    ├── libtorch_cpu.dylib    # PyTorch native libs
     ├── libc10.dylib
-    ├── libtorch_python.dylib
     └── ...
 ```
 
-Run with: `DYLD_LIBRARY_PATH=lib ./snakegrinder`
+**Usage**: `./snakegrinder/bin/snakegrinder --help`
+
+No environment variables. No PATH changes. No pip install. It just works.
 
 ### SnakeBurger (Babylon JDK)
 
@@ -208,10 +237,11 @@ PyTorch Model (nn.Module)
 ### Design Implications
 
 - SnakeGrinder uses **real PyTorch** for full-fidelity tracing (not mock modules)
-- Distribution is **executable + lib folder** (not single file, but still "just works")
+- Distribution is **self-contained directory** (executable finds its libs automatically)
+- End users need **zero configuration** - extract and run
 - SnakeBurger Java code must handle **Babylon API instability** gracefully
 - The two projects communicate via **StableHLO text format** as a stable interface
-- Build requires cmake/C++ toolchain (one-time setup, then cached)
+- Build system handles all complexity; users never see cmake, pip, or env vars
 
 ## Testing
 
@@ -228,6 +258,28 @@ GitHub Actions workflow (`holmes-mark1-ci.yml`) orchestrates:
 4. Wake and test on AMD box
 
 Required secrets: `HOLMES_NUC_HOST`, `HOLMES_NUC_USER`, `HOLMES_NUC_SSH_KEY`
+
+## Development Workflow: Fixes Must Survive Cleanup
+
+When fixing build issues, **never make manual edits to generated or downloaded artifacts** (e.g., files inside `.pytorch-venv/`, `build/`, or any directory that gets deleted on clean rebuild).
+
+**Wrong approach:**
+```bash
+# Editing a file that will be deleted on rebuild
+vim .pytorch-venv/pytorch-src/some/file.cpp  # BAD - lost on rm -rf .pytorch-venv
+```
+
+**Correct approach:**
+1. Create patch files in a permanent location (e.g., `scripts/patches/`)
+2. Update the build script to apply patches automatically
+3. Verify by doing a clean rebuild: `rm -rf <artifact-dir> && ./gradlew build`
+
+This ensures fixes are:
+- **Repeatable** - Works for other developers and CI
+- **Documented** - Patch files show exactly what changed and why
+- **Resilient** - Survives `clean` operations
+
+Example: PyTorch GraalPy patches live in `snakegrinder-dist/scripts/patches/` and are applied by `build-pytorch-venv.sh` after the main GraalPy patch.
 
 ## Git Commit Preferences
 

@@ -1,7 +1,6 @@
 package io.surfworks.snakegrinder.cli;
 
-import io.surfworks.snakegrinder.core.MockTraceExport;
-import io.surfworks.snakegrinder.core.MvpStableHlo;
+import io.surfworks.snakegrinder.core.FxStableHloExport;
 import io.surfworks.snakegrinder.core.SnakeGrinder;
 
 import java.io.IOException;
@@ -25,12 +24,6 @@ public final class SnakeGrinderCli {
             return;
         }
 
-        if (hasFlag(args, "--mvp-stablehlo")) {
-            assertGraalVmHost();
-            runMvpStableHlo(args);
-            return;
-        }
-
         if (hasFlag(args, "--trace")) {
             assertGraalVmHost();
             runTrace(args);
@@ -43,6 +36,12 @@ public final class SnakeGrinderCli {
             return;
         }
 
+        if (hasFlag(args, "--pytorch-info")) {
+            assertGraalVmHost();
+            runPyTorchInfo();
+            return;
+        }
+
         if (hasFlag(args, "--help") || hasFlag(args, "-h")) {
             printHelp();
             return;
@@ -52,88 +51,38 @@ public final class SnakeGrinderCli {
         System.exit(2);
     }
 
-    private static void runMvpStableHlo(String[] args) {
-        // Parse --out <dir> option
-        Path outputDir = Paths.get("build/snakegrinder/mvp");
-        boolean keepTmp = hasFlag(args, "--keep-tmp");
-
-        for (int i = 0; i < args.length; i++) {
-            if ("--out".equals(args[i]) && i + 1 < args.length) {
-                outputDir = Paths.get(args[i + 1]);
-            }
-        }
-
-        System.out.println("SnakeGrinder MVP StableHLO Export");
-        System.out.println("Output directory: " + outputDir.toAbsolutePath());
-        System.out.println();
-
-        MvpStableHlo.ExportResult result = MvpStableHlo.run(outputDir, keepTmp);
-
-        if (result.success) {
-            System.out.println("SUCCESS: StableHLO export completed");
-            System.out.println();
-            System.out.println("Output files:");
-            System.out.println("  MLIR:     " + result.mlirFile);
-            System.out.println("  Manifest: " + result.manifestFile);
-            System.out.println("  Log:      " + result.logFile);
-
-            if (!result.warnings.isEmpty()) {
-                System.out.println();
-                System.out.println("Warnings:");
-                for (String warning : result.warnings) {
-                    System.out.println("  - " + warning);
-                }
-            }
-        } else {
-            System.err.println("FAILED: " + result.error);
-            System.err.println();
-            if (result.logFile != null) {
-                System.err.println("See log for details: " + result.logFile);
-            }
-            if (result.manifestFile != null) {
-                System.err.println("Manifest: " + result.manifestFile);
-            }
-            System.exit(1);
-        }
-    }
-
     private static void runTrace(String[] args) {
-        // Parse options
         Path outputDir = Paths.get("build/snakegrinder/trace");
         String sourceFile = null;
-        String functionName = null;
+        String className = null;
         String inputsSpec = null;
-        String framework = "torch";
 
         for (int i = 0; i < args.length; i++) {
             if ("--out".equals(args[i]) && i + 1 < args.length) {
                 outputDir = Paths.get(args[i + 1]);
             } else if ("--source".equals(args[i]) && i + 1 < args.length) {
                 sourceFile = args[i + 1];
-            } else if ("--function".equals(args[i]) && i + 1 < args.length) {
-                functionName = args[i + 1];
+            } else if ("--class".equals(args[i]) && i + 1 < args.length) {
+                className = args[i + 1];
             } else if ("--inputs".equals(args[i]) && i + 1 < args.length) {
                 inputsSpec = args[i + 1];
-            } else if ("--framework".equals(args[i]) && i + 1 < args.length) {
-                framework = args[i + 1];
             }
         }
 
-        if (sourceFile == null || functionName == null || inputsSpec == null) {
-            System.err.println("Error: --trace requires --source, --function, and --inputs");
+        if (sourceFile == null || className == null || inputsSpec == null) {
+            System.err.println("Error: --trace requires --source, --class, and --inputs");
             System.err.println("Use --help for usage information");
             System.exit(2);
             return;
         }
 
-        System.out.println("SnakeGrinder Mock Trace");
-        System.out.println("Source:   " + sourceFile);
-        System.out.println("Function: " + functionName);
-        System.out.println("Inputs:   " + inputsSpec);
-        System.out.println("Output:   " + outputDir.toAbsolutePath());
+        System.out.println("SnakeGrinder Trace");
+        System.out.println("Source: " + sourceFile);
+        System.out.println("Class:  " + className);
+        System.out.println("Inputs: " + inputsSpec);
+        System.out.println("Output: " + outputDir.toAbsolutePath());
         System.out.println();
 
-        // Read source file
         String pythonSource;
         try {
             pythonSource = Files.readString(Paths.get(sourceFile));
@@ -143,16 +92,14 @@ public final class SnakeGrinderCli {
             return;
         }
 
-        // Parse input specs: "[(2,3),(3,4)]" or "[(2,3,'f32'),(3,4,'f32')]"
-        List<MockTraceExport.InputSpec> inputSpecs = parseInputSpecs(inputsSpec);
+        List<FxStableHloExport.InputSpec> inputSpecs = parseInputSpecs(inputsSpec);
 
-        // Run trace
-        MockTraceExport.TraceResult result = MockTraceExport.trace(
-                pythonSource, functionName, inputSpecs, framework);
+        FxStableHloExport.TraceResult result = FxStableHloExport.trace(
+                pythonSource, className, inputSpecs);
 
         if (result.success) {
             try {
-                MockTraceExport.writeResult(result, outputDir);
+                FxStableHloExport.writeResult(result, outputDir);
                 System.out.println("SUCCESS: Trace completed");
                 System.out.println();
                 System.out.println("Output files:");
@@ -164,38 +111,34 @@ public final class SnakeGrinderCli {
             }
         } else {
             System.err.println("FAILED: " + result.error);
+            if (result.traceback != null) {
+                System.err.println();
+                System.err.println("Traceback:");
+                System.err.println(result.traceback);
+            }
             System.exit(1);
         }
     }
 
     private static void runTraceExample(String[] args) {
-        // Parse options
         Path outputDir = Paths.get("build/snakegrinder/trace-example");
-        String example = "matmul";
 
         for (int i = 0; i < args.length; i++) {
             if ("--out".equals(args[i]) && i + 1 < args.length) {
                 outputDir = Paths.get(args[i + 1]);
-            } else if ("--example".equals(args[i]) && i + 1 < args.length) {
-                example = args[i + 1];
             }
         }
 
-        System.out.println("SnakeGrinder Trace Example: " + example);
+        System.out.println("SnakeGrinder Trace Example");
         System.out.println("Output: " + outputDir.toAbsolutePath());
         System.out.println();
 
-        MockTraceExport.TraceResult result;
-        if ("mlp".equals(example)) {
-            result = MockTraceExport.traceMlpExample();
-        } else {
-            result = MockTraceExport.traceMatmulExample();
-        }
+        FxStableHloExport.TraceResult result = FxStableHloExport.traceMlpExample();
 
         if (result.success) {
             try {
-                MockTraceExport.writeResult(result, outputDir);
-                System.out.println("SUCCESS: Example trace completed");
+                FxStableHloExport.writeResult(result, outputDir);
+                System.out.println("SUCCESS: Trace example completed");
                 System.out.println();
                 System.out.println("Output files:");
                 System.out.println("  MLIR:     " + outputDir.resolve("model.mlir"));
@@ -215,23 +158,37 @@ public final class SnakeGrinderCli {
         }
     }
 
-    private static List<MockTraceExport.InputSpec> parseInputSpecs(String spec) {
-        // Parse input specs like "[(2,3),(3,4)]" or "[(2,3,'f32'),(3,4,'f64')]"
-        List<MockTraceExport.InputSpec> result = new ArrayList<>();
+    private static void runPyTorchInfo() {
+        System.out.println("SnakeGrinder PyTorch Info");
+        System.out.println();
 
-        // Remove outer brackets and whitespace
+        var info = FxStableHloExport.getPyTorchInfo();
+
+        if (info.containsKey("error")) {
+            System.err.println("PyTorch not available: " + info.get("error"));
+            System.exit(1);
+            return;
+        }
+
+        System.out.println("PyTorch version:  " + info.get("pytorch_version"));
+        System.out.println("CUDA available:   " + info.get("cuda_available"));
+        System.out.println("MPS available:    " + info.get("mps_available"));
+        System.out.println("FX available:     " + info.get("fx_available"));
+    }
+
+    private static List<FxStableHloExport.InputSpec> parseInputSpecs(String spec) {
+        List<FxStableHloExport.InputSpec> result = new ArrayList<>();
+
         spec = spec.trim();
         if (spec.startsWith("[")) spec = spec.substring(1);
         if (spec.endsWith("]")) spec = spec.substring(0, spec.length() - 1);
 
-        // Split on ),( pattern (with optional spaces)
         String[] parts = spec.split("\\)\\s*,\\s*\\(");
         for (String part : parts) {
             part = part.trim();
             if (part.startsWith("(")) part = part.substring(1);
             if (part.endsWith(")")) part = part.substring(0, part.length() - 1);
 
-            // Check if dtype is specified
             String dtype = "f32";
             if (part.contains("'")) {
                 int quoteStart = part.indexOf("'");
@@ -243,14 +200,13 @@ public final class SnakeGrinderCli {
                 }
             }
 
-            // Parse shape
             String[] dims = part.split(",");
             int[] shape = new int[dims.length];
             for (int i = 0; i < dims.length; i++) {
                 shape[i] = Integer.parseInt(dims[i].trim());
             }
 
-            result.add(new MockTraceExport.InputSpec(shape, dtype));
+            result.add(new FxStableHloExport.InputSpec(shape, dtype));
         }
 
         return result;
@@ -261,43 +217,33 @@ public final class SnakeGrinderCli {
     }
 
     private static void printHelp() {
-        System.out.println("snakegrinder-cli");
+        System.out.println("snakegrinder - PyTorch to StableHLO converter");
         System.out.println();
         System.out.println("Usage:");
-        System.out.println("  snakegrinder-cli --self-test");
-        System.out.println("  snakegrinder-cli --mvp-stablehlo [--out <dir>] [--keep-tmp]");
-        System.out.println("  snakegrinder-cli --trace --source <file> --function <name> --inputs <specs> [options]");
-        System.out.println("  snakegrinder-cli --trace-example [--example <name>] [--out <dir>]");
-        System.out.println("  snakegrinder-cli --help");
+        System.out.println("  snakegrinder --trace --source <file> --class <name> --inputs <specs> [--out <dir>]");
+        System.out.println("  snakegrinder --trace-example [--out <dir>]");
+        System.out.println("  snakegrinder --pytorch-info");
+        System.out.println("  snakegrinder --self-test");
+        System.out.println("  snakegrinder --help");
         System.out.println();
         System.out.println("Commands:");
-        System.out.println("  --self-test       Run GraalPy self-test");
-        System.out.println("  --mvp-stablehlo   Export using real PyTorch/JAX (requires pip install)");
-        System.out.println("  --trace           Trace Python code using mock PyTorch/JAX (no pip needed)");
-        System.out.println("  --trace-example   Run a built-in trace example");
+        System.out.println("  --trace          Trace a PyTorch nn.Module and convert to StableHLO MLIR");
+        System.out.println("  --trace-example  Run a built-in example (SimpleMLP)");
+        System.out.println("  --pytorch-info   Show PyTorch version and capabilities");
+        System.out.println("  --self-test      Run GraalPy self-test");
         System.out.println();
         System.out.println("Trace options:");
-        System.out.println("  --source <file>   Python source file to trace");
-        System.out.println("  --function <name> Function name to trace");
-        System.out.println("  --inputs <specs>  Input shapes, e.g., '[(2,3),(3,4)]' or '[(2,3,\"f32\"),(3,4,\"f64\")]'");
-        System.out.println("  --framework <fw>  Framework style: 'torch' or 'jax' (default: torch)");
-        System.out.println("  --out <dir>       Output directory (default: build/snakegrinder/trace)");
+        System.out.println("  --source <file>  Python source file containing nn.Module class");
+        System.out.println("  --class <name>   nn.Module class name to trace");
+        System.out.println("  --inputs <specs> Input shapes, e.g., '[(1,8)]' or '[(1,8),(8,16)]'");
+        System.out.println("  --out <dir>      Output directory (default: build/snakegrinder/trace)");
         System.out.println();
-        System.out.println("Trace example options:");
-        System.out.println("  --example <name>  Example name: 'matmul' or 'mlp' (default: matmul)");
-        System.out.println("  --out <dir>       Output directory (default: build/snakegrinder/trace-example)");
+        System.out.println("Example:");
+        System.out.println("  snakegrinder --trace --source model.py --class MyModel --inputs '[(1,32)]'");
         System.out.println();
-        System.out.println("MVP StableHLO options:");
-        System.out.println("  --out <dir>       Output directory (default: build/snakegrinder/mvp)");
-        System.out.println("  --keep-tmp        Keep temporary files for debugging");
+        System.out.println("Output: StableHLO MLIR written to <out>/model.mlir");
     }
 
-    /**
-     * We want SnakeGrinder to run on a GraalVM JDK so GraalPy can use runtime compilation.
-     *
-     * Do not key only off java.vm.name, because Oracle GraalVM JDK may still report HotSpot.
-     * Use java.home and GraalVM specific properties instead.
-     */
     private static void assertGraalVmHost() {
         String javaHome = System.getProperty("java.home", "");
         String javaHomeLc = javaHome.toLowerCase();

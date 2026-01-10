@@ -18,59 +18,53 @@ import org.graalvm.polyglot.Source;
 import org.graalvm.polyglot.Value;
 
 /**
- * Mock tracer for StableHLO export without real PyTorch/JAX.
+ * Full-fidelity StableHLO export using real PyTorch and torch.fx.
  *
- * Uses pure-Python mock modules bundled as resources to trace Python
- * ML code and emit StableHLO MLIR. No native dependencies required.
- * Safe for GraalVM native image bundling.
+ * This class uses torch.fx.symbolic_trace to capture computation graphs
+ * from PyTorch models with full fidelity (real shapes, dtypes, operators).
+ *
+ * Distribution: The native-image distribution bundles all dependencies.
+ * End users receive a self-contained directory and run it directly.
+ * No environment variables, no pip install, no configuration needed.
+ *
+ * Development: When running via Gradle (JVM mode), set PYTORCH_VENV to
+ * point to the GraalPy virtualenv containing PyTorch. This is for
+ * development/testing only and is not exposed to end users.
  */
-public final class MockTraceExport {
+public final class FxStableHloExport {
 
-    /**
-     * Python modules in dependency order.
-     * Each entry is [resource_path, module_name].
-     */
-    private static final String[][] PYTHON_MODULES = {
-        {"/snakegrinder/graph_ir.py", "graph_ir"},
-        {"/snakegrinder/tracer.py", "tracer"},
-        {"/snakegrinder/stablehlo_emitter.py", "stablehlo_emitter"},
-        {"/snakegrinder/mock_torch.py", "mock_torch"},
-        {"/snakegrinder/mock_jax.py", "mock_jax"},
-        {"/snakegrinder/trace_entry.py", "trace_entry"}
-    };
-
-    private MockTraceExport() {
+    private FxStableHloExport() {
     }
 
     /**
-     * Result of a trace operation.
+     * Result of an FX trace operation.
      */
     public static final class TraceResult {
         public final boolean success;
         public final String mlir;
+        public final String fxGraph;
         public final String error;
+        public final String traceback;
         public final List<String> warnings;
         public final Map<String, Object> metadata;
 
-        private TraceResult(boolean success, String mlir, String error,
-                            List<String> warnings, Map<String, Object> metadata) {
+        private TraceResult(boolean success, String mlir, String fxGraph, String error,
+                            String traceback, List<String> warnings, Map<String, Object> metadata) {
             this.success = success;
             this.mlir = mlir;
+            this.fxGraph = fxGraph;
             this.error = error;
+            this.traceback = traceback;
             this.warnings = warnings != null ? warnings : List.of();
             this.metadata = metadata != null ? metadata : Map.of();
         }
 
-        public static TraceResult ok(String mlir, Map<String, Object> metadata) {
-            return new TraceResult(true, mlir, null, List.of(), metadata);
+        public static TraceResult ok(String mlir, String fxGraph, Map<String, Object> metadata) {
+            return new TraceResult(true, mlir, fxGraph, null, null, List.of(), metadata);
         }
 
-        public static TraceResult fail(String error) {
-            return new TraceResult(false, null, error, List.of(), Map.of());
-        }
-
-        public static TraceResult fail(String error, List<String> warnings) {
-            return new TraceResult(false, null, error, warnings, Map.of());
+        public static TraceResult fail(String error, String traceback) {
+            return new TraceResult(false, null, null, error, traceback, List.of(), Map.of());
         }
     }
 
@@ -96,72 +90,77 @@ public final class MockTraceExport {
                 if (i > 0) sb.append(", ");
                 sb.append(shape[i]);
             }
-            if (shape.length == 1) sb.append(",");  // Single-element tuple needs trailing comma
+            if (shape.length == 1) sb.append(",");
             sb.append("), '").append(dtype).append("')");
             return sb.toString();
         }
     }
 
     /**
-     * Trace Python source code and emit StableHLO MLIR.
+     * Trace a PyTorch model from source code using torch.fx.symbolic_trace.
      *
-     * @param pythonSource The Python source code containing the function to trace
-     * @param functionName The name of the function to trace
+     * @param pythonSource Python source code containing the model definition
+     * @param className    Name of the nn.Module class to trace
      * @param inputSpecs   Input tensor specifications (shapes and dtypes)
-     * @param framework    "torch" or "jax" - which mock module style to use
-     * @return TraceResult containing the MLIR or error information
+     * @return TraceResult containing StableHLO MLIR or error info
      */
     public static TraceResult trace(String pythonSource,
-                                    String functionName,
-                                    List<InputSpec> inputSpecs,
-                                    String framework) {
+                                    String className,
+                                    List<InputSpec> inputSpecs) {
 
         ByteArrayOutputStream pythonOut = new ByteArrayOutputStream();
         ByteArrayOutputStream pythonErr = new ByteArrayOutputStream();
 
-        try (Context ctx = Context.newBuilder("python")
+        Context.Builder builder = Context.newBuilder("python")
                 .allowAllAccess(true)
                 .option("python.ForceImportSite", "true")
                 .out(pythonOut)
-                .err(pythonErr)
-                .build()) {
+                .err(pythonErr);
 
-            // Load all mock modules in dependency order and register in sys.modules
-            loadModules(ctx);
+        // If PYTORCH_VENV is set, configure Python path
+        String pytorchVenv = System.getenv("PYTORCH_VENV");
+        if (pytorchVenv != null && !pytorchVenv.isBlank()) {
+            builder.option("python.PythonPath", pytorchVenv + "/lib/python3.12/site-packages");
+        }
 
-            // Build input_specs as Python list
-            StringBuilder inputSpecsPy = new StringBuilder("[");
+        try (Context ctx = builder.build()) {
+
+            // Load the FX-to-StableHLO converter module
+            String fxModule = readResource("/snakegrinder/fx_to_stablehlo.py");
+            ctx.eval("python", fxModule);
+
+            // Build input_shapes as Python list of tuples
+            StringBuilder inputShapesPy = new StringBuilder("[");
             for (int i = 0; i < inputSpecs.size(); i++) {
-                if (i > 0) inputSpecsPy.append(", ");
-                inputSpecsPy.append(inputSpecs.get(i).toPythonTuple());
+                if (i > 0) inputShapesPy.append(", ");
+                inputShapesPy.append("(");
+                for (int j = 0; j < inputSpecs.get(i).shape.length; j++) {
+                    if (j > 0) inputShapesPy.append(", ");
+                    inputShapesPy.append(inputSpecs.get(i).shape[j]);
+                }
+                inputShapesPy.append(")");
             }
-            inputSpecsPy.append("]");
+            inputShapesPy.append("]");
 
-            // Escape the source code for Python string literal
-            String escapedSource = escapePythonString(pythonSource);
+            // Escape the source code for Python
+            String escapedSource = escapePythonMultilineString(pythonSource);
 
-            // Call trace_source_code from the trace_entry module
+            // Call trace_model
             String callCode = String.format(
-                "trace_entry.trace_source_code('''%s''', '%s', %s, '%s')",
-                escapedSource, functionName, inputSpecsPy.toString(), framework
+                "trace_model('''%s''', '%s', %s)",
+                escapedSource, className, inputShapesPy.toString()
             );
 
             Value resultValue = ctx.eval("python", callCode);
-            Map<String, Object> result = valueToMap(resultValue);
+            String mlir = resultValue.asString();
 
-            String status = (String) result.get("status");
-            if ("ok".equals(status)) {
-                String mlir = (String) result.get("mlir");
-                Map<String, Object> metadata = new LinkedHashMap<>();
-                metadata.put("function", functionName);
-                metadata.put("framework", framework);
-                metadata.put("input_count", inputSpecs.size());
-                metadata.put("timestamp", Instant.now().toString());
-                return TraceResult.ok(mlir, metadata);
-            } else {
-                String error = (String) result.get("error");
-                return TraceResult.fail(error != null ? error : "Unknown error");
-            }
+            Map<String, Object> metadata = new LinkedHashMap<>();
+            metadata.put("class", className);
+            metadata.put("tracer", "torch.fx.symbolic_trace");
+            metadata.put("input_count", inputSpecs.size());
+            metadata.put("timestamp", Instant.now().toString());
+
+            return TraceResult.ok(mlir, null, metadata);
 
         } catch (PolyglotException e) {
             String error = "GraalPy error: " + e.getMessage();
@@ -169,75 +168,114 @@ public final class MockTraceExport {
             if (!stderr.isBlank()) {
                 error += "\nPython stderr:\n" + stderr;
             }
-            return TraceResult.fail(error);
+
+            // Check for common issues
+            if (e.getMessage().contains("No module named 'torch'")) {
+                error += "\n\nPyTorch is not installed in the GraalPy environment.\n" +
+                        "Please ensure PyTorch 2.7+ is built for GraalPy and installed.";
+            } else if (e.getMessage().contains("dlopen") || e.getMessage().contains("libgomp")) {
+                error += "\n\nNative library loading failed.\n" +
+                        "Set DYLD_LIBRARY_PATH (macOS) or LD_LIBRARY_PATH (Linux) to include:\n" +
+                        "  <graalpy-venv>/lib/python3.12/site-packages/torch/lib/";
+            }
+
+            return TraceResult.fail(error, null);
         } catch (Exception e) {
-            return TraceResult.fail("Trace failed: " + e.getMessage());
+            return TraceResult.fail("Trace failed: " + e.getMessage(), null);
         }
     }
 
     /**
-     * Trace a built-in example (matmul) for testing.
-     */
-    public static TraceResult traceMatmulExample() {
-        ByteArrayOutputStream pythonOut = new ByteArrayOutputStream();
-        ByteArrayOutputStream pythonErr = new ByteArrayOutputStream();
-
-        try (Context ctx = Context.newBuilder("python")
-                .allowAllAccess(true)
-                .option("python.ForceImportSite", "true")
-                .out(pythonOut)
-                .err(pythonErr)
-                .build()) {
-
-            // Load modules
-            loadModules(ctx);
-
-            // Call built-in example
-            Value result = ctx.eval("python", "trace_entry.trace_matmul_example()");
-            String mlir = result.asString();
-
-            Map<String, Object> metadata = new LinkedHashMap<>();
-            metadata.put("function", "matmul_example");
-            metadata.put("framework", "torch");
-            metadata.put("timestamp", Instant.now().toString());
-
-            return TraceResult.ok(mlir, metadata);
-
-        } catch (Exception e) {
-            return TraceResult.fail("Example trace failed: " + e.getMessage());
-        }
-    }
-
-    /**
-     * Trace a built-in MLP example for testing.
+     * Trace the built-in MLP example.
      */
     public static TraceResult traceMlpExample() {
         ByteArrayOutputStream pythonOut = new ByteArrayOutputStream();
         ByteArrayOutputStream pythonErr = new ByteArrayOutputStream();
 
-        try (Context ctx = Context.newBuilder("python")
+        Context.Builder builder = Context.newBuilder("python")
                 .allowAllAccess(true)
                 .option("python.ForceImportSite", "true")
                 .out(pythonOut)
-                .err(pythonErr)
-                .build()) {
+                .err(pythonErr);
 
-            // Load modules
-            loadModules(ctx);
+        String pytorchVenv = System.getenv("PYTORCH_VENV");
+        if (pytorchVenv != null && !pytorchVenv.isBlank()) {
+            builder.option("python.PythonPath", pytorchVenv + "/lib/python3.12/site-packages");
+        }
 
-            // Call built-in example
-            Value result = ctx.eval("python", "trace_entry.trace_mlp_example()");
+        try (Context ctx = builder.build()) {
+
+            // Load the FX-to-StableHLO converter module
+            String fxModule = readResource("/snakegrinder/fx_to_stablehlo.py");
+            ctx.eval("python", fxModule);
+
+            // Call the built-in example function
+            Value result = ctx.eval("python", "trace_builtin_example()");
             String mlir = result.asString();
 
             Map<String, Object> metadata = new LinkedHashMap<>();
-            metadata.put("function", "mlp_example");
-            metadata.put("framework", "torch");
+            metadata.put("example", "SimpleMLP");
+            metadata.put("tracer", "torch.fx.symbolic_trace");
             metadata.put("timestamp", Instant.now().toString());
 
-            return TraceResult.ok(mlir, metadata);
+            return TraceResult.ok(mlir, null, metadata);
+
+        } catch (PolyglotException e) {
+            String error = "GraalPy error: " + e.getMessage();
+            String stderr = pythonErr.toString(StandardCharsets.UTF_8);
+
+            if (e.getMessage().contains("No module named 'torch'")) {
+                error = "PyTorch is not installed in the GraalPy environment.\n" +
+                        "The --trace command requires PyTorch 2.7+ built for GraalPy.";
+            } else if (e.getMessage().contains("dlopen") || e.getMessage().contains("library")) {
+                error = "Native library loading failed.\n" +
+                        "Set DYLD_LIBRARY_PATH (macOS) or LD_LIBRARY_PATH (Linux) to:\n" +
+                        "  <graalpy-venv>/lib/python3.12/site-packages/torch/lib/\n\n" +
+                        "Original error: " + e.getMessage();
+            }
+
+            if (!stderr.isBlank()) {
+                error += "\nPython stderr:\n" + stderr;
+            }
+            return TraceResult.fail(error, null);
+        } catch (Exception e) {
+            return TraceResult.fail("Example trace failed: " + e.getMessage(), null);
+        }
+    }
+
+    /**
+     * Get PyTorch info from the GraalPy environment.
+     */
+    public static Map<String, Object> getPyTorchInfo() {
+        Context.Builder builder = Context.newBuilder("python")
+                .allowAllAccess(true)
+                .option("python.ForceImportSite", "true");
+
+        String pytorchVenv = System.getenv("PYTORCH_VENV");
+        if (pytorchVenv != null && !pytorchVenv.isBlank()) {
+            builder.option("python.PythonPath", pytorchVenv + "/lib/python3.12/site-packages");
+        }
+
+        try (Context ctx = builder.build()) {
+            // Check PyTorch availability
+            String checkCode = """
+                import torch
+                result = {
+                    'pytorch_version': torch.__version__,
+                    'cuda_available': str(torch.cuda.is_available()),
+                    'mps_available': str(hasattr(torch.backends, 'mps') and torch.backends.mps.is_available()),
+                    'fx_available': 'True'
+                }
+                result
+                """;
+            Value result = ctx.eval("python", checkCode);
+            return valueToMap(result);
 
         } catch (Exception e) {
-            return TraceResult.fail("MLP example trace failed: " + e.getMessage());
+            Map<String, Object> errorInfo = new LinkedHashMap<>();
+            errorInfo.put("error", e.getMessage());
+            errorInfo.put("pytorch_available", false);
+            return errorInfo;
         }
     }
 
@@ -251,11 +289,16 @@ public final class MockTraceExport {
             Files.writeString(outputDir.resolve("model.mlir"), result.mlir);
         }
 
+        if (result.fxGraph != null) {
+            Files.writeString(outputDir.resolve("fx_graph.txt"), result.fxGraph);
+        }
+
         // Write manifest
         Map<String, Object> manifest = new LinkedHashMap<>();
-        manifest.put("kind", "snakegrinder-trace-bundle");
+        manifest.put("kind", "snakegrinder-fx-trace-bundle");
         manifest.put("version", 1);
         manifest.put("status", result.success ? "ok" : "failed");
+        manifest.put("tracer", "torch.fx.symbolic_trace");
 
         if (result.error != null) {
             manifest.put("error", result.error);
@@ -270,6 +313,9 @@ public final class MockTraceExport {
         Map<String, Object> artifacts = new LinkedHashMap<>();
         if (result.success) {
             artifacts.put("mlir", "model.mlir");
+            if (result.fxGraph != null) {
+                artifacts.put("fx_graph", "fx_graph.txt");
+            }
         }
         manifest.put("artifacts", artifacts);
         manifest.put("timestamp", Instant.now().toString());
@@ -279,60 +325,13 @@ public final class MockTraceExport {
 
     // --- Private helpers ---
 
-    /**
-     * Load all Python modules and register them in sys.modules.
-     * This enables modules to import each other.
-     */
-    private static void loadModules(Context ctx) {
-        // First, set up the import mechanism
-        ctx.eval("python", "import sys");
-        ctx.eval("python", "from types import ModuleType");
-
-        for (String[] moduleInfo : PYTHON_MODULES) {
-            String resourcePath = moduleInfo[0];
-            String moduleName = moduleInfo[1];
-
-            String code = readResource(resourcePath);
-
-            // Create a module object, execute code in its namespace, and register it
-            String setupCode = String.format(
-                "_mod = ModuleType('%s')\n" +
-                "_mod.__file__ = '%s'\n" +
-                "sys.modules['%s'] = _mod\n" +
-                "exec(compile('''%s''', '%s', 'exec'), _mod.__dict__)\n" +
-                "%s = _mod\n",
-                moduleName,
-                resourcePath,
-                moduleName,
-                escapePythonMultilineString(code),
-                resourcePath,
-                moduleName
-            );
-
-            try {
-                ctx.eval("python", setupCode);
-            } catch (Exception e) {
-                throw new IllegalStateException("Failed to load module: " + moduleName, e);
-            }
-        }
-    }
-
     private static String escapePythonMultilineString(String s) {
-        // Escape for use in triple-quoted string
         return s.replace("\\", "\\\\")
                 .replace("'''", "\\'\\'\\'");
     }
 
-    private static String escapePythonString(String s) {
-        return s.replace("\\", "\\\\")
-                .replace("'", "\\'")
-                .replace("\n", "\\n")
-                .replace("\r", "\\r")
-                .replace("\t", "\\t");
-    }
-
     private static String readResource(String resourcePath) {
-        InputStream in = MockTraceExport.class.getResourceAsStream(resourcePath);
+        InputStream in = FxStableHloExport.class.getResourceAsStream(resourcePath);
         if (in == null) {
             throw new IllegalArgumentException("Missing classpath resource: " + resourcePath);
         }
@@ -340,14 +339,6 @@ public final class MockTraceExport {
             return new String(in.readAllBytes(), StandardCharsets.UTF_8);
         } catch (IOException e) {
             throw new IllegalStateException("Failed reading resource: " + resourcePath, e);
-        }
-    }
-
-    private static Source buildSource(String code, String name) {
-        try {
-            return Source.newBuilder("python", code, name).build();
-        } catch (IOException e) {
-            throw new IllegalStateException("Failed building Source: " + name, e);
         }
     }
 

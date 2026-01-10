@@ -1,0 +1,179 @@
+plugins {
+  id 'base'
+}
+
+// snakegrinder-dist: Distribution assembly for SnakeGrinder native-image
+// This module builds a self-contained distribution that includes:
+// - Native image binary (AOT compiled Java + GraalPy)
+// - Pruned PyTorch virtualenv (site-packages + native libs)
+// - Wrapper scripts
+
+def graalPyHome = '/private/tmp/graalpy-25.0.1-macos-aarch64'
+def pytorchVenvDir = file("${projectDir}/.pytorch-venv")
+def distDir = file("${buildDir}/dist")
+
+// ============================================================================
+// PyTorch Venv Management
+// ============================================================================
+
+tasks.register('checkPytorchVenv') {
+    group = 'snakegrinder-dist'
+    description = 'Check if PyTorch venv exists'
+
+    doLast {
+        if (pytorchVenvDir.exists()) {
+            println "PyTorch venv exists at: ${pytorchVenvDir}"
+
+            // Check torch is importable
+            def checkScript = """
+import sys
+sys.path.insert(0, '${pytorchVenvDir}/lib/python3.12/site-packages')
+import torch
+print('torch version:', torch.__version__)
+"""
+            def proc = [
+                "${graalPyHome}/bin/graalpy", '-c', checkScript
+            ].execute()
+            proc.waitFor()
+            if (proc.exitValue() == 0) {
+                println proc.text
+            } else {
+                println "WARNING: venv exists but torch import failed"
+                println proc.err.text
+            }
+        } else {
+            println "PyTorch venv NOT found at: ${pytorchVenvDir}"
+            println "Run './gradlew :snakegrinder-dist:buildPytorchVenv' to create it"
+        }
+    }
+}
+
+tasks.register('buildPytorchVenv', Exec) {
+    group = 'snakegrinder-dist'
+    description = 'Build PyTorch from source for GraalPy (slow - ~30 min first time)'
+
+    commandLine 'bash', "${projectDir}/scripts/build-pytorch-venv.sh"
+    environment 'GRAALPY_HOME', graalPyHome
+    environment 'VENV_DIR', pytorchVenvDir
+
+    doFirst {
+        if (pytorchVenvDir.exists()) {
+            println "PyTorch venv already exists at ${pytorchVenvDir}"
+            println "Delete it first if you want to rebuild: rm -rf ${pytorchVenvDir}"
+            throw new StopExecutionException("Venv already exists")
+        }
+    }
+}
+
+tasks.register('prunePytorchVenv', Exec) {
+    group = 'snakegrinder-dist'
+    description = 'Prune PyTorch venv to reduce native-image size'
+
+    commandLine 'bash', "${projectDir}/scripts/prune-venv.sh"
+    environment 'VENV_DIR', pytorchVenvDir
+    environment 'GRAALPY_HOME', graalPyHome
+
+    doFirst {
+        if (!pytorchVenvDir.exists()) {
+            throw new GradleException("PyTorch venv not found. Run buildPytorchVenv first.")
+        }
+    }
+}
+
+// ============================================================================
+// Native Image Build
+// ============================================================================
+
+tasks.register('buildNativeImage') {
+    group = 'snakegrinder-dist'
+    description = 'Build native-image with embedded PyTorch venv'
+    dependsOn ':snakegrinder-cli:jar'
+
+    doFirst {
+        if (!pytorchVenvDir.exists()) {
+            throw new GradleException("PyTorch venv not found. Run buildPytorchVenv first.")
+        }
+    }
+
+    doLast {
+        // For now, use the standard nativeCompile
+        // The --venv flag will be added when we update snakegrinder-cli build.gradle
+        println "Building native image..."
+        println "Note: PyTorch native libs (.dylib) cannot be AOT compiled."
+        println "The distribution will include the venv with native libs."
+    }
+}
+
+// ============================================================================
+// Distribution Assembly
+// ============================================================================
+
+tasks.register('assembleDist') {
+    group = 'snakegrinder-dist'
+    description = 'Assemble complete distribution package'
+    dependsOn ':snakegrinder-cli:nativeCompile'
+
+    doFirst {
+        if (!pytorchVenvDir.exists()) {
+            throw new GradleException("PyTorch venv not found. Run buildPytorchVenv and prunePytorchVenv first.")
+        }
+    }
+
+    doLast {
+        // Create dist directory
+        delete distDir
+        distDir.mkdirs()
+
+        // Copy native image (renamed to snakegrinder-bin, wrapper script is 'snakegrinder')
+        def nativeImage = file("${project(':snakegrinder-cli').buildDir}/native/nativeCompile/snakegrinder")
+        if (nativeImage.exists()) {
+            copy {
+                from nativeImage
+                into "${distDir}/bin"
+                rename { 'snakegrinder-bin' }
+            }
+            file("${distDir}/bin/snakegrinder-bin").setExecutable(true, false)
+        } else {
+            throw new GradleException("Native image not found at ${nativeImage}")
+        }
+
+        // Copy PyTorch venv (preserving structure expected by FxStableHloExport)
+        // Java code expects: PYTORCH_VENV/lib/python3.12/site-packages
+        copy {
+            from "${pytorchVenvDir}/lib/python3.12/site-packages"
+            into "${distDir}/venv/lib/python3.12/site-packages"
+        }
+
+        // Copy wrapper script
+        copy {
+            from "${projectDir}/scripts/snakegrinder"
+            into "${distDir}/bin"
+        }
+        // Set executable permission
+        file("${distDir}/bin/snakegrinder").setExecutable(true, false)
+
+        println ""
+        println "Distribution assembled at: ${distDir}"
+        println ""
+        println "Contents:"
+        println "  bin/snakegrinder       - Launcher script (sets library paths)"
+        println "  bin/snakegrinder-bin   - Native image binary"
+        println "  venv/                  - PyTorch virtual environment"
+    }
+}
+
+tasks.register('distTarGz', Tar) {
+    group = 'snakegrinder-dist'
+    description = 'Create tar.gz distribution archive'
+    dependsOn 'assembleDist'
+
+    archiveBaseName = 'snakegrinder'
+    archiveVersion = '0.1.0'
+    archiveExtension = 'tar.gz'
+    compression = Compression.GZIP
+    destinationDirectory = file("${buildDir}")
+
+    from(distDir) {
+        into 'snakegrinder'
+    }
+}

@@ -23,4 +23,5 @@ include('snakeburger-cli')
 include('babylon-runtime')
 include('snakegrinder-core')
 include('snakegrinder-cli')
+include('snakegrinder-dist')
 

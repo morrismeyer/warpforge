@@ -6,3 +6,6 @@
 
 # Ignore Gradle build output directory
 build
+
+# Local tool installations (GraalPy, etc.)
+tools/

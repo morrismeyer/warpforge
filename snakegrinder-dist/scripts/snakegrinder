@@ -1,0 +1,27 @@
+#!/bin/bash
+#
+# SnakeGrinder launcher script
+#
+# Sets up library paths for PyTorch native libraries and runs the native image.
+#
+
+# Resolve the directory containing this script
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+DIST_DIR="$(dirname "${SCRIPT_DIR}")"
+
+# Path to PyTorch native libraries
+# venv structure: venv/lib/python3.12/site-packages/torch/lib
+TORCH_LIB="${DIST_DIR}/venv/lib/python3.12/site-packages/torch/lib"
+
+# Set library path for native PyTorch libs
+if [ "$(uname)" = "Darwin" ]; then
+    export DYLD_LIBRARY_PATH="${TORCH_LIB}:${DYLD_LIBRARY_PATH}"
+else
+    export LD_LIBRARY_PATH="${TORCH_LIB}:${LD_LIBRARY_PATH}"
+fi
+
+# Set PYTORCH_VENV for Java code (expects venv/lib/python3.12/site-packages)
+export PYTORCH_VENV="${DIST_DIR}/venv"
+
+# Run the native image
+exec "${SCRIPT_DIR}/snakegrinder-bin" "$@"

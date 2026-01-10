@@ -91,11 +91,15 @@ graalvmNative {
         '--no-fallback',
         // Include Python resources from snakegrinder-core
         '-H:IncludeResources=snakegrinder/.*\\.py$',
-        // GraalPy optimizations - reduce binary size
-        '-Dpython.WithoutSSL=true',
-        '-Dpython.WithoutCompressionLibraries=true',
-        '-Dpython.WithoutNativePosix=true'
+        // GraalPy optimizations - disable SSL (not needed for local tracing)
+        // Keep compression libraries (zlib) as PyTorch requires them
+        '-Dpython.WithoutSSL=true'
       ])
+
+      // Note: Python embedding via --language:python requires GraalPy's native-image support
+      // which isn't available in standard GraalVM Community Edition.
+      // The distribution uses external GraalPy + PyTorch venv instead.
+      // See snakegrinder-dist/build.gradle for the full distribution assembly.
     }
   }
 

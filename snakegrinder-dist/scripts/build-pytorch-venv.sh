@@ -451,6 +451,22 @@ export USE_MKLDNN=1
 export USE_OPENMP=1
 export BUILD_TEST=0
 
+# Limit parallel jobs to avoid OOM on systems with ≤16GB RAM
+# Default: 4 jobs (safe for 16GB), override with MAX_JOBS env var
+if [ -z "${MAX_JOBS}" ]; then
+    TOTAL_MEM_KB=$(grep MemTotal /proc/meminfo 2>/dev/null | awk '{print $2}' || sysctl -n hw.memsize 2>/dev/null | awk '{print int($1/1024)}')
+    if [ -n "${TOTAL_MEM_KB}" ]; then
+        TOTAL_MEM_GB=$((TOTAL_MEM_KB / 1024 / 1024))
+        if [ "${TOTAL_MEM_GB}" -le 16 ]; then
+            export MAX_JOBS=4
+            echo "Limiting to ${MAX_JOBS} parallel jobs (${TOTAL_MEM_GB}GB RAM detected)"
+        elif [ "${TOTAL_MEM_GB}" -le 32 ]; then
+            export MAX_JOBS=8
+            echo "Limiting to ${MAX_JOBS} parallel jobs (${TOTAL_MEM_GB}GB RAM detected)"
+        fi
+    fi
+fi
+
 if [ "$USE_NINJA" = "1" ]; then
     export CMAKE_GENERATOR=Ninja
     echo "Using Ninja for faster builds"

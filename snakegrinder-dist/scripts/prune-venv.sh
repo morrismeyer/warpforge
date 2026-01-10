@@ -22,6 +22,18 @@
 
 set -e
 
+# Script directory for relative paths
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DIST_DIR="$(dirname "${SCRIPT_DIR}")"
+
+# Source version configuration
+if [ -f "${DIST_DIR}/versions.env" ]; then
+    source "${DIST_DIR}/versions.env"
+fi
+
+GRAALPY_VERSION="${GRAALPY_VERSION:-25.0.1}"
+PYTHON_VERSION="${PYTHON_VERSION:-3.12}"
+
 # Detect platform
 UNAME_S="$(uname -s)"
 UNAME_M="$(uname -m)"
@@ -41,14 +53,10 @@ case "${UNAME_S}" in
         ;;
 esac
 
-# Script directory for relative paths
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DIST_DIR="$(dirname "${SCRIPT_DIR}")"
-
 VENV_DIR="${VENV_DIR:?VENV_DIR must be set}"
-GRAALPY_HOME="${GRAALPY_HOME:-${DIST_DIR}/tools/graalpy-25.0.1-${GRAALPY_PLATFORM}}"
+GRAALPY_HOME="${GRAALPY_HOME:-${DIST_DIR}/tools/graalpy-${GRAALPY_VERSION}-${GRAALPY_PLATFORM}}"
 
-SITE_PACKAGES="${VENV_DIR}/lib/python3.12/site-packages"
+SITE_PACKAGES="${VENV_DIR}/lib/python${PYTHON_VERSION}/site-packages"
 TORCH_DIR="${SITE_PACKAGES}/torch"
 
 if [ ! -d "${SITE_PACKAGES}" ]; then

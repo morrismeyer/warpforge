@@ -8,6 +8,28 @@ plugins {
 // - Pruned PyTorch virtualenv (site-packages + native libs)
 // - Wrapper scripts
 
+// ============================================================================
+// Version Configuration (from versions.env)
+// ============================================================================
+
+def versionsFile = file("${projectDir}/versions.env")
+def versions = [:]
+if (versionsFile.exists()) {
+    versionsFile.readLines().each { line ->
+        line = line.trim()
+        if (line && !line.startsWith('#') && line.contains('=')) {
+            def parts = line.split('=', 2)
+            def key = parts[0].trim()
+            def value = parts[1].trim().replaceAll('^"|"$', '')
+            versions[key] = value
+        }
+    }
+}
+
+def graalPyVersion = versions.getOrDefault('GRAALPY_VERSION', '25.0.1')
+def pytorchVersion = versions.getOrDefault('PYTORCH_VERSION', '2.7.0')
+def pythonVersion = versions.getOrDefault('PYTHON_VERSION', '3.12')
+
 // Detect platform for GraalPy
 def osName = System.getProperty('os.name').toLowerCase()
 def osArch = System.getProperty('os.arch')
@@ -20,7 +42,7 @@ if (osName.contains('mac')) {
     graalPyPlatform = 'unknown'
 }
 
-def graalPyHome = "${projectDir}/tools/graalpy-25.0.1-${graalPyPlatform}"
+def graalPyHome = "${projectDir}/tools/graalpy-${graalPyVersion}-${graalPyPlatform}"
 def pytorchVenvDir = file("${projectDir}/.pytorch-venv")
 def distDir = file("${buildDir}/dist")
 
@@ -30,50 +52,76 @@ def distDir = file("${buildDir}/dist")
 
 tasks.register('checkPytorchVenv') {
     group = 'snakegrinder-dist'
-    description = 'Check if PyTorch venv exists'
+    description = 'Check if PyTorch venv exists and show version info'
 
     doLast {
-        if (pytorchVenvDir.exists()) {
-            println "PyTorch venv exists at: ${pytorchVenvDir}"
+        println "=== SnakeGrinder Distribution Configuration ==="
+        println ""
+        println "Versions (from versions.env):"
+        println "  GraalPy:  ${graalPyVersion}"
+        println "  PyTorch:  ${pytorchVersion}"
+        println "  Python:   ${pythonVersion}"
+        println "  Platform: ${graalPyPlatform}"
+        println ""
 
-            // Check torch is importable
-            def checkScript = """
+        def graalPyBin = file("${graalPyHome}/bin/graalpy")
+
+        if (pytorchVenvDir.exists()) {
+            println "PyTorch venv: ${pytorchVenvDir} [EXISTS]"
+
+            if (graalPyBin.exists()) {
+                // Check torch is importable
+                def checkScript = """
 import sys
-sys.path.insert(0, '${pytorchVenvDir}/lib/python3.12/site-packages')
+sys.path.insert(0, '${pytorchVenvDir}/lib/python${pythonVersion}/site-packages')
 import torch
-print('torch version:', torch.__version__)
+print('  torch version:', torch.__version__)
 """
-            def proc = [
-                "${graalPyHome}/bin/graalpy", '-c', checkScript
-            ].execute()
-            proc.waitFor()
-            if (proc.exitValue() == 0) {
-                println proc.text
+                def proc = [graalPyBin.absolutePath, '-c', checkScript].execute()
+                proc.waitFor()
+                if (proc.exitValue() == 0) {
+                    println proc.text
+                } else {
+                    println "  WARNING: torch import failed"
+                }
             } else {
-                println "WARNING: venv exists but torch import failed"
-                println proc.err.text
+                println "  (GraalPy not found at ${graalPyHome}, skipping verification)"
+                println "  Run buildPytorchVenv to download GraalPy automatically"
             }
         } else {
-            println "PyTorch venv NOT found at: ${pytorchVenvDir}"
-            println "Run './gradlew :snakegrinder-dist:buildPytorchVenv' to create it"
+            println "PyTorch venv: NOT FOUND"
+            println ""
+            println "To build PyTorch venv:"
+            println "  ./gradlew :snakegrinder-dist:buildPytorchVenv"
         }
     }
 }
 
 tasks.register('buildPytorchVenv', Exec) {
     group = 'snakegrinder-dist'
-    description = 'Build PyTorch from source for GraalPy (slow - ~30 min first time)'
+    description = 'Build PyTorch from source for GraalPy (~30-60 min first time)'
 
+    workingDir projectDir
     commandLine 'bash', "${projectDir}/scripts/build-pytorch-venv.sh"
-    environment 'GRAALPY_HOME', graalPyHome
-    environment 'VENV_DIR', pytorchVenvDir
 
     doFirst {
-        if (pytorchVenvDir.exists()) {
-            println "PyTorch venv already exists at ${pytorchVenvDir}"
-            println "Delete it first if you want to rebuild: rm -rf ${pytorchVenvDir}"
-            throw new StopExecutionException("Venv already exists")
-        }
+        println "Building PyTorch ${pytorchVersion} for GraalPy ${graalPyVersion}..."
+        println "This will take 30-60 minutes on first build."
+        println ""
+    }
+}
+
+tasks.register('rebuildPytorchVenv', Exec) {
+    group = 'snakegrinder-dist'
+    description = 'Clean and rebuild PyTorch venv from scratch'
+
+    workingDir projectDir
+    commandLine 'bash', "${projectDir}/scripts/build-pytorch-venv.sh", '--clean'
+
+    doFirst {
+        println "Rebuilding PyTorch ${pytorchVersion} for GraalPy ${graalPyVersion}..."
+        println "This will delete the existing venv and rebuild from scratch."
+        println ""
     }
 }
 
@@ -150,10 +198,10 @@ tasks.register('assembleDist') {
         }
 
         // Copy PyTorch venv (preserving structure expected by FxStableHloExport)
-        // Java code expects: PYTORCH_VENV/lib/python3.12/site-packages
+        // Java code expects: PYTORCH_VENV/lib/python${pythonVersion}/site-packages
         copy {
-            from "${pytorchVenvDir}/lib/python3.12/site-packages"
-            into "${distDir}/venv/lib/python3.12/site-packages"
+            from "${pytorchVenvDir}/lib/python${pythonVersion}/site-packages"
+            into "${distDir}/venv/lib/python${pythonVersion}/site-packages"
         }
 
         // Copy wrapper script

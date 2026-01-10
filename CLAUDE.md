@@ -287,6 +287,56 @@ The NUC orchestrates the complete ML-to-GPU pipeline:
 - PyTorch 2.7.0 built from source with GraalPy patches
 - Native-image compilation on Linux
 
+## SnakeGrinder Distribution Build
+
+### Quick Start
+
+```bash
+# Check current configuration and venv status
+./gradlew :snakegrinder-dist:checkPytorchVenv
+
+# Build PyTorch venv (~30-60 min first time, downloads GraalPy automatically)
+./gradlew :snakegrinder-dist:buildPytorchVenv
+
+# Optional: Prune venv to reduce size
+./gradlew :snakegrinder-dist:prunePytorchVenv
+
+# Build native distribution
+./gradlew :snakegrinder-dist:assembleDist
+```
+
+### Version Configuration
+
+All versions are centralized in `snakegrinder-dist/versions.env`:
+
+```bash
+GRAALPY_VERSION="25.0.1"
+PYTORCH_VERSION="2.7.0"
+PYTHON_VERSION="3.12"
+```
+
+### Upgrading PyTorch/GraalPy
+
+**Constraint**: PyTorch version must have a matching GraalPy patch. Check `$GRAALPY_HOME/lib/graalpy*/patches/torch-*.patch` for available versions.
+
+1. Check GraalPy releases: https://github.com/oracle/graalpython/releases
+2. Check available PyTorch patches in the new GraalPy release
+3. Update `snakegrinder-dist/versions.env`
+4. Rebuild:
+   ```bash
+   ./gradlew :snakegrinder-dist:rebuildPytorchVenv
+   ./gradlew :snakegrinder-dist:assembleDist
+   ```
+
+### Build Dependencies
+
+The build script checks dependencies and provides install instructions:
+
+| macOS | Linux |
+|-------|-------|
+| `brew install cmake ninja` | `sudo apt install cmake ninja-build build-essential` |
+| Xcode CLI: `xcode-select --install` | |
+
 ## Development Workflow: Fixes Must Survive Cleanup
 
 When fixing build issues, **never make manual edits to generated or downloaded artifacts** (e.g., files inside `.pytorch-venv/`, `build/`, or any directory that gets deleted on clean rebuild).

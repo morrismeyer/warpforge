@@ -228,29 +228,27 @@ echo "Using GraalPy: ${GRAALPY_HOME}"
 echo ""
 
 # ============================================================================
-# CHECK GRAALPY PYTORCH PATCH AVAILABILITY
+# CHECK PYTORCH PATCH AVAILABILITY
 # ============================================================================
 
-PATCH_DIR="${GRAALPY_HOME}/lib/graalpy${GRAALPY_VERSION%%.*}.${GRAALPY_VERSION#*.}/patches"
-PYTORCH_PATCH="${PATCH_DIR}/torch-${PYTORCH_VERSION}.patch"
+# Use bundled patches from our repo (GraalPy GitHub releases don't include them)
+PATCHES_DIR="${SCRIPT_DIR}/patches"
+PYTORCH_PATCH="${PATCHES_DIR}/torch-${PYTORCH_VERSION}.patch"
 
 if [ ! -f "${PYTORCH_PATCH}" ]; then
-    echo "WARNING: GraalPy patch for PyTorch ${PYTORCH_VERSION} not found at:"
+    echo "ERROR: PyTorch patch not found at:"
     echo "  ${PYTORCH_PATCH}"
     echo ""
-    echo "Available patches:"
-    ls -1 "${PATCH_DIR}"/torch-*.patch 2>/dev/null || echo "  (none found)"
+    echo "Available patches in ${PATCHES_DIR}:"
+    ls -1 "${PATCHES_DIR}"/torch-*.patch 2>/dev/null || echo "  (none found)"
     echo ""
-    echo "The build may fail or produce incompatible binaries."
-    echo "Consider using a PyTorch version that has a matching patch."
-    echo ""
-    read -p "Continue anyway? [y/N] " -n 1 -r
-    echo ""
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-        exit 1
-    fi
+    echo "To add support for PyTorch ${PYTORCH_VERSION}:"
+    echo "  1. Find a GraalPy release with a patch for this version"
+    echo "  2. Copy the patch to ${PATCHES_DIR}/torch-${PYTORCH_VERSION}.patch"
+    echo "  3. Re-run this script"
+    exit 1
 else
-    echo "GraalPy patch found: torch-${PYTORCH_VERSION}.patch"
+    echo "Using bundled patch: torch-${PYTORCH_VERSION}.patch"
     echo ""
 fi
 

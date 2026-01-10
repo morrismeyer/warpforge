@@ -8,7 +8,19 @@ plugins {
 // - Pruned PyTorch virtualenv (site-packages + native libs)
 // - Wrapper scripts
 
-def graalPyHome = '/private/tmp/graalpy-25.0.1-macos-aarch64'
+// Detect platform for GraalPy
+def osName = System.getProperty('os.name').toLowerCase()
+def osArch = System.getProperty('os.arch')
+def graalPyPlatform
+if (osName.contains('mac')) {
+    graalPyPlatform = osArch == 'aarch64' ? 'macos-aarch64' : 'macos-amd64'
+} else if (osName.contains('linux')) {
+    graalPyPlatform = osArch == 'amd64' || osArch == 'x86_64' ? 'linux-amd64' : 'linux-aarch64'
+} else {
+    graalPyPlatform = 'unknown'
+}
+
+def graalPyHome = "${projectDir}/tools/graalpy-25.0.1-${graalPyPlatform}"
 def pytorchVenvDir = file("${projectDir}/.pytorch-venv")
 def distDir = file("${buildDir}/dist")
 

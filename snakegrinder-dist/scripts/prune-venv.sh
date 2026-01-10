@@ -13,7 +13,7 @@
 #
 # Must keep:
 # - sympy, mpmath (required for torch.fx shape propagation)
-# - torch/lib/*.dylib (native libraries)
+# - torch/lib/*.so or *.dylib (native libraries)
 #
 # Environment variables:
 # - VENV_DIR: Path to the venv to prune (required)
@@ -22,8 +22,31 @@
 
 set -e
 
+# Detect platform
+UNAME_S="$(uname -s)"
+UNAME_M="$(uname -m)"
+
+case "${UNAME_S}" in
+    Darwin)
+        case "${UNAME_M}" in
+            arm64) GRAALPY_PLATFORM="macos-aarch64" ;;
+            x86_64) GRAALPY_PLATFORM="macos-amd64" ;;
+        esac
+        ;;
+    Linux)
+        case "${UNAME_M}" in
+            x86_64) GRAALPY_PLATFORM="linux-amd64" ;;
+            aarch64) GRAALPY_PLATFORM="linux-aarch64" ;;
+        esac
+        ;;
+esac
+
+# Script directory for relative paths
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DIST_DIR="$(dirname "${SCRIPT_DIR}")"
+
 VENV_DIR="${VENV_DIR:?VENV_DIR must be set}"
-GRAALPY_HOME="${GRAALPY_HOME:-/private/tmp/graalpy-25.0.1-macos-aarch64}"
+GRAALPY_HOME="${GRAALPY_HOME:-${DIST_DIR}/tools/graalpy-25.0.1-${GRAALPY_PLATFORM}}"
 
 SITE_PACKAGES="${VENV_DIR}/lib/python3.12/site-packages"
 TORCH_DIR="${SITE_PACKAGES}/torch"
@@ -121,7 +144,13 @@ echo ""
 # ============================================================================
 echo "Verifying torch + FX import..."
 
-export DYLD_LIBRARY_PATH="${TORCH_DIR}/lib"
+# Set library path based on platform
+if [ "${UNAME_S}" = "Darwin" ]; then
+    export DYLD_LIBRARY_PATH="${TORCH_DIR}/lib:${DYLD_LIBRARY_PATH}"
+else
+    export LD_LIBRARY_PATH="${TORCH_DIR}/lib:${LD_LIBRARY_PATH}"
+fi
+
 "${GRAALPY_HOME}/bin/graalpy" -c "
 import sys
 sys.path.insert(0, '${SITE_PACKAGES}')

@@ -6,22 +6,59 @@
 # PyTorch wheels are not available for GraalPy, so we must build from source.
 #
 # Prerequisites:
-# - GraalPy 25.0.1+ installed
 # - cmake >= 3.18
 # - C++ compiler (Xcode on macOS, g++ on Linux)
 # - ninja (optional, speeds up build)
 #
 # Environment variables:
-# - GRAALPY_HOME: Path to GraalPy installation (required)
-# - VENV_DIR: Path to create the venv (required)
+# - GRAALPY_HOME: Path to GraalPy installation (auto-downloaded if not set)
+# - VENV_DIR: Path to create the venv (default: ../pytorch-venv)
 # - PYTORCH_VERSION: PyTorch version to build (default: 2.7.0)
 #
 
 set -e
 
-# Configuration
-GRAALPY_HOME="${GRAALPY_HOME:-/private/tmp/graalpy-25.0.1-macos-aarch64}"
-VENV_DIR="${VENV_DIR:-$(dirname "$0")/../.pytorch-venv}"
+# Detect platform
+UNAME_S="$(uname -s)"
+UNAME_M="$(uname -m)"
+
+case "${UNAME_S}" in
+    Darwin)
+        case "${UNAME_M}" in
+            arm64) GRAALPY_PLATFORM="macos-aarch64" ;;
+            x86_64) GRAALPY_PLATFORM="macos-amd64" ;;
+            *) echo "ERROR: Unsupported macOS architecture: ${UNAME_M}"; exit 1 ;;
+        esac
+        ;;
+    Linux)
+        case "${UNAME_M}" in
+            x86_64) GRAALPY_PLATFORM="linux-amd64" ;;
+            aarch64) GRAALPY_PLATFORM="linux-aarch64" ;;
+            *) echo "ERROR: Unsupported Linux architecture: ${UNAME_M}"; exit 1 ;;
+        esac
+        ;;
+    *)
+        echo "ERROR: Unsupported OS: ${UNAME_S}"
+        exit 1
+        ;;
+esac
+
+echo "Detected platform: ${GRAALPY_PLATFORM}"
+
+# GraalPy version and download URL
+GRAALPY_VERSION="25.0.1"
+GRAALPY_DOWNLOAD_URL="https://github.com/oracle/graalpython/releases/download/graal-${GRAALPY_VERSION}/graalpy-${GRAALPY_VERSION}-${GRAALPY_PLATFORM}.tar.gz"
+
+# Script directory for relative paths
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DIST_DIR="$(dirname "${SCRIPT_DIR}")"
+
+# Configuration with platform-aware defaults
+if [ -z "${GRAALPY_HOME}" ]; then
+    # Default location for auto-downloaded GraalPy
+    GRAALPY_HOME="${DIST_DIR}/tools/graalpy-${GRAALPY_VERSION}-${GRAALPY_PLATFORM}"
+fi
+VENV_DIR="${VENV_DIR:-${DIST_DIR}/.pytorch-venv}"
 PYTORCH_VERSION="${PYTORCH_VERSION:-2.7.0}"
 PYTORCH_REPO="https://github.com/pytorch/pytorch.git"
 
@@ -35,11 +72,35 @@ echo "Venv:       ${VENV_DIR}"
 echo "PyTorch:    ${PYTORCH_VERSION}"
 echo ""
 
-# Check GraalPy exists
+# Check GraalPy exists, download if needed
 if [ ! -x "${GRAALPY_HOME}/bin/graalpy" ]; then
-    echo "ERROR: GraalPy not found at ${GRAALPY_HOME}"
-    echo "Please set GRAALPY_HOME to your GraalPy installation."
-    exit 1
+    echo "GraalPy not found at ${GRAALPY_HOME}"
+    echo "Downloading GraalPy ${GRAALPY_VERSION} for ${GRAALPY_PLATFORM}..."
+
+    # Create tools directory
+    mkdir -p "$(dirname "${GRAALPY_HOME}")"
+
+    # Download
+    TARBALL="/tmp/graalpy-${GRAALPY_VERSION}-${GRAALPY_PLATFORM}.tar.gz"
+    if [ ! -f "${TARBALL}" ]; then
+        echo "Downloading from: ${GRAALPY_DOWNLOAD_URL}"
+        curl -L -o "${TARBALL}" "${GRAALPY_DOWNLOAD_URL}"
+    else
+        echo "Using cached download: ${TARBALL}"
+    fi
+
+    # Extract
+    echo "Extracting to ${GRAALPY_HOME}..."
+    tar -xzf "${TARBALL}" -C "$(dirname "${GRAALPY_HOME}")"
+
+    # Verify
+    if [ ! -x "${GRAALPY_HOME}/bin/graalpy" ]; then
+        echo "ERROR: GraalPy extraction failed. Expected binary at ${GRAALPY_HOME}/bin/graalpy"
+        ls -la "$(dirname "${GRAALPY_HOME}")" || true
+        exit 1
+    fi
+
+    echo "GraalPy ${GRAALPY_VERSION} installed successfully"
 fi
 
 # Check prerequisites

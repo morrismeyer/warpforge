@@ -259,6 +259,34 @@ GitHub Actions workflow (`holmes-mark1-ci.yml`) orchestrates:
 
 Required secrets: `HOLMES_NUC_HOST`, `HOLMES_NUC_USER`, `HOLMES_NUC_SSH_KEY`
 
+### Full Integration Test Path (Target Architecture)
+
+The NUC orchestrates the complete ML-to-GPU pipeline:
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│  NUC (Linux x86_64) - Orchestrator                                      │
+│                                                                         │
+│  1. SnakeGrinder traces PyTorch model → StableHLO MLIR                 │
+│  2. SnakeBurger parses StableHLO → Babylon Code Reflection IR          │
+│  3. WarpForge generates GPU kernels from IR                            │
+│                                                                         │
+└─────────────────────┬───────────────────────┬───────────────────────────┘
+                      │                       │
+                      ▼                       ▼
+        ┌─────────────────────┐   ┌─────────────────────┐
+        │  Node A (AMD GPU)   │   │  Node B (NVIDIA GPU)│
+        │  - ROCm runtime     │   │  - CUDA runtime     │
+        │  - Execute kernels  │   │  - Execute kernels  │
+        │  - Verify results   │   │  - Verify results   │
+        └─────────────────────┘   └─────────────────────┘
+```
+
+**Critical dependency**: SnakeGrinder must build and run on Linux (NUC) for this pipeline to work. This requires:
+- GraalPy 25.0.1 for Linux x86_64
+- PyTorch 2.7.0 built from source with GraalPy patches
+- Native-image compilation on Linux
+
 ## Development Workflow: Fixes Must Survive Cleanup
 
 When fixing build issues, **never make manual edits to generated or downloaded artifacts** (e.g., files inside `.pytorch-venv/`, `build/`, or any directory that gets deleted on clean rebuild).

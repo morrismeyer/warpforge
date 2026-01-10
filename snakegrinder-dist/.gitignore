@@ -3,3 +3,6 @@
 
 # Build output
 build/
+
+# Auto-downloaded GraalPy (platform-specific)
+tools/

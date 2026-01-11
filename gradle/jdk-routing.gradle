@@ -107,21 +107,27 @@ def configureSnakeBurgerProject = { Project p ->
         return
     }
 
+    // Determine which incubator modules to enable
+    // warpforge modules also need jdk.incubator.vector for SIMD operations
+    def incubatorModules = p.name.startsWith("warpforge")
+        ? "jdk.incubator.code,jdk.incubator.vector"
+        : "jdk.incubator.code"
+
     p.tasks.withType(JavaCompile).configureEach { JavaCompile c ->
         c.options.fork = true
         // Use explicit executable to avoid Gradle probing a non-standard installation via toolchains.
         c.options.forkOptions.executable = babylonJavac.absolutePath
-        c.options.compilerArgs.addAll(["--add-modules", "jdk.incubator.code"])
+        c.options.compilerArgs.addAll(["--add-modules", incubatorModules])
     }
 
     p.tasks.withType(JavaExec).configureEach { JavaExec e ->
         e.executable = babylonJava.absolutePath
-        e.jvmArgs("--add-modules", "jdk.incubator.code", "--enable-native-access=ALL-UNNAMED")
+        e.jvmArgs("--add-modules", incubatorModules, "--enable-native-access=ALL-UNNAMED")
     }
 
     p.tasks.withType(Test).configureEach { Test t ->
         t.executable = babylonJava.absolutePath
-        t.jvmArgs("--add-modules", "jdk.incubator.code", "--enable-native-access=ALL-UNNAMED")
+        t.jvmArgs("--add-modules", incubatorModules, "--enable-native-access=ALL-UNNAMED")
     }
 }
 
@@ -129,9 +135,10 @@ def configureSnakeBurgerProject = { Project p ->
 def autoUpdateEnabled = project.hasProperty('babylon.autoUpdate') &&
     project.property('babylon.autoUpdate').toString().toLowerCase() in ['true', '1', 'yes']
 
-// Configure snakeburger during normal configuration.
+// Configure snakeburger and warpforge during normal configuration.
+// Both require Babylon JDK (Java 26) for jdk.incubator.code module.
 subprojects { p ->
-    if (p.name.startsWith("snakeburger")) {
+    if (p.name.startsWith("snakeburger") || p.name.startsWith("warpforge")) {
         configureSnakeBurgerProject.call(p)
 
         // If auto-update is enabled, make snakeburger compile tasks depend on ensureBabylonReady

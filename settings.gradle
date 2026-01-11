@@ -24,4 +24,6 @@ include('babylon-runtime')
 include('snakegrinder-core')
 include('snakegrinder-cli')
 include('snakegrinder-dist')
+include('warpforge-core')
+include('warpforge-backend-cpu')
 

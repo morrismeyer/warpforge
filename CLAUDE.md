@@ -347,6 +347,29 @@ GraalPy periodically adds patches for newer PyTorch versions. Check for updates:
 
 Track the upstream issue for PyTorch 2.8+ support: https://github.com/oracle/graalpython/issues/588
 
+### macOS Packaging (DMG, PKG)
+
+```bash
+# Build macOS .app bundle
+./gradlew :snakegrinder-dist:buildApp
+
+# Build DMG installer
+./gradlew :snakegrinder-dist:buildDmg
+
+# Build PKG installer
+./gradlew :snakegrinder-dist:buildPkg
+
+# Build all macOS packages
+./gradlew :snakegrinder-dist:buildAllMacOs
+```
+
+**Important**: All packaging scripts must be non-interactive. They must not:
+- Mount DMGs and wait for user interaction
+- Use AppleScript that opens Finder windows
+- Require user clicks or confirmations
+
+The build should complete without human intervention, suitable for CI/CD pipelines.
+
 ## Development Workflow: Fixes Must Survive Cleanup
 
 When fixing build issues, **never make manual edits to generated or downloaded artifacts** (e.g., files inside `.pytorch-venv/`, `build/`, or any directory that gets deleted on clean rebuild).

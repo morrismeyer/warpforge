@@ -20,12 +20,164 @@ dependencies {
   // If you prefer relying on a locally installed language (gu install python),
   // you can remove this dependency and ensure the host GraalVM has Python installed.
   implementation "org.graalvm.polyglot:python:${graalvmPolyglotVersion}"
+
+  // Test dependencies
+  testImplementation 'org.junit.jupiter:junit-jupiter-api:5.10.2'
+  testImplementation 'org.junit.jupiter:junit-jupiter-params:5.10.2'
+  testRuntimeOnly 'org.junit.jupiter:junit-jupiter-engine:5.10.2'
+  testRuntimeOnly 'org.junit.platform:junit-platform-launcher:1.10.2'
 }
 
 java {
   toolchain {
     languageVersion = JavaLanguageVersion.of(25)
   }
+}
+
+// =============================================================================
+// Test Configuration
+// =============================================================================
+// Integration tests require GraalPy and PyTorch venv from snakegrinder-dist.
+// The PYTORCH_VENV environment variable must point to the venv location.
+
+def pytorchVenvPath = System.getenv('PYTORCH_VENV') ?:
+    "${rootProject.projectDir}/snakegrinder-dist/.pytorch-venv"
+def torchLibPath = "${pytorchVenvPath}/lib/python3.12/site-packages/torch/lib"
+
+// =============================================================================
+// Unit Tests (JVM mode, no native image required)
+// =============================================================================
+// Run with: ./gradlew :snakegrinder-core:test
+
+test {
+    useJUnitPlatform {
+        excludeTags 'integration'
+    }
+
+    // Pass PyTorch venv location to tests
+    environment 'PYTORCH_VENV', pytorchVenvPath
+
+    // Set library path for PyTorch native libs
+    def osName = System.getProperty('os.name', '').toLowerCase(Locale.ROOT)
+    if (osName.contains('mac')) {
+        environment 'DYLD_LIBRARY_PATH', torchLibPath
+    } else {
+        environment 'LD_LIBRARY_PATH', torchLibPath
+    }
+
+    // JVM args for GraalVM Polyglot
+    jvmArgs += [
+        '-Dpolyglot.engine.WarnInterpreterOnly=false'
+    ]
+
+    // Test logging
+    testLogging {
+        events 'passed', 'skipped', 'failed'
+        exceptionFormat 'full'
+        showStandardStreams = true
+    }
+}
+
+// =============================================================================
+// Integration Tests (requires native image binary)
+// =============================================================================
+// Run with: ./gradlew :snakegrinder-core:integrationTest
+// Prerequisites: ./gradlew :snakegrinder-dist:assembleDist
+
+// Files for integration test binary detection (captured at configuration time for config cache)
+def distBinaryFile = file("${rootProject.projectDir}/snakegrinder-dist/build/dist/bin/snakegrinder-bin")
+def appBinaryFile = file("${rootProject.projectDir}/snakegrinder-dist/build/SnakeGrinder.app/Contents/MacOS/snakegrinder")
+def nativeBinaryFile = file("${rootProject.projectDir}/snakegrinder-cli/build/native/nativeCompile/snakegrinder")
+
+tasks.register('integrationTest', Test) {
+    description = 'Run integration tests that invoke the native image CLI'
+    group = 'verification'
+
+    // Use same test sources and classes as main test task
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+
+    useJUnitPlatform {
+        includeTags 'integration'
+    }
+
+    // Pass PyTorch venv location to tests
+    environment 'PYTORCH_VENV', pytorchVenvPath
+
+    // Set library path for PyTorch native libs
+    def osName = System.getProperty('os.name', '').toLowerCase(Locale.ROOT)
+    if (osName.contains('mac')) {
+        environment 'DYLD_LIBRARY_PATH', torchLibPath
+    } else {
+        environment 'LD_LIBRARY_PATH', torchLibPath
+    }
+
+    // Test logging
+    testLogging {
+        events 'passed', 'skipped', 'failed'
+        exceptionFormat 'full'
+        showStandardStreams = true
+    }
+
+    // Skip if native image doesn't exist
+    onlyIf {
+        def exists = distBinaryFile.exists() || appBinaryFile.exists() || nativeBinaryFile.exists()
+        if (!exists) {
+            println "WARN: Skipping integration tests: native image not found"
+            println "WARN: Build first: ./gradlew :snakegrinder-dist:assembleDist"
+        }
+        exists
+    }
+}
+
+// Make check task run both unit and integration tests
+check.dependsOn integrationTest
+
+// =============================================================================
+// Fixture Generation (on-demand task to regenerate StableHLO fixtures)
+// =============================================================================
+// Run with: ./gradlew :snakegrinder-core:generateFixtures
+// Prerequisites: ./gradlew :snakegrinder-dist:assembleDist
+
+tasks.register('generateFixtures', Test) {
+    description = 'Generate StableHLO MLIR fixtures by tracing PyTorch operations'
+    group = 'verification'
+
+    // Use same test sources and classes as main test task
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+
+    useJUnitPlatform {
+        includeTags 'fixture-generator'
+    }
+
+    // Pass PyTorch venv location
+    environment 'PYTORCH_VENV', pytorchVenvPath
+
+    // Set library path for PyTorch native libs
+    def osName = System.getProperty('os.name', '').toLowerCase(Locale.ROOT)
+    if (osName.contains('mac')) {
+        environment 'DYLD_LIBRARY_PATH', torchLibPath
+    } else {
+        environment 'LD_LIBRARY_PATH', torchLibPath
+    }
+
+    // Test logging - show all output for fixture generation
+    testLogging {
+        events 'passed', 'skipped', 'failed'
+        exceptionFormat 'full'
+        showStandardStreams = true
+    }
+
+    // Skip if native image doesn't exist
+    onlyIf {
+        def exists = distBinaryFile.exists() || appBinaryFile.exists() || nativeBinaryFile.exists()
+        if (!exists) {
+            println "WARN: Skipping fixture generation: native image not found"
+            println "WARN: Build first: ./gradlew :snakegrinder-dist:assembleDist"
+        }
+        exists
+    }
 }
 
 // =============================================================================

@@ -237,3 +237,90 @@ tasks.register('distTarGz', Tar) {
         into 'snakegrinder'
     }
 }
+
+// ============================================================================
+// macOS Packaging (DMG, PKG)
+// ============================================================================
+
+// macOS-only tasks
+def isMacOs = osName.contains('mac')
+
+tasks.register('buildApp', Exec) {
+    group = 'snakegrinder-dist'
+    description = 'Build macOS .app bundle'
+    dependsOn 'assembleDist'
+    onlyIf { isMacOs }
+
+    workingDir projectDir
+    commandLine 'bash', "${projectDir}/scripts/build-app.sh"
+
+    environment 'SNAKEGRINDER_APP_VERSION', '0.1.0'
+
+    doFirst {
+        if (!isMacOs) {
+            throw new GradleException("buildApp is only available on macOS")
+        }
+    }
+}
+
+tasks.register('buildDmg', Exec) {
+    group = 'snakegrinder-dist'
+    description = 'Build macOS DMG installer'
+    dependsOn 'assembleDist'
+    onlyIf { isMacOs }
+
+    workingDir projectDir
+    commandLine 'bash', "${projectDir}/scripts/build-dmg.sh"
+
+    environment 'SNAKEGRINDER_APP_VERSION', '0.1.0'
+
+    doFirst {
+        if (!isMacOs) {
+            throw new GradleException("buildDmg is only available on macOS")
+        }
+    }
+}
+
+tasks.register('buildPkg', Exec) {
+    group = 'snakegrinder-dist'
+    description = 'Build macOS PKG installer'
+    dependsOn 'assembleDist'
+    onlyIf { isMacOs }
+
+    workingDir projectDir
+    commandLine 'bash', "${projectDir}/scripts/build-pkg.sh"
+
+    environment 'SNAKEGRINDER_APP_VERSION', '0.1.0'
+
+    doFirst {
+        if (!isMacOs) {
+            throw new GradleException("buildPkg is only available on macOS")
+        }
+    }
+}
+
+tasks.register('buildPkgWithCli', Exec) {
+    group = 'snakegrinder-dist'
+    description = 'Build macOS PKG installer with CLI symlink in /usr/local/bin'
+    dependsOn 'assembleDist'
+    onlyIf { isMacOs }
+
+    workingDir projectDir
+    commandLine 'bash', "${projectDir}/scripts/build-pkg.sh", '--with-cli-link'
+
+    environment 'SNAKEGRINDER_APP_VERSION', '0.1.0'
+
+    doFirst {
+        if (!isMacOs) {
+            throw new GradleException("buildPkgWithCli is only available on macOS")
+        }
+    }
+}
+
+// Convenience task to build all macOS packages
+tasks.register('buildAllMacOs') {
+    group = 'snakegrinder-dist'
+    description = 'Build all macOS distribution packages (app, dmg, pkg)'
+    dependsOn 'buildApp', 'buildDmg', 'buildPkg'
+    onlyIf { isMacOs }
+}

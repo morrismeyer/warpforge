@@ -393,7 +393,7 @@ class FXToStableHLO:
                 f'{result_ssa} = stablehlo.reduce {input_ssa}, {init_ssa}, dims = [{dim}], reducer = add : ({input_type}, tensor<f32>) -> {result_type}'
             ]
 
-        elif target_name == 'max':
+        elif target_name == 'max' or target_name == 'amax':
             input_ssa = get_input(0)
             input_type = get_input_type(0)
             dim = node.args[1] if len(node.args) > 1 else node.kwargs.get('dim', 0)
@@ -403,6 +403,18 @@ class FXToStableHLO:
             return [
                 f'{init_ssa} = stablehlo.constant dense<-3.40282e+38> : tensor<f32>',
                 f'{result_ssa} = stablehlo.reduce {input_ssa}, {init_ssa}, dims = [{dim}], reducer = max : ({input_type}, tensor<f32>) -> {result_type}'
+            ]
+
+        elif target_name == 'amin':
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            dim = node.args[1] if len(node.args) > 1 else node.kwargs.get('dim', 0)
+            init_ssa = f'{result_ssa}_init'
+            # Format: %r = stablehlo.reduce %operand, %init, dims=[...], reducer=min : (...) -> tensor<...>
+            # Use large positive number instead of +inf for parser compatibility
+            return [
+                f'{init_ssa} = stablehlo.constant dense<3.40282e+38> : tensor<f32>',
+                f'{result_ssa} = stablehlo.reduce {input_ssa}, {init_ssa}, dims = [{dim}], reducer = min : ({input_type}, tensor<f32>) -> {result_type}'
             ]
 
         # === Softmax ===

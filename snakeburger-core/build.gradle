@@ -28,3 +28,51 @@ tasks.withType(Test).configureEach {
     useJUnitPlatform()
     jvmArgs += ['--add-modules', 'jdk.incubator.code']
 }
+
+// Exclude cross-project integration tests from regular test task
+test {
+    useJUnitPlatform {
+        excludeTags 'cross-project'
+    }
+}
+
+// Cross-project integration tests: snakegrinder CLI → snakeburger parser
+// Run with: ./gradlew :snakeburger-core:crossProjectTest
+tasks.register('crossProjectTest', Test) {
+    description = 'Run cross-project integration tests (snakegrinder → snakeburger workflow)'
+    group = 'verification'
+
+    // Use the same test sources as the main test task
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+
+    useJUnitPlatform {
+        includeTags 'cross-project'
+    }
+    jvmArgs += ['--add-modules', 'jdk.incubator.code']
+
+    // Allow more time for native image execution
+    systemProperty 'junit.jupiter.execution.timeout.default', '5m'
+
+    testLogging {
+        events 'passed', 'skipped', 'failed', 'standardOut'
+        showStandardStreams = true
+        exceptionFormat = 'full'
+    }
+
+    doFirst {
+        // Check if snakegrinder native image exists
+        def projectRoot = project.rootDir
+        def distWrapper = file("${projectRoot}/snakegrinder-dist/build/dist/bin/snakegrinder")
+        def nativeBinary = file("${projectRoot}/snakegrinder-cli/build/native/nativeCompile/snakegrinder")
+        def appBinary = file("${projectRoot}/snakegrinder-dist/build/SnakeGrinder.app/Contents/MacOS/snakegrinder")
+
+        if (!distWrapper.exists() && !nativeBinary.exists() && !appBinary.exists()) {
+            logger.warn("WARN: snakegrinder native image not found. Run: ./gradlew :snakegrinder-dist:assembleDist")
+            logger.warn("Tests will be skipped if binary is not available.")
+        }
+    }
+}
+
+// Add crossProjectTest to check task
+check.dependsOn crossProjectTest

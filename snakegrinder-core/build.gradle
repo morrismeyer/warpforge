@@ -51,7 +51,7 @@ def torchLibPath = "${pytorchVenvPath}/lib/python3.12/site-packages/torch/lib"
 
 test {
     useJUnitPlatform {
-        excludeTags 'integration'
+        excludeTags 'integration', 'fixture-generator'
     }
 
     // Pass PyTorch venv location to tests

@@ -324,3 +324,99 @@ tasks.register('buildAllMacOs') {
     dependsOn 'buildApp', 'buildDmg', 'buildPkg'
     onlyIf { isMacOs }
 }
+
+// ============================================================================
+// Distribution Testing
+// ============================================================================
+
+tasks.register('testPytorchVenv', Exec) {
+    group = 'snakegrinder-dist'
+    description = 'Test PyTorch venv using GraalPy (validates PyTorch installation)'
+
+    def graalPyBin = file("${graalPyHome}/bin/graalpy")
+    def validateScript = file("${projectDir}/scripts/validate-pytorch-venv.py")
+    def sitePackages = "${pytorchVenvDir}/lib/python${pythonVersion}/site-packages"
+
+    commandLine graalPyBin.absolutePath, validateScript.absolutePath
+    environment 'PYTHONPATH', sitePackages
+    environment 'PYTORCH_VERSION', pytorchVersion
+
+    doFirst {
+        if (!pytorchVenvDir.exists()) {
+            throw new GradleException("PyTorch venv not found at ${pytorchVenvDir}. Run buildPytorchVenv first.")
+        }
+        if (!graalPyBin.exists()) {
+            throw new GradleException("GraalPy not found at ${graalPyBin}. Run buildPytorchVenv to download it.")
+        }
+        println "Testing PyTorch venv with GraalPy..."
+        println "  GraalPy: ${graalPyBin}"
+        println "  Venv: ${pytorchVenvDir}"
+        println ""
+    }
+}
+
+tasks.register('testNativeImage', Exec) {
+    group = 'snakegrinder-dist'
+    description = 'Test native-image executable (validates full snakegrinder pipeline)'
+    dependsOn 'assembleDist'
+
+    def snakegrinderBin = file("${distDir}/bin/snakegrinder")
+
+    // Run the trace-example command which exercises the full pipeline
+    commandLine snakegrinderBin.absolutePath, '--trace-example'
+
+    doFirst {
+        if (!snakegrinderBin.exists()) {
+            throw new GradleException("snakegrinder executable not found at ${snakegrinderBin}. Run assembleDist first.")
+        }
+        println "Testing snakegrinder native-image executable..."
+        println "  Executable: ${snakegrinderBin}"
+        println ""
+    }
+
+    doLast {
+        // Verify output files were created
+        def outputDir = file("${rootProject.buildDir}/snakegrinder/trace-example")
+        def mlirFile = file("${outputDir}/model.mlir")
+        def manifestFile = file("${outputDir}/manifest.json")
+
+        if (!mlirFile.exists()) {
+            throw new GradleException("Expected output file not found: ${mlirFile}")
+        }
+        if (!manifestFile.exists()) {
+            throw new GradleException("Expected output file not found: ${manifestFile}")
+        }
+
+        // Verify MLIR file contains StableHLO
+        def mlirContent = mlirFile.text
+        if (!mlirContent.contains('stablehlo')) {
+            throw new GradleException("Output MLIR does not contain StableHLO operations")
+        }
+        if (!mlirContent.contains('func.func')) {
+            throw new GradleException("Output MLIR does not contain function definition")
+        }
+
+        println ""
+        println "Native image test PASSED"
+        println "  Output: ${outputDir}"
+        println "  MLIR file: ${mlirFile.length()} bytes"
+    }
+}
+
+tasks.register('testDist') {
+    group = 'snakegrinder-dist'
+    description = 'Run all distribution tests (venv + native-image)'
+    dependsOn 'testPytorchVenv', 'testNativeImage'
+
+    doLast {
+        println ""
+        println "=" * 60
+        println "ALL DISTRIBUTION TESTS PASSED"
+        println "=" * 60
+    }
+}
+
+// Ensure venv tests run before native-image tests
+tasks.named('testNativeImage').configure {
+    mustRunAfter 'testPytorchVenv'
+}

@@ -390,7 +390,31 @@ This ensures fixes are:
 - **Documented** - Patch files show exactly what changed and why
 - **Resilient** - Survives `clean` operations
 
-Example: PyTorch GraalPy patches live in `snakegrinder-dist/scripts/patches/` and are applied by `build-pytorch-venv.sh` after the main GraalPy patch.
+## PyTorch + GraalPy Build: Use Official Patching System
+
+**Important**: PyTorch builds for GraalPy must use the **officially supported pip install method**:
+
+```bash
+pip install "torch==2.7.0" --no-binary torch --no-cache -v
+```
+
+This approach is documented by Oracle GraalPy staff and works because:
+
+1. **autopatch_capi.py** - GraalPy automatically patches C API usages (e.g., `->ob_type` → `Py_TYPE()`)
+2. **Official torch patches** - Fetched from `https://github.com/oracle/graalpython/tree/github/patches/`
+3. **Correct ordering** - Auto-patching runs first, then manual patches apply cleanly
+
+**Do NOT** maintain custom PyTorch patches in this repository. The official GraalPy patches are:
+- Tested by Oracle
+- Updated with each GraalPy release
+- Designed to work with the auto-patching system
+
+If you encounter build issues:
+1. First try with `--no-cache` to ensure fresh patch download
+2. Check the GraalPy GitHub issues: https://github.com/oracle/graalpython/issues
+3. Report issues to Oracle if patches are missing for new PyTorch versions
+
+Track PyTorch version support: https://github.com/oracle/graalpython/issues/588
 
 ## Git Commit Preferences
 

@@ -130,6 +130,19 @@ fi
 
 log "NUC build + tests SUCCESS"
 
+# 2b) SnakeGrinder distribution tests (requires pre-built PyTorch venv)
+log "Running snakegrinder-dist tests..."
+SNAKEGRINDER_VENV="$NUC_REPO_DIR/snakegrinder-dist/.pytorch-venv"
+if [[ -d "$SNAKEGRINDER_VENV" ]]; then
+  log "PyTorch venv found at $SNAKEGRINDER_VENV"
+  bash -lc "./gradlew :snakegrinder-dist:testDist --no-configuration-cache 2>&1" | tee -a "$LOG_FILE"
+  log "snakegrinder-dist tests SUCCESS"
+else
+  log "WARNING: PyTorch venv not found at $SNAKEGRINDER_VENV"
+  log "Skipping snakegrinder-dist tests. To enable, run:"
+  log "  cd $NUC_REPO_DIR && ./gradlew :snakegrinder-dist:buildPytorchVenv"
+fi
+
 # 3) NVIDIA tier
 if [[ ! -x "$NVIDIA_ORCH_SCRIPT" ]]; then
   log "ERROR: NVIDIA orchestrator script not found or not executable at ${NVIDIA_ORCH_SCRIPT}"

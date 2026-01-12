@@ -12,8 +12,8 @@
 # The script will:
 # 1. Check/install dependencies (with clear apt/brew instructions if missing)
 # 2. Download GraalPy if not present
-# 3. Create virtualenv and build PyTorch from source
-# 4. Apply GraalPy compatibility patches
+# 3. Create virtualenv and build PyTorch from source using GraalPy's built-in
+#    auto-patching and patch system
 #
 # Environment variables (override versions.env):
 #   GRAALPY_HOME     - Path to existing GraalPy installation
@@ -40,6 +40,32 @@ fi
 GRAALPY_VERSION="${GRAALPY_VERSION:-25.0.1}"
 PYTORCH_VERSION="${PYTORCH_VERSION:-2.7.0}"
 PYTHON_VERSION="${PYTHON_VERSION:-3.12}"
+
+# ============================================================================
+# MEMORY MANAGEMENT - Prevent OOM on memory-constrained systems
+# ============================================================================
+# These must be set EARLY, before any pip/cmake operations
+# All three flags are needed because different build phases check different vars
+
+# Calculate job limit based on available RAM (2GB per job minimum)
+TOTAL_RAM_GB=$(free -g 2>/dev/null | awk '/^Mem:/{print $2}' || echo "16")
+CALCULATED_JOBS=$((TOTAL_RAM_GB / 2))
+# Clamp between 2 and 8 jobs
+if [ "${CALCULATED_JOBS}" -lt 2 ]; then
+    CALCULATED_JOBS=2
+elif [ "${CALCULATED_JOBS}" -gt 8 ]; then
+    CALCULATED_JOBS=8
+fi
+PARALLEL_JOBS="${PARALLEL_JOBS:-${CALCULATED_JOBS}}"
+
+# Flag 1: PyTorch's own parallel job limit
+export MAX_JOBS="${PARALLEL_JOBS}"
+# Flag 2: CMake's parallel build level
+export CMAKE_BUILD_PARALLEL_LEVEL="${PARALLEL_JOBS}"
+# Flag 3: Make/ninja parallel jobs via MAKEFLAGS
+export MAKEFLAGS="-j${PARALLEL_JOBS}"
+
+echo "Memory management: limiting parallel jobs to ${PARALLEL_JOBS} (based on ${TOTAL_RAM_GB}GB RAM)"
 
 # ============================================================================
 # PLATFORM DETECTION
@@ -228,31 +254,6 @@ echo "Using GraalPy: ${GRAALPY_HOME}"
 echo ""
 
 # ============================================================================
-# CHECK PYTORCH PATCH AVAILABILITY
-# ============================================================================
-
-# Use bundled patches from our repo (GraalPy GitHub releases don't include them)
-PATCHES_DIR="${SCRIPT_DIR}/patches"
-PYTORCH_PATCH="${PATCHES_DIR}/torch-${PYTORCH_VERSION}.patch"
-
-if [ ! -f "${PYTORCH_PATCH}" ]; then
-    echo "ERROR: PyTorch patch not found at:"
-    echo "  ${PYTORCH_PATCH}"
-    echo ""
-    echo "Available patches in ${PATCHES_DIR}:"
-    ls -1 "${PATCHES_DIR}"/torch-*.patch 2>/dev/null || echo "  (none found)"
-    echo ""
-    echo "To add support for PyTorch ${PYTORCH_VERSION}:"
-    echo "  1. Find a GraalPy release with a patch for this version"
-    echo "  2. Copy the patch to ${PATCHES_DIR}/torch-${PYTORCH_VERSION}.patch"
-    echo "  3. Re-run this script"
-    exit 1
-else
-    echo "Using bundled patch: torch-${PYTORCH_VERSION}.patch"
-    echo ""
-fi
-
-# ============================================================================
 # VIRTUALENV CREATION
 # ============================================================================
 
@@ -273,163 +274,19 @@ echo "Upgrading pip and installing build tools..."
 pip install --upgrade pip wheel setuptools
 
 # ============================================================================
-# PYTORCH SOURCE DOWNLOAD AND PATCHING
+# PYTORCH BUILD - Using GraalPy's built-in patching system
 # ============================================================================
-
-PYTORCH_SRC="${VENV_DIR}/pytorch-src"
-if [ ! -d "${PYTORCH_SRC}" ]; then
-    echo ""
-    echo "Downloading PyTorch ${PYTORCH_VERSION} source from PyPI..."
-    cd "${VENV_DIR}"
-
-    pip download --no-binary :all: --no-deps "torch==${PYTORCH_VERSION}" -d .
-
-    TARBALL=$(ls torch-${PYTORCH_VERSION}*.tar.gz 2>/dev/null | head -1)
-    if [ -z "${TARBALL}" ]; then
-        echo "ERROR: Could not find downloaded PyTorch tarball"
-        exit 1
-    fi
-
-    # Get extracted directory name
-    EXTRACTED_DIR=$(tar -tzf "${TARBALL}" | head -1 | cut -d'/' -f1)
-    echo "Extracting ${TARBALL}..."
-
-    [ -d "${EXTRACTED_DIR}" ] && rm -rf "${EXTRACTED_DIR}"
-    tar -xzf "${TARBALL}"
-    mv "${EXTRACTED_DIR}" "${PYTORCH_SRC}"
-
-    cd "${PYTORCH_SRC}"
-    echo "Source extracted to: ${PYTORCH_SRC}"
-
-    # Apply GraalPy patch
-    echo ""
-    echo "Applying GraalPy compatibility patch..."
-    if [ -f "${PYTORCH_PATCH}" ]; then
-        if [ -f "torch/csrc/Generator.cpp" ]; then
-            patch -p1 --force < "${PYTORCH_PATCH}" || true
-
-            # Apply supplementary fixes for issues where main patch doesn't apply cleanly
-            echo "Applying supplementary GraalPy fixes..."
-
-            # Fix 1: pybind11 docstring handling
-            PYBIND_FILE="third_party/pybind11/include/pybind11/pybind11.h"
-            if grep -q "func->m_ml->ml_doc" "${PYBIND_FILE}" 2>/dev/null; then
-                echo "  Fixing pybind11 docstring handling..."
-                python3 << 'PYFIX'
-with open("third_party/pybind11/include/pybind11/pybind11.h", "r") as f:
-    content = f.read()
-old_code = '''        std::free(const_cast<char *>(func->m_ml->ml_doc));
-        // Install docstring if it's non-empty (when at least one option is enabled)
-        func->m_ml->ml_doc
-            = signatures.empty() ? nullptr : PYBIND11_COMPAT_STRDUP(signatures.c_str());'''
-new_code = '''#if defined(GRAALVM_PYTHON)
-        std::free(const_cast<char *>(GraalPyCFunction_GetDoc(m_ptr)));
-        GraalPyCFunction_SetDoc(
-            m_ptr, signatures.empty() ? nullptr : PYBIND11_COMPAT_STRDUP(signatures.c_str()));
-#else
-        std::free(const_cast<char *>(func->m_ml->ml_doc));
-        // Install docstring if it's non-empty (when at least one option is enabled)
-        func->m_ml->ml_doc
-            = signatures.empty() ? nullptr : PYBIND11_COMPAT_STRDUP(signatures.c_str());
-#endif'''
-if old_code in content:
-    content = content.replace(old_code, new_code)
-    with open("third_party/pybind11/include/pybind11/pybind11.h", "w") as f:
-        f.write(content)
-    print("    pybind11 fix applied")
-else:
-    print("    pybind11 already patched or pattern not found")
-PYFIX
-            fi
-
-            # Fix 2: Module.cpp docstring handling
-            MODULE_FILE="torch/csrc/Module.cpp"
-            if grep -q "f->m_ml->ml_doc" "${MODULE_FILE}" 2>/dev/null; then
-                echo "  Fixing Module.cpp docstring handling..."
-                python3 << 'PYFIX'
-with open("torch/csrc/Module.cpp", "r") as f:
-    content = f.read()
-old_pattern = '''  if (Py_TYPE(obj) == &PyCFunction_Type) {
-    PyCFunctionObject* f = (PyCFunctionObject*)obj;
-    if (f->m_ml->ml_doc) {
-      return PyErr_Format(
-          PyExc_RuntimeError,
-          "function '%s' already has a docstring",
-          f->m_ml->ml_name);
-    }
-    f->m_ml->ml_doc = doc_str;
-  } else if (strcmp(Py_TYPE(obj)->tp_name, "method_descriptor") == 0) {
-    PyMethodDescrObject* m = (PyMethodDescrObject*)obj;
-    if (m->d_method->ml_doc) {
-      return PyErr_Format(
-          PyExc_RuntimeError,
-          "method '%s' already has a docstring",
-          m->d_method->ml_name);
-    }
-    m->d_method->ml_doc = doc_str;
-  } else if (strcmp(Py_TYPE(obj)->tp_name, "getset_descriptor") == 0) {
-    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-cstyle-cast)
-    PyGetSetDescrObject* m = (PyGetSetDescrObject*)obj;
-    if (m->d_getset->doc) {
-      return PyErr_Format(
-          PyExc_RuntimeError,
-          "attribute '%s' already has a docstring",
-          m->d_getset->name);
-    }
-    m->d_getset->doc = doc_str;
-  } else if (Py_TYPE(obj) == &PyType_Type) {
-    PyTypeObject* t = (PyTypeObject*)obj;
-    if (t->tp_doc) {
-      return PyErr_Format(
-          PyExc_RuntimeError, "Type '%s' already has a docstring", t->tp_name);
-    }
-    t->tp_doc = doc_str;
-  } else {
-    return PyErr_Format(
-        PyExc_TypeError,
-        "don't know how to add docstring to type '%s'",
-        Py_TYPE(obj)->tp_name);
-  }'''
-new_code = '''  // GraalPy change - use generic PyObject_GetDoc/SetDoc API
-  if (PyObject_GetDoc(obj)) {
-    return PyErr_Format(
-        PyExc_RuntimeError,
-        "object '%100R' already has a docstring",
-        obj);
-  }
-  // GraalPy change
-  if (PyObject_SetDoc(obj, doc_str) < 0) {
-      return NULL;
-  }'''
-if old_pattern in content:
-    content = content.replace(old_pattern, new_code)
-    with open("torch/csrc/Module.cpp", "w") as f:
-        f.write(content)
-    print("    Module.cpp fix applied")
-else:
-    print("    Module.cpp already patched or pattern not found")
-PYFIX
-            fi
-
-            # Clean up patch artifacts
-            find . -name "*.rej" -delete 2>/dev/null || true
-            find . -name "*.orig" -delete 2>/dev/null || true
-            echo "Patch application complete"
-        else
-            echo "ERROR: PyTorch source structure unexpected"
-            exit 1
-        fi
-    else
-        echo "WARNING: No GraalPy patch found, building unpatched"
-    fi
-else
-    echo "Using existing PyTorch source at ${PYTORCH_SRC}"
-    cd "${PYTORCH_SRC}"
-fi
-
-# ============================================================================
-# PYTORCH BUILD
-# ============================================================================
+#
+# GraalPy automatically handles PyTorch compatibility through:
+# 1. autopatch_capi.py - Converts ->ob_type to Py_TYPE(), etc.
+# 2. torch-X.Y.Z.patch - Official GraalPy patches from GitHub repository
+#
+# The patches are fetched from:
+#   https://raw.githubusercontent.com/oracle/graalpython/refs/heads/github/patches/
+#
+# This is the officially supported way to build PyTorch for GraalPy.
+# See: https://github.com/oracle/graalpython/issues/589
+#
 
 echo ""
 echo "Installing build dependencies..."
@@ -451,15 +308,24 @@ export USE_MKLDNN=1
 export USE_OPENMP=1
 export BUILD_TEST=0
 
+# Note: MAX_JOBS, CMAKE_BUILD_PARALLEL_LEVEL, and MAKEFLAGS are set at script start
+
 if [ "$USE_NINJA" = "1" ]; then
     export CMAKE_GENERATOR=Ninja
     echo "Using Ninja for faster builds"
 fi
 
 echo ""
-echo "Building PyTorch (this takes 30-60 minutes on first build)..."
+echo "Building PyTorch ${PYTORCH_VERSION} from source..."
+echo "GraalPy will automatically apply compatibility patches."
 echo "Started at: $(date)"
-pip install .
+
+# Use the officially supported pip install method
+# --no-binary torch  : Force build from source (no pre-built wheel)
+# --no-cache         : Ensure fresh download with latest patches
+# -v                 : Verbose output to see patching progress
+pip install "torch==${PYTORCH_VERSION}" --no-binary torch --no-cache -v
+
 echo "Completed at: $(date)"
 
 # Install sympy (required for torch.fx shape propagation)

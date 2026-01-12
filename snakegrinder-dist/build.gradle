@@ -168,6 +168,9 @@ tasks.register('buildNativeImage') {
 // Distribution Assembly
 // ============================================================================
 
+// Capture snakegrinder-cli build dir at configuration time (required for Gradle 10 compatibility)
+def snakegrinderCliBuildDir = project(':snakegrinder-cli').layout.buildDirectory.get().asFile
+
 tasks.register('assembleDist') {
     group = 'snakegrinder-dist'
     description = 'Assemble complete distribution package'
@@ -185,7 +188,7 @@ tasks.register('assembleDist') {
         distDir.mkdirs()
 
         // Copy native image (renamed to snakegrinder-bin, wrapper script is 'snakegrinder')
-        def nativeImage = file("${project(':snakegrinder-cli').buildDir}/native/nativeCompile/snakegrinder")
+        def nativeImage = file("${snakegrinderCliBuildDir}/native/nativeCompile/snakegrinder")
         if (nativeImage.exists()) {
             copy {
                 from nativeImage

@@ -73,7 +73,7 @@ test {
     // Test logging
     testLogging {
         events 'passed', 'skipped', 'failed'
-        exceptionFormat 'full'
+        exceptionFormat = 'full'
         showStandardStreams = true
     }
 }
@@ -115,7 +115,7 @@ tasks.register('integrationTest', Test) {
     // Test logging
     testLogging {
         events 'passed', 'skipped', 'failed'
-        exceptionFormat 'full'
+        exceptionFormat = 'full'
         showStandardStreams = true
     }
 
@@ -165,7 +165,7 @@ tasks.register('generateFixtures', Test) {
     // Test logging - show all output for fixture generation
     testLogging {
         events 'passed', 'skipped', 'failed'
-        exceptionFormat 'full'
+        exceptionFormat = 'full'
         showStandardStreams = true
     }
 

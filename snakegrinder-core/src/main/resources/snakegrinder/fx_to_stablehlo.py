@@ -366,7 +366,26 @@ class FXToStableHLO:
             return [f'{result_ssa} = stablehlo.concatenate {ssa_list}, dim = {dim} : ({type_list}) -> {result_type}']
 
         elif target_name == 'getitem':
-            # Tensor slicing - simplified handling
+            # Handle tuple extraction from multi-return ops (max, min, topk)
+            input_node = node.args[0] if node.args else None
+            index = node.args[1] if len(node.args) > 1 else 0
+
+            if input_node and hasattr(input_node, 'target'):
+                input_target_name = getattr(input_node.target, '__name__', str(input_node.target))
+
+                # Check if extracting from multi-return reduction ops
+                if input_target_name in ('max', 'min', 'topk'):
+                    if index == 0:
+                        # Index 0 = values tensor - the reduce already computed this
+                        # Just pass through the SSA from the reduce
+                        input_ssa = self.ssa_map.get(input_node.name, '%unknown')
+                        self.ssa_map[node.name] = input_ssa  # Alias to the same SSA
+                        return [f'// getitem[0] on {input_target_name} - using reduce result directly']
+                    elif index == 1:
+                        # Index 1 = indices tensor - would need argmax/argmin
+                        return [f'// TODO: getitem[1] on {input_target_name} needs argmax/argmin support']
+
+            # General tensor slicing - simplified handling
             input_ssa = get_input(0)
             input_type = get_input_type(0)
             # For now, use slice op with inferred dimensions
@@ -397,24 +416,82 @@ class FXToStableHLO:
             input_ssa = get_input(0)
             input_type = get_input_type(0)
             dim = node.args[1] if len(node.args) > 1 else node.kwargs.get('dim', 0)
+
+            # For torch.max with dim (returns tuple), compute result type from input shape
+            # ShapeProp may not set tensor_meta properly for tuple-returning ops
+            input_node = node.args[0] if node.args else None
+            input_shape = self.shape_map.get(input_node.name, ()) if input_node and hasattr(input_node, 'name') else ()
+            input_dtype = self.dtype_map.get(input_node.name, 'f32') if input_node and hasattr(input_node, 'name') else 'f32'
+
+            # Compute reduced shape (remove the dimension being reduced)
+            if input_shape:
+                reduced_shape = list(input_shape)
+                if isinstance(dim, int) and 0 <= dim < len(reduced_shape):
+                    del reduced_shape[dim]
+                elif isinstance(dim, int) and dim < 0 and -dim <= len(reduced_shape):
+                    del reduced_shape[dim]
+
+                # Build result type from reduced shape
+                dtype_map = {'float32': 'f32', 'float64': 'f64', 'float16': 'f16',
+                             'bfloat16': 'bf16', 'int32': 'i32', 'int64': 'i64',
+                             'int8': 'i8', 'int16': 'i16', 'bool': 'i1'}
+                mlir_dtype = dtype_map.get(input_dtype, 'f32')
+                if reduced_shape:
+                    shape_str = 'x'.join(str(d) for d in reduced_shape)
+                    computed_result_type = f'tensor<{shape_str}x{mlir_dtype}>'
+                else:
+                    computed_result_type = f'tensor<{mlir_dtype}>'
+            else:
+                # Fallback to what we have
+                computed_result_type = result_type
+
             init_ssa = f'{result_ssa}_init'
             # Format: %r = stablehlo.reduce %operand, %init, dims=[...], reducer=max : (...) -> tensor<...>
             # Use large negative number instead of -inf for parser compatibility
             return [
                 f'{init_ssa} = stablehlo.constant dense<-3.40282e+38> : tensor<f32>',
-                f'{result_ssa} = stablehlo.reduce {input_ssa}, {init_ssa}, dims = [{dim}], reducer = max : ({input_type}, tensor<f32>) -> {result_type}'
+                f'{result_ssa} = stablehlo.reduce {input_ssa}, {init_ssa}, dims = [{dim}], reducer = max : ({input_type}, tensor<f32>) -> {computed_result_type}'
             ]
 
-        elif target_name == 'amin':
+        elif target_name == 'amin' or target_name == 'min':
             input_ssa = get_input(0)
             input_type = get_input_type(0)
             dim = node.args[1] if len(node.args) > 1 else node.kwargs.get('dim', 0)
+
+            # For torch.min with dim (returns tuple), compute result type from input shape
+            # ShapeProp may not set tensor_meta properly for tuple-returning ops
+            input_node = node.args[0] if node.args else None
+            input_shape = self.shape_map.get(input_node.name, ()) if input_node and hasattr(input_node, 'name') else ()
+            input_dtype = self.dtype_map.get(input_node.name, 'f32') if input_node and hasattr(input_node, 'name') else 'f32'
+
+            # Compute reduced shape (remove the dimension being reduced)
+            if input_shape:
+                reduced_shape = list(input_shape)
+                if isinstance(dim, int) and 0 <= dim < len(reduced_shape):
+                    del reduced_shape[dim]
+                elif isinstance(dim, int) and dim < 0 and -dim <= len(reduced_shape):
+                    del reduced_shape[dim]
+
+                # Build result type from reduced shape
+                dtype_map = {'float32': 'f32', 'float64': 'f64', 'float16': 'f16',
+                             'bfloat16': 'bf16', 'int32': 'i32', 'int64': 'i64',
+                             'int8': 'i8', 'int16': 'i16', 'bool': 'i1'}
+                mlir_dtype = dtype_map.get(input_dtype, 'f32')
+                if reduced_shape:
+                    shape_str = 'x'.join(str(d) for d in reduced_shape)
+                    computed_result_type = f'tensor<{shape_str}x{mlir_dtype}>'
+                else:
+                    computed_result_type = f'tensor<{mlir_dtype}>'
+            else:
+                # Fallback to what we have
+                computed_result_type = result_type
+
             init_ssa = f'{result_ssa}_init'
             # Format: %r = stablehlo.reduce %operand, %init, dims=[...], reducer=min : (...) -> tensor<...>
             # Use large positive number instead of +inf for parser compatibility
             return [
                 f'{init_ssa} = stablehlo.constant dense<3.40282e+38> : tensor<f32>',
-                f'{result_ssa} = stablehlo.reduce {input_ssa}, {init_ssa}, dims = [{dim}], reducer = min : ({input_type}, tensor<f32>) -> {result_type}'
+                f'{result_ssa} = stablehlo.reduce {input_ssa}, {init_ssa}, dims = [{dim}], reducer = min : ({input_type}, tensor<f32>) -> {computed_result_type}'
             ]
 
         # === Softmax ===

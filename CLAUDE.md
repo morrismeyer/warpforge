@@ -436,3 +436,52 @@ All test types (unit, integration, performance, fixture validation, etc.) must:
 - Generated changes must be reviewed and committed intentionally
 
 If `git status` shows modified files after running `./gradlew test`, this is a bug that must be fixed immediately.
+
+## Polyglot Verification Testing
+
+**When implementing the same functionality in multiple languages, both implementations must produce identical output.**
+
+This is a core WarpForge principle: if you write a tool in Python, and a matching tool in Java, they must be byte-for-byte identical in their output. This proves correctness across language boundaries and is essential for a project that bridges Python (PyTorch) and Java (Babylon).
+
+### Example: Logo Generator
+
+The `assets/` directory contains matching Python and Java implementations:
+
+```bash
+# Python version
+python3 assets/generate-logo.py --all --svg-only --output ./test-py
+
+# Java version
+java assets/GenerateLogo.java --all --svg-only --output ./test-java
+
+# Verify identical output
+diff -r test-py test-java
+```
+
+### Test Script
+
+Run the automated polyglot verification:
+
+```bash
+./assets/test-logo-generators.sh
+```
+
+This script:
+1. Runs both Python and Java generators
+2. Compares all SVG outputs
+3. Fails if any differences are found
+
+### When to Apply This Pattern
+
+Use polyglot verification when:
+- Implementing CLI tools that could be written in either language
+- Creating code generators or formatters
+- Building serialization/deserialization logic
+- Any functionality that crosses the Python↔Java boundary
+
+### Implementation Guidelines
+
+1. **Same CLI interface** - Both implementations must accept identical command-line arguments
+2. **Same output format** - Byte-for-byte identical output (normalize whitespace if needed)
+3. **Automated test** - Always include a verification script
+4. **Document both** - Keep implementations in sync when making changes

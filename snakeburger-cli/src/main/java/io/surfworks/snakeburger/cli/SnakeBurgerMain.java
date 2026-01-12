@@ -5,6 +5,10 @@ import io.surfworks.snakeburger.stablehlo.StableHloAst.Module;
 import io.surfworks.snakeburger.stablehlo.StableHloParser;
 import io.surfworks.snakeburger.stablehlo.StableHloToBabylon;
 import io.surfworks.snakeburger.stablehlo.StableHloTypeChecker;
+import io.surfworks.warpforge.license.ActivationResult;
+import io.surfworks.warpforge.license.LicenseCheckResult;
+import io.surfworks.warpforge.license.LicenseInfo;
+import io.surfworks.warpforge.license.LicenseManager;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -25,6 +29,9 @@ public final class SnakeBurgerMain {
             case "--hello" -> runHello();
             case "--stablehlo-ingest" -> runStableHloIngest(args);
             case "--stablehlo-example" -> runStableHloExample();
+            case "--activate" -> runActivate(args);
+            case "--deactivate" -> runDeactivate();
+            case "--license-info" -> runLicenseInfo();
             default -> {
                 System.err.println("Unknown command: " + command);
                 printUsage();
@@ -43,6 +50,11 @@ public final class SnakeBurgerMain {
         System.out.println("  --stablehlo-ingest FILE  Parse StableHLO MLIR and emit Babylon Op tree");
         System.out.println("  --stablehlo-example      Parse and emit built-in MLP example");
         System.out.println("  --help, -h               Print this help message");
+        System.out.println();
+        System.out.println("License commands:");
+        System.out.println("  --activate KEY           Activate a license key");
+        System.out.println("  --deactivate             Deactivate current license");
+        System.out.println("  --license-info           Show license information");
     }
 
     private static void runHello() {
@@ -52,6 +64,10 @@ public final class SnakeBurgerMain {
     }
 
     private static void runStableHloIngest(String[] args) {
+        if (!checkLicenseForProcessing()) {
+            return;
+        }
+
         if (args.length < 2) {
             System.err.println("Error: --stablehlo-ingest requires a FILE argument");
             System.exit(1);
@@ -73,6 +89,10 @@ public final class SnakeBurgerMain {
     }
 
     private static void runStableHloExample() {
+        if (!checkLicenseForProcessing()) {
+            return;
+        }
+
         // Built-in MLP example from the plan
         String exampleMlir = """
             module @main {
@@ -128,6 +148,92 @@ public final class SnakeBurgerMain {
             System.err.println("Error processing " + sourceName + ": " + e.getMessage());
             e.printStackTrace();
             System.exit(1);
+        }
+    }
+
+    private static boolean checkLicenseForProcessing() {
+        LicenseCheckResult result = LicenseManager.getInstance().checkLicense();
+        if (!result.allowed()) {
+            System.err.println(result.message());
+            System.exit(1);
+            return false;
+        }
+        if (result.warning() != null) {
+            System.err.println("Warning: " + result.warning());
+        }
+        return true;
+    }
+
+    private static void runActivate(String[] args) {
+        if (args.length < 2) {
+            System.err.println("Error: --activate requires a license key");
+            System.err.println("Usage: snakeburger --activate YOUR_LICENSE_KEY");
+            System.exit(2);
+            return;
+        }
+
+        String licenseKey = args[1];
+        if (licenseKey.startsWith("--")) {
+            System.err.println("Error: --activate requires a license key");
+            System.err.println("Usage: snakeburger --activate YOUR_LICENSE_KEY");
+            System.exit(2);
+            return;
+        }
+
+        System.out.println("Activating license...");
+        ActivationResult result = LicenseManager.getInstance().activate(licenseKey);
+
+        if (result.success()) {
+            LicenseInfo license = result.license();
+            System.out.println("License activated successfully!");
+            System.out.println();
+            System.out.println("Product: " + license.product().getDisplayName());
+            if (license.validUntil() != null) {
+                System.out.println("Valid until: " + license.validUntil());
+            }
+            System.out.println("Machine: " + LicenseManager.getInstance().getMachineName());
+        } else {
+            System.err.println("Activation failed: " + result.error());
+            System.exit(1);
+        }
+    }
+
+    private static void runDeactivate() {
+        LicenseInfo current = LicenseManager.getInstance().getCurrentLicense();
+        if (current == null) {
+            System.out.println("No license is currently active.");
+            return;
+        }
+
+        System.out.println("Deactivating license...");
+        LicenseManager.getInstance().deactivate();
+        System.out.println("License deactivated.");
+    }
+
+    private static void runLicenseInfo() {
+        LicenseInfo license = LicenseManager.getInstance().getCurrentLicense();
+
+        System.out.println("SnakeBurger License Info");
+        System.out.println();
+
+        if (license == null) {
+            System.out.println("Status: No license (Free tier)");
+            System.out.println();
+            System.out.println("To activate a license:");
+            System.out.println("  snakeburger --activate YOUR_LICENSE_KEY");
+            System.out.println();
+            System.out.println("Get a license at: https://surfworks.energy/pricing");
+        } else {
+            System.out.println("Product:     " + license.product().getDisplayName());
+            System.out.println("Status:      " + (license.isExpired() ? "Expired" : "Active"));
+            if (license.validUntil() != null) {
+                System.out.println("Valid until: " + license.validUntil());
+            }
+            if (license.customerEmail() != null) {
+                System.out.println("Email:       " + license.customerEmail());
+            }
+            System.out.println("Machine:     " + LicenseManager.getInstance().getMachineName());
+            System.out.println("Fingerprint: " + LicenseManager.getInstance().getMachineFingerprint());
         }
     }
 }

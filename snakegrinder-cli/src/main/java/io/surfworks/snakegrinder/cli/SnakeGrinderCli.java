@@ -2,6 +2,10 @@ package io.surfworks.snakegrinder.cli;
 
 import io.surfworks.snakegrinder.core.FxStableHloExport;
 import io.surfworks.snakegrinder.core.SnakeGrinder;
+import io.surfworks.warpforge.license.ActivationResult;
+import io.surfworks.warpforge.license.LicenseCheckResult;
+import io.surfworks.warpforge.license.LicenseInfo;
+import io.surfworks.warpforge.license.LicenseManager;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -53,11 +57,30 @@ public final class SnakeGrinderCli {
             return;
         }
 
+        if (hasFlag(args, "--activate")) {
+            runActivate(args);
+            return;
+        }
+
+        if (hasFlag(args, "--deactivate")) {
+            runDeactivate();
+            return;
+        }
+
+        if (hasFlag(args, "--license-info")) {
+            runLicenseInfo();
+            return;
+        }
+
         System.err.println("Unknown or missing arguments. Use --help.");
         System.exit(2);
     }
 
     private static void runTrace(String[] args) {
+        if (!checkLicenseForTrace()) {
+            return;
+        }
+
         Path outputDir = Paths.get("build/snakegrinder/trace");
         String sourceFile = null;
         String className = null;
@@ -127,6 +150,10 @@ public final class SnakeGrinderCli {
     }
 
     private static void runTraceWithValues(String[] args) {
+        if (!checkLicenseForTrace()) {
+            return;
+        }
+
         Path outputDir = Paths.get("build/snakegrinder/trace-with-values");
         String sourceFile = null;
         String className = null;
@@ -208,6 +235,10 @@ public final class SnakeGrinderCli {
     }
 
     private static void runTraceExample(String[] args) {
+        if (!checkLicenseForTrace()) {
+            return;
+        }
+
         Path outputDir = Paths.get("build/snakegrinder/trace-example");
 
         for (int i = 0; i < args.length; i++) {
@@ -261,6 +292,91 @@ public final class SnakeGrinderCli {
         System.out.println("CUDA available:   " + info.get("cuda_available"));
         System.out.println("MPS available:    " + info.get("mps_available"));
         System.out.println("FX available:     " + info.get("fx_available"));
+    }
+
+    private static boolean checkLicenseForTrace() {
+        LicenseCheckResult result = LicenseManager.getInstance().checkLicense();
+        if (!result.allowed()) {
+            System.err.println(result.message());
+            System.exit(1);
+            return false;
+        }
+        if (result.warning() != null) {
+            System.err.println("Warning: " + result.warning());
+        }
+        return true;
+    }
+
+    private static void runActivate(String[] args) {
+        String licenseKey = null;
+        for (int i = 0; i < args.length; i++) {
+            if ("--activate".equals(args[i]) && i + 1 < args.length) {
+                licenseKey = args[i + 1];
+            }
+        }
+
+        if (licenseKey == null || licenseKey.startsWith("--")) {
+            System.err.println("Error: --activate requires a license key");
+            System.err.println("Usage: snakegrinder --activate YOUR_LICENSE_KEY");
+            System.exit(2);
+            return;
+        }
+
+        System.out.println("Activating license...");
+        ActivationResult result = LicenseManager.getInstance().activate(licenseKey);
+
+        if (result.success()) {
+            LicenseInfo license = result.license();
+            System.out.println("License activated successfully!");
+            System.out.println();
+            System.out.println("Product: " + license.product().getDisplayName());
+            if (license.validUntil() != null) {
+                System.out.println("Valid until: " + license.validUntil());
+            }
+            System.out.println("Machine: " + LicenseManager.getInstance().getMachineName());
+        } else {
+            System.err.println("Activation failed: " + result.error());
+            System.exit(1);
+        }
+    }
+
+    private static void runDeactivate() {
+        LicenseInfo current = LicenseManager.getInstance().getCurrentLicense();
+        if (current == null) {
+            System.out.println("No license is currently active.");
+            return;
+        }
+
+        System.out.println("Deactivating license...");
+        LicenseManager.getInstance().deactivate();
+        System.out.println("License deactivated.");
+    }
+
+    private static void runLicenseInfo() {
+        LicenseInfo license = LicenseManager.getInstance().getCurrentLicense();
+
+        System.out.println("SnakeGrinder License Info");
+        System.out.println();
+
+        if (license == null) {
+            System.out.println("Status: No license (Free tier)");
+            System.out.println();
+            System.out.println("To activate a license:");
+            System.out.println("  snakegrinder --activate YOUR_LICENSE_KEY");
+            System.out.println();
+            System.out.println("Get a license at: https://surfworks.energy/pricing");
+        } else {
+            System.out.println("Product:     " + license.product().getDisplayName());
+            System.out.println("Status:      " + (license.isExpired() ? "Expired" : "Active"));
+            if (license.validUntil() != null) {
+                System.out.println("Valid until: " + license.validUntil());
+            }
+            if (license.customerEmail() != null) {
+                System.out.println("Email:       " + license.customerEmail());
+            }
+            System.out.println("Machine:     " + LicenseManager.getInstance().getMachineName());
+            System.out.println("Fingerprint: " + LicenseManager.getInstance().getMachineFingerprint());
+        }
     }
 
     private static List<FxStableHloExport.InputSpec> parseInputSpecs(String spec) {
@@ -328,9 +444,15 @@ public final class SnakeGrinderCli {
         System.out.println("  --out <dir>      Output directory (default: build/snakegrinder/trace)");
         System.out.println("  --seed <n>       Random seed for reproducible inputs (default: 42)");
         System.out.println();
+        System.out.println("License commands:");
+        System.out.println("  --activate <key>     Activate a license key");
+        System.out.println("  --deactivate         Deactivate current license");
+        System.out.println("  --license-info       Show license information");
+        System.out.println();
         System.out.println("Examples:");
         System.out.println("  snakegrinder --trace --source model.py --class MyModel --inputs '[(1,32)]'");
         System.out.println("  snakegrinder --trace-with-values --source model.py --class MyModel --inputs '[(1,8)]' --seed 42");
+        System.out.println("  snakegrinder --activate XXXX-XXXX-XXXX-XXXX");
         System.out.println();
         System.out.println("Output:");
         System.out.println("  --trace:             model.mlir, manifest.json");

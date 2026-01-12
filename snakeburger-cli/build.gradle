@@ -5,7 +5,10 @@ version = '0.0.1-SNAPSHOT'
 
 repositories { mavenCentral() }
 
-dependencies { implementation project(':snakeburger-core') }
+dependencies {
+    implementation project(':snakeburger-core')
+    implementation project(':warpforge-license')
+}
 
 application {
     mainClass = 'io.surfworks.snakeburger.cli.SnakeBurgerMain'

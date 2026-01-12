@@ -9,6 +9,7 @@ repositories {
 
 dependencies {
   implementation project(':snakegrinder-core')
+  implementation project(':warpforge-license')
 }
 
 application {

@@ -419,3 +419,20 @@ Track PyTorch version support: https://github.com/oracle/graalpython/issues/588
 ## Git Commit Preferences
 
 - **Never include Co-Authored-By lines** in commit messages under any circumstances
+
+## Test Isolation: No Repo Modifications
+
+**Tests must NEVER create, modify, or delete files in the Git repository.**
+
+All test types (unit, integration, performance, fixture validation, etc.) must:
+- Write output only to `build/` directories or system temp directories
+- Never modify source files, resource files, or fixtures
+- Leave `git status` clean after execution
+
+**Fixture generators are NOT tests** - they are on-demand tools that intentionally modify fixtures:
+- Must be tagged separately (e.g., `@Tag("fixture-generator")`)
+- Must be excluded from all test tasks (`excludeTags 'fixture-generator'`)
+- Should only run via explicit task (e.g., `./gradlew generateFixtures`)
+- Generated changes must be reviewed and committed intentionally
+
+If `git status` shows modified files after running `./gradlew test`, this is a bug that must be fixed immediately.

@@ -24,6 +24,12 @@ public final class SnakeGrinderCli {
             return;
         }
 
+        if (hasFlag(args, "--trace-with-values")) {
+            assertGraalVmHost();
+            runTraceWithValues(args);
+            return;
+        }
+
         if (hasFlag(args, "--trace")) {
             assertGraalVmHost();
             runTrace(args);
@@ -105,6 +111,87 @@ public final class SnakeGrinderCli {
                 System.out.println("Output files:");
                 System.out.println("  MLIR:     " + outputDir.resolve("model.mlir"));
                 System.out.println("  Manifest: " + outputDir.resolve("manifest.json"));
+            } catch (IOException e) {
+                System.err.println("Error writing output: " + e.getMessage());
+                System.exit(1);
+            }
+        } else {
+            System.err.println("FAILED: " + result.error);
+            if (result.traceback != null) {
+                System.err.println();
+                System.err.println("Traceback:");
+                System.err.println(result.traceback);
+            }
+            System.exit(1);
+        }
+    }
+
+    private static void runTraceWithValues(String[] args) {
+        Path outputDir = Paths.get("build/snakegrinder/trace-with-values");
+        String sourceFile = null;
+        String className = null;
+        String inputsSpec = null;
+        long seed = 42; // Default seed
+
+        for (int i = 0; i < args.length; i++) {
+            if ("--out".equals(args[i]) && i + 1 < args.length) {
+                outputDir = Paths.get(args[i + 1]);
+            } else if ("--source".equals(args[i]) && i + 1 < args.length) {
+                sourceFile = args[i + 1];
+            } else if ("--class".equals(args[i]) && i + 1 < args.length) {
+                className = args[i + 1];
+            } else if ("--inputs".equals(args[i]) && i + 1 < args.length) {
+                inputsSpec = args[i + 1];
+            } else if ("--seed".equals(args[i]) && i + 1 < args.length) {
+                seed = Long.parseLong(args[i + 1]);
+            }
+        }
+
+        if (sourceFile == null || className == null || inputsSpec == null) {
+            System.err.println("Error: --trace-with-values requires --source, --class, and --inputs");
+            System.err.println("Use --help for usage information");
+            System.exit(2);
+            return;
+        }
+
+        System.out.println("SnakeGrinder Trace With Values");
+        System.out.println("Source: " + sourceFile);
+        System.out.println("Class:  " + className);
+        System.out.println("Inputs: " + inputsSpec);
+        System.out.println("Seed:   " + seed);
+        System.out.println("Output: " + outputDir.toAbsolutePath());
+        System.out.println();
+
+        String pythonSource;
+        try {
+            pythonSource = Files.readString(Paths.get(sourceFile));
+        } catch (IOException e) {
+            System.err.println("Error reading source file: " + e.getMessage());
+            System.exit(1);
+            return;
+        }
+
+        List<FxStableHloExport.InputSpec> inputSpecs = parseInputSpecs(inputsSpec);
+
+        FxStableHloExport.TraceResult result = FxStableHloExport.traceWithValues(
+                pythonSource, className, inputSpecs, seed);
+
+        if (result.success) {
+            try {
+                FxStableHloExport.writeResult(result, outputDir);
+                System.out.println("SUCCESS: Trace with values completed");
+                System.out.println();
+                System.out.println("Output files:");
+                System.out.println("  MLIR:     " + outputDir.resolve("model.mlir"));
+                System.out.println("  Manifest: " + outputDir.resolve("manifest.json"));
+                System.out.println("  Inputs:   " + outputDir.resolve("inputs/"));
+                for (int i = 0; i < result.inputTensorsNpy.size(); i++) {
+                    System.out.println("            - input_" + i + ".npy");
+                }
+                System.out.println("  Outputs:  " + outputDir.resolve("outputs/"));
+                for (int i = 0; i < result.outputTensorsNpy.size(); i++) {
+                    System.out.println("            - output_" + i + ".npy");
+                }
             } catch (IOException e) {
                 System.err.println("Error writing output: " + e.getMessage());
                 System.exit(1);
@@ -221,27 +308,33 @@ public final class SnakeGrinderCli {
         System.out.println();
         System.out.println("Usage:");
         System.out.println("  snakegrinder --trace --source <file> --class <name> --inputs <specs> [--out <dir>]");
+        System.out.println("  snakegrinder --trace-with-values --source <file> --class <name> --inputs <specs> [--seed <n>] [--out <dir>]");
         System.out.println("  snakegrinder --trace-example [--out <dir>]");
         System.out.println("  snakegrinder --pytorch-info");
         System.out.println("  snakegrinder --self-test");
         System.out.println("  snakegrinder --help");
         System.out.println();
         System.out.println("Commands:");
-        System.out.println("  --trace          Trace a PyTorch nn.Module and convert to StableHLO MLIR");
-        System.out.println("  --trace-example  Run a built-in example (SimpleMLP)");
-        System.out.println("  --pytorch-info   Show PyTorch version and capabilities");
-        System.out.println("  --self-test      Run GraalPy self-test");
+        System.out.println("  --trace              Trace a PyTorch nn.Module and convert to StableHLO MLIR");
+        System.out.println("  --trace-with-values  Trace and capture tensor values (for E2E testing)");
+        System.out.println("  --trace-example      Run a built-in example (SimpleMLP)");
+        System.out.println("  --pytorch-info       Show PyTorch version and capabilities");
+        System.out.println("  --self-test          Run GraalPy self-test");
         System.out.println();
         System.out.println("Trace options:");
         System.out.println("  --source <file>  Python source file containing nn.Module class");
         System.out.println("  --class <name>   nn.Module class name to trace");
         System.out.println("  --inputs <specs> Input shapes, e.g., '[(1,8)]' or '[(1,8),(8,16)]'");
         System.out.println("  --out <dir>      Output directory (default: build/snakegrinder/trace)");
+        System.out.println("  --seed <n>       Random seed for reproducible inputs (default: 42)");
         System.out.println();
-        System.out.println("Example:");
+        System.out.println("Examples:");
         System.out.println("  snakegrinder --trace --source model.py --class MyModel --inputs '[(1,32)]'");
+        System.out.println("  snakegrinder --trace-with-values --source model.py --class MyModel --inputs '[(1,8)]' --seed 42");
         System.out.println();
-        System.out.println("Output: StableHLO MLIR written to <out>/model.mlir");
+        System.out.println("Output:");
+        System.out.println("  --trace:             model.mlir, manifest.json");
+        System.out.println("  --trace-with-values: model.mlir, manifest.json, inputs/*.npy, outputs/*.npy");
     }
 
     private static void assertGraalVmHost() {

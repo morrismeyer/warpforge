@@ -333,6 +333,11 @@ echo ""
 echo "Installing sympy..."
 pip install sympy mpmath
 
+# Install numpy (required for tensor serialization in trace-with-values)
+echo ""
+echo "Installing numpy..."
+pip install numpy
+
 # ============================================================================
 # VERIFICATION
 # ============================================================================

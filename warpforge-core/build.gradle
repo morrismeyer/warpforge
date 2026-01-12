@@ -8,6 +8,7 @@ repositories { mavenCentral() }
 dependencies {
     api project(':snakeburger-core')
 
+    testImplementation project(':warpforge-backend-cpu')
     testImplementation 'org.junit.jupiter:junit-jupiter-api:5.10.2'
     testImplementation 'org.junit.jupiter:junit-jupiter-params:5.10.2'
     testRuntimeOnly 'org.junit.jupiter:junit-jupiter-engine:5.10.2'
@@ -28,7 +29,24 @@ tasks.withType(Test).configureEach {
 
 test {
     useJUnitPlatform {
-        excludeTags 'integration'
+        excludeTags 'integration', 'fixture-generator'
+    }
+}
+
+tasks.register('generateE2EFixtures', Test) {
+    description = 'Generate E2E test fixtures using snakegrinder-dist native binary'
+    group = 'verification'
+
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+
+    useJUnitPlatform {
+        includeTags 'fixture-generator'
+    }
+
+    testLogging {
+        events 'passed', 'skipped', 'failed', 'standardOut'
+        showStandardStreams = true
     }
 }
 

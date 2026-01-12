@@ -48,8 +48,14 @@ public final class FxStableHloExport {
         public final List<String> warnings;
         public final Map<String, Object> metadata;
 
+        // Extended fields for trace-with-values
+        public final List<byte[]> inputTensorsNpy;
+        public final List<byte[]> outputTensorsNpy;
+        public final long seed;
+
         private TraceResult(boolean success, String mlir, String fxGraph, String error,
-                            String traceback, List<String> warnings, Map<String, Object> metadata) {
+                            String traceback, List<String> warnings, Map<String, Object> metadata,
+                            List<byte[]> inputTensorsNpy, List<byte[]> outputTensorsNpy, long seed) {
             this.success = success;
             this.mlir = mlir;
             this.fxGraph = fxGraph;
@@ -57,14 +63,28 @@ public final class FxStableHloExport {
             this.traceback = traceback;
             this.warnings = warnings != null ? warnings : List.of();
             this.metadata = metadata != null ? metadata : Map.of();
+            this.inputTensorsNpy = inputTensorsNpy != null ? inputTensorsNpy : List.of();
+            this.outputTensorsNpy = outputTensorsNpy != null ? outputTensorsNpy : List.of();
+            this.seed = seed;
         }
 
         public static TraceResult ok(String mlir, String fxGraph, Map<String, Object> metadata) {
-            return new TraceResult(true, mlir, fxGraph, null, null, List.of(), metadata);
+            return new TraceResult(true, mlir, fxGraph, null, null, List.of(), metadata, null, null, 0);
+        }
+
+        public static TraceResult okWithValues(String mlir, Map<String, Object> metadata,
+                                               List<byte[]> inputTensorsNpy, List<byte[]> outputTensorsNpy, long seed) {
+            return new TraceResult(true, mlir, null, null, null, List.of(), metadata,
+                                   inputTensorsNpy, outputTensorsNpy, seed);
         }
 
         public static TraceResult fail(String error, String traceback) {
-            return new TraceResult(false, null, null, error, traceback, List.of(), Map.of());
+            return new TraceResult(false, null, null, error, traceback, List.of(), Map.of(), null, null, 0);
+        }
+
+        /** Check if this result includes tensor values. */
+        public boolean hasValues() {
+            return !inputTensorsNpy.isEmpty() || !outputTensorsNpy.isEmpty();
         }
     }
 
@@ -138,6 +158,10 @@ public final class FxStableHloExport {
                     if (j > 0) inputShapesPy.append(", ");
                     inputShapesPy.append(inputSpecs.get(i).shape[j]);
                 }
+                // Single-element tuples need trailing comma: (4,) not (4)
+                if (inputSpecs.get(i).shape.length == 1) {
+                    inputShapesPy.append(",");
+                }
                 inputShapesPy.append(")");
             }
             inputShapesPy.append("]");
@@ -183,6 +207,169 @@ public final class FxStableHloExport {
         } catch (Exception e) {
             return TraceResult.fail("Trace failed: " + e.getMessage(), null);
         }
+    }
+
+    /**
+     * Trace a PyTorch model and capture actual tensor values for E2E verification.
+     *
+     * <p>This method runs the model forward pass with deterministic inputs
+     * and captures both the graph (MLIR) and the actual tensor values.
+     *
+     * @param pythonSource Python source code containing the model definition
+     * @param className    Name of the nn.Module class to trace
+     * @param inputSpecs   Input tensor specifications (shapes and dtypes)
+     * @param seed         Random seed for reproducible inputs
+     * @return TraceResult containing StableHLO MLIR and tensor data
+     */
+    public static TraceResult traceWithValues(String pythonSource,
+                                              String className,
+                                              List<InputSpec> inputSpecs,
+                                              long seed) {
+
+        ByteArrayOutputStream pythonOut = new ByteArrayOutputStream();
+        ByteArrayOutputStream pythonErr = new ByteArrayOutputStream();
+
+        Context.Builder builder = Context.newBuilder("python")
+                .allowAllAccess(true)
+                .option("python.ForceImportSite", "true")
+                .out(pythonOut)
+                .err(pythonErr);
+
+        // If PYTORCH_VENV is set, configure Python path
+        String pytorchVenv = System.getenv("PYTORCH_VENV");
+        if (pytorchVenv != null && !pytorchVenv.isBlank()) {
+            builder.option("python.PythonPath", pytorchVenv + "/lib/python3.12/site-packages");
+        }
+
+        try (Context ctx = builder.build()) {
+
+            // Load the FX-to-StableHLO converter module
+            String fxModule = readResource("/snakegrinder/fx_to_stablehlo.py");
+            ctx.eval("python", fxModule);
+
+            // Build input_shapes as Python list of tuples
+            StringBuilder inputShapesPy = new StringBuilder("[");
+            for (int i = 0; i < inputSpecs.size(); i++) {
+                if (i > 0) inputShapesPy.append(", ");
+                inputShapesPy.append("(");
+                for (int j = 0; j < inputSpecs.get(i).shape.length; j++) {
+                    if (j > 0) inputShapesPy.append(", ");
+                    inputShapesPy.append(inputSpecs.get(i).shape[j]);
+                }
+                // Single-element tuples need trailing comma: (4,) not (4)
+                if (inputSpecs.get(i).shape.length == 1) {
+                    inputShapesPy.append(",");
+                }
+                inputShapesPy.append(")");
+            }
+            inputShapesPy.append("]");
+
+            // Escape the source code for Python
+            String escapedSource = escapePythonMultilineString(pythonSource);
+
+            // Call trace_with_values_npy to get tensor data as .npy bytes
+            String callCode = String.format(
+                "trace_with_values_npy('''%s''', '%s', %s, %d)",
+                escapedSource, className, inputShapesPy.toString(), seed
+            );
+
+            Value resultValue = ctx.eval("python", callCode);
+
+            // Extract results - use getHashValue for Python dict access
+            if (resultValue == null) {
+                return TraceResult.fail("Python returned null result", null);
+            }
+            if (!resultValue.hasHashEntries()) {
+                return TraceResult.fail("Python result is not a dict: " + resultValue.toString(), null);
+            }
+            Value mlirValue = resultValue.getHashValue("mlir");
+            if (mlirValue == null || mlirValue.isNull()) {
+                return TraceResult.fail("Python result missing 'mlir' key", null);
+            }
+            String mlir = mlirValue.asString();
+            long returnedSeed = resultValue.getHashValue("seed").asLong();
+
+            // Extract input tensor .npy bytes
+            Value inputNpyList = resultValue.getHashValue("input_npy");
+            List<byte[]> inputTensorsNpy = new ArrayList<>();
+            for (int i = 0; i < inputNpyList.getArraySize(); i++) {
+                Value pyBytes = inputNpyList.getArrayElement(i);
+                byte[] npyBytes = extractBytes(pyBytes);
+                inputTensorsNpy.add(npyBytes);
+            }
+
+            // Extract output tensor .npy bytes
+            Value outputNpyList = resultValue.getHashValue("output_npy");
+            List<byte[]> outputTensorsNpy = new ArrayList<>();
+            for (int i = 0; i < outputNpyList.getArraySize(); i++) {
+                Value pyBytes = outputNpyList.getArrayElement(i);
+                byte[] npyBytes = extractBytes(pyBytes);
+                outputTensorsNpy.add(npyBytes);
+            }
+
+            // Extract shapes for metadata
+            Value inputShapesList = resultValue.getMember("input_shapes");
+            Value outputShapesList = resultValue.getMember("output_shapes");
+
+            Map<String, Object> metadata = new LinkedHashMap<>();
+            metadata.put("class", className);
+            metadata.put("tracer", "torch.fx.symbolic_trace");
+            metadata.put("input_count", inputSpecs.size());
+            metadata.put("output_count", outputTensorsNpy.size());
+            metadata.put("seed", returnedSeed);
+            metadata.put("timestamp", Instant.now().toString());
+
+            return TraceResult.okWithValues(mlir, metadata, inputTensorsNpy, outputTensorsNpy, returnedSeed);
+
+        } catch (PolyglotException e) {
+            String error = "GraalPy error: " + e.getMessage();
+            String stderr = pythonErr.toString(StandardCharsets.UTF_8);
+            if (!stderr.isBlank()) {
+                error += "\nPython stderr:\n" + stderr;
+            }
+
+            if (e.getMessage().contains("No module named 'torch'")) {
+                error += "\n\nPyTorch is not installed in the GraalPy environment.\n" +
+                        "Please ensure PyTorch 2.7+ is built for GraalPy and installed.";
+            } else if (e.getMessage().contains("dlopen") || e.getMessage().contains("libgomp")) {
+                error += "\n\nNative library loading failed.\n" +
+                        "Set DYLD_LIBRARY_PATH (macOS) or LD_LIBRARY_PATH (Linux) to include:\n" +
+                        "  <graalpy-venv>/lib/python3.12/site-packages/torch/lib/";
+            }
+
+            return TraceResult.fail(error, null);
+        } catch (Exception e) {
+            String msg = e.getMessage();
+            if (msg == null) {
+                msg = e.getClass().getName();
+            }
+            // Include stack trace for debugging
+            java.io.StringWriter sw = new java.io.StringWriter();
+            e.printStackTrace(new java.io.PrintWriter(sw));
+            return TraceResult.fail("Trace with values failed: " + msg, sw.toString());
+        }
+    }
+
+    /**
+     * Extract bytes from a Python bytes object.
+     */
+    private static byte[] extractBytes(Value pyBytes) {
+        if (pyBytes.hasBufferElements()) {
+            int size = (int) pyBytes.getBufferSize();
+            byte[] bytes = new byte[size];
+            for (int i = 0; i < size; i++) {
+                bytes[i] = pyBytes.readBufferByte(i);
+            }
+            return bytes;
+        } else if (pyBytes.hasArrayElements()) {
+            int size = (int) pyBytes.getArraySize();
+            byte[] bytes = new byte[size];
+            for (int i = 0; i < size; i++) {
+                bytes[i] = (byte) pyBytes.getArrayElement(i).asInt();
+            }
+            return bytes;
+        }
+        throw new IllegalArgumentException("Cannot extract bytes from Python value: " + pyBytes);
     }
 
     /**
@@ -293,10 +480,34 @@ public final class FxStableHloExport {
             Files.writeString(outputDir.resolve("fx_graph.txt"), result.fxGraph);
         }
 
+        // Write input tensor .npy files if present
+        List<String> inputPaths = new ArrayList<>();
+        if (result.hasValues() && !result.inputTensorsNpy.isEmpty()) {
+            Path inputsDir = outputDir.resolve("inputs");
+            Files.createDirectories(inputsDir);
+            for (int i = 0; i < result.inputTensorsNpy.size(); i++) {
+                String filename = "input_" + i + ".npy";
+                Files.write(inputsDir.resolve(filename), result.inputTensorsNpy.get(i));
+                inputPaths.add("inputs/" + filename);
+            }
+        }
+
+        // Write output tensor .npy files if present
+        List<String> outputPaths = new ArrayList<>();
+        if (result.hasValues() && !result.outputTensorsNpy.isEmpty()) {
+            Path outputsDir = outputDir.resolve("outputs");
+            Files.createDirectories(outputsDir);
+            for (int i = 0; i < result.outputTensorsNpy.size(); i++) {
+                String filename = "output_" + i + ".npy";
+                Files.write(outputsDir.resolve(filename), result.outputTensorsNpy.get(i));
+                outputPaths.add("outputs/" + filename);
+            }
+        }
+
         // Write manifest
         Map<String, Object> manifest = new LinkedHashMap<>();
         manifest.put("kind", "snakegrinder-fx-trace-bundle");
-        manifest.put("version", 1);
+        manifest.put("version", result.hasValues() ? 2 : 1);
         manifest.put("status", result.success ? "ok" : "failed");
         manifest.put("tracer", "torch.fx.symbolic_trace");
 
@@ -316,8 +527,19 @@ public final class FxStableHloExport {
             if (result.fxGraph != null) {
                 artifacts.put("fx_graph", "fx_graph.txt");
             }
+            if (!inputPaths.isEmpty()) {
+                artifacts.put("inputs", inputPaths);
+            }
+            if (!outputPaths.isEmpty()) {
+                artifacts.put("outputs", outputPaths);
+            }
         }
         manifest.put("artifacts", artifacts);
+
+        if (result.hasValues()) {
+            manifest.put("seed", result.seed);
+        }
+
         manifest.put("timestamp", Instant.now().toString());
 
         Files.writeString(outputDir.resolve("manifest.json"), toJson(manifest));

@@ -631,6 +631,114 @@ def trace_model(source_code: str, class_name: str, input_shapes: list) -> str:
     return converter.convert()
 
 
+def trace_with_values(source_code: str, class_name: str, input_shapes: list, seed: int = 42) -> dict:
+    """
+    Trace a model and capture actual tensor values for E2E verification.
+
+    This function runs the model forward pass with deterministic inputs
+    and captures both the graph (MLIR) and the actual tensor values.
+
+    Args:
+        source_code: Python source containing an nn.Module class
+        class_name: Name of the nn.Module class to trace
+        input_shapes: List of tuples, e.g., [(1, 8), (1, 16)]
+        seed: Random seed for reproducible inputs (default: 42)
+
+    Returns:
+        Dictionary with:
+            - 'mlir': StableHLO MLIR text
+            - 'inputs': List of numpy arrays (serializable)
+            - 'outputs': List of numpy arrays (serializable)
+            - 'seed': Random seed used
+            - 'input_shapes': Input shape tuples
+            - 'output_shapes': Output shape tuples
+    """
+    _ensure_torch_imported()
+
+    # Set deterministic seed for reproducibility
+    torch.manual_seed(seed)
+
+    # Parse and instantiate model
+    namespace = {'torch': torch}
+    exec(source_code, namespace)
+
+    if class_name not in namespace:
+        raise ValueError(f"Class '{class_name}' not found in source")
+
+    model_class = namespace[class_name]
+    model = model_class()
+    model.eval()
+
+    # Create deterministic inputs
+    sample_inputs = tuple(torch.randn(*shape) for shape in input_shapes)
+
+    # Run forward pass to get actual outputs
+    with torch.no_grad():
+        outputs = model(*sample_inputs)
+
+    # Normalize outputs to tuple
+    if isinstance(outputs, torch.Tensor):
+        outputs = (outputs,)
+    elif not isinstance(outputs, tuple):
+        outputs = tuple(outputs)
+
+    # Trace for MLIR (reusing same inputs for consistency)
+    traced = symbolic_trace(model)
+    converter = FXToStableHLO(traced, sample_inputs)
+    mlir = converter.convert()
+
+    # Convert tensors to numpy arrays for serialization
+    input_arrays = [inp.detach().cpu().numpy() for inp in sample_inputs]
+    output_arrays = [out.detach().cpu().numpy() for out in outputs]
+
+    return {
+        'mlir': mlir,
+        'inputs': input_arrays,
+        'outputs': output_arrays,
+        'seed': seed,
+        'input_shapes': [tuple(arr.shape) for arr in input_arrays],
+        'output_shapes': [tuple(arr.shape) for arr in output_arrays],
+    }
+
+
+def serialize_npy(arr) -> bytes:
+    """Serialize a numpy array to .npy format bytes."""
+    import io
+    import numpy as np
+    buffer = io.BytesIO()
+    np.save(buffer, arr, allow_pickle=False)
+    return buffer.getvalue()
+
+
+def trace_with_values_npy(source_code: str, class_name: str, input_shapes: list, seed: int = 42) -> dict:
+    """
+    Like trace_with_values but returns tensors as .npy bytes for direct file writing.
+
+    Returns:
+        Dictionary with:
+            - 'mlir': StableHLO MLIR text
+            - 'input_npy': List of bytes (.npy format)
+            - 'output_npy': List of bytes (.npy format)
+            - 'seed': Random seed used
+            - 'input_shapes': Input shape tuples
+            - 'output_shapes': Output shape tuples
+    """
+    result = trace_with_values(source_code, class_name, input_shapes, seed)
+
+    # Convert numpy arrays to .npy bytes
+    input_npy = [serialize_npy(arr) for arr in result['inputs']]
+    output_npy = [serialize_npy(arr) for arr in result['outputs']]
+
+    return {
+        'mlir': result['mlir'],
+        'input_npy': input_npy,
+        'output_npy': output_npy,
+        'seed': result['seed'],
+        'input_shapes': result['input_shapes'],
+        'output_shapes': result['output_shapes'],
+    }
+
+
 def trace_builtin_example() -> str:
     """Run the built-in MLP example."""
     _ensure_torch_imported()

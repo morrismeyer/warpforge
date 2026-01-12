@@ -1,0 +1,30 @@
+plugins {
+    id 'java-library'
+}
+
+group = 'io.surfworks.warpforge'
+version = '0.0.1-SNAPSHOT'
+
+description = 'WarpForge License Management - shared licensing for all WarpForge products'
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    // JSON parsing for API responses
+    implementation 'com.google.code.gson:gson:2.10.1'
+
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.10.0'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}
+
+test {
+    useJUnitPlatform()
+}

@@ -26,4 +26,5 @@ include('snakegrinder-cli')
 include('snakegrinder-dist')
 include('warpforge-core')
 include('warpforge-backend-cpu')
+include('warpforge-license')
 

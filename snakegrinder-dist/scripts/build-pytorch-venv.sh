@@ -42,32 +42,6 @@ PYTORCH_VERSION="${PYTORCH_VERSION:-2.7.0}"
 PYTHON_VERSION="${PYTHON_VERSION:-3.12}"
 
 # ============================================================================
-# MEMORY MANAGEMENT - Prevent OOM on memory-constrained systems
-# ============================================================================
-# These must be set EARLY, before any pip/cmake operations
-# All three flags are needed because different build phases check different vars
-
-# Calculate job limit based on available RAM (2GB per job minimum)
-TOTAL_RAM_GB=$(free -g 2>/dev/null | awk '/^Mem:/{print $2}' || echo "16")
-CALCULATED_JOBS=$((TOTAL_RAM_GB / 2))
-# Clamp between 2 and 8 jobs
-if [ "${CALCULATED_JOBS}" -lt 2 ]; then
-    CALCULATED_JOBS=2
-elif [ "${CALCULATED_JOBS}" -gt 8 ]; then
-    CALCULATED_JOBS=8
-fi
-PARALLEL_JOBS="${PARALLEL_JOBS:-${CALCULATED_JOBS}}"
-
-# Flag 1: PyTorch's own parallel job limit
-export MAX_JOBS="${PARALLEL_JOBS}"
-# Flag 2: CMake's parallel build level
-export CMAKE_BUILD_PARALLEL_LEVEL="${PARALLEL_JOBS}"
-# Flag 3: Make/ninja parallel jobs via MAKEFLAGS
-export MAKEFLAGS="-j${PARALLEL_JOBS}"
-
-echo "Memory management: limiting parallel jobs to ${PARALLEL_JOBS} (based on ${TOTAL_RAM_GB}GB RAM)"
-
-# ============================================================================
 # PLATFORM DETECTION
 # ============================================================================
 
@@ -307,8 +281,6 @@ export USE_DISTRIBUTED=0
 export USE_MKLDNN=1
 export USE_OPENMP=1
 export BUILD_TEST=0
-
-# Note: MAX_JOBS, CMAKE_BUILD_PARALLEL_LEVEL, and MAKEFLAGS are set at script start
 
 if [ "$USE_NINJA" = "1" ]; then
     export CMAKE_GENERATOR=Ninja

@@ -1,11 +1,11 @@
 package io.surfworks.warpforge.license;
 
 /**
- * WarpForge product tiers matching Lemon Squeezy product configuration.
+ * WarpForge product tiers.
  *
  * <p>Products:
  * <ul>
- *   <li>WarpForge Pro - $29/month or $290/year (variant)</li>
+ *   <li>WarpForge Pro - $29/month or $290/year (individual developers)</li>
  *   <li>WarpForge Team - $49/user/month (future)</li>
  *   <li>WarpForge Enterprise - custom pricing (future)</li>
  * </ul>
@@ -75,13 +75,17 @@ public enum WarpForgeProduct {
     }
 
     /**
-     * Parse product from Lemon Squeezy variant name.
+     * Parse product from provider-specific names using keyword matching.
      *
-     * @param variantName the variant name from Lemon Squeezy API (e.g., "WarpForge Pro", "Monthly", "Annual")
-     * @param productName the product name from Lemon Squeezy API
-     * @return the matching WarpForgeProduct
+     * <p>This is a simple default implementation that looks for keywords
+     * like "enterprise", "team", "pro" in the product name. For more
+     * sophisticated mapping, use {@link ProductMapper}.
+     *
+     * @param productName the product name from the provider API
+     * @param variantName the variant name (currently unused, for future use)
+     * @return the matching WarpForgeProduct, or FREE if no match
      */
-    public static WarpForgeProduct fromLemonSqueezy(String productName, String variantName) {
+    public static WarpForgeProduct fromProductName(String productName, String variantName) {
         if (productName == null) {
             return FREE;
         }
@@ -99,5 +103,15 @@ public enum WarpForgeProduct {
         }
 
         return FREE;
+    }
+
+    /**
+     * Parse product from Lemon Squeezy variant name.
+     *
+     * @deprecated Use {@link #fromProductName(String, String)} or {@link ProductMapper} instead.
+     */
+    @Deprecated
+    public static WarpForgeProduct fromLemonSqueezy(String productName, String variantName) {
+        return fromProductName(productName, variantName);
     }
 }

@@ -8,4 +8,7 @@
 build
 
 # Local tool installations (GraalPy, etc.)
-tools/
+tools/*
+!tools/mcp-shared-context/
+tools/mcp-shared-context/build/
+tools/mcp-shared-context/.gradle/

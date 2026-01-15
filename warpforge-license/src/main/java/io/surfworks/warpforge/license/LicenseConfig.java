@@ -26,6 +26,13 @@ public final class LicenseConfig {
     public static final String ENV_DEV_SECRET = "WARPFORGE_DEV_SECRET";
 
     /**
+     * Environment variable for license provider selection.
+     *
+     * <p>Valid values: "keygen", "none"
+     */
+    public static final String ENV_LICENSE_PROVIDER = "WARPFORGE_LICENSE_PROVIDER";
+
+    /**
      * Default config directory.
      */
     public static final Path DEFAULT_CONFIG_DIR = Path.of(
@@ -97,6 +104,15 @@ public final class LicenseConfig {
      */
     public static String getDevSecretFromEnv() {
         return System.getenv(ENV_DEV_SECRET);
+    }
+
+    /**
+     * Get the configured license provider name from environment variable.
+     *
+     * @return provider name ("keygen", etc.) or null if not set
+     */
+    public static String getProviderFromEnv() {
+        return System.getenv(ENV_LICENSE_PROVIDER);
     }
 
     /**

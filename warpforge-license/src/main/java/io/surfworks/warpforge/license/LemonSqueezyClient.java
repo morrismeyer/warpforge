@@ -16,11 +16,19 @@ import java.time.Instant;
 import java.util.Map;
 
 /**
- * Client for Lemon Squeezy License API.
+ * License provider implementation for Lemon Squeezy.
  *
  * <p>API Documentation: https://docs.lemonsqueezy.com/help/licensing/license-api
+ *
+ * <p><strong>Note:</strong> Lemon Squeezy rejected WarpForge's application,
+ * so this provider is retained for reference but should not be used.
+ * Consider using {@link KeygenProvider} instead.
+ *
+ * @deprecated Lemon Squeezy does not support products fulfilled outside their platform.
+ *             Use {@link KeygenProvider} or another provider instead.
  */
-public class LemonSqueezyClient {
+@Deprecated
+public class LemonSqueezyClient implements LicenseProvider {
 
     private static final String API_BASE = "https://api.lemonsqueezy.com/v1/licenses";
     private static final Duration TIMEOUT = Duration.ofSeconds(15);
@@ -40,6 +48,7 @@ public class LemonSqueezyClient {
      * @param licenseKey the license key from Lemon Squeezy
      * @return activation result with license info on success
      */
+    @Override
     public ActivationResult activate(String licenseKey) {
         String fingerprint = MachineFingerprint.generate();
         String instanceName = MachineFingerprint.getMachineName();
@@ -84,6 +93,7 @@ public class LemonSqueezyClient {
      * @param instanceId the instance ID from activation
      * @return activation result with updated license info
      */
+    @Override
     public ActivationResult validate(String licenseKey, String instanceId) {
         String body = formEncode(Map.of(
             "license_key", licenseKey,
@@ -118,6 +128,11 @@ public class LemonSqueezyClient {
         }
     }
 
+    @Override
+    public String getProviderName() {
+        return "Lemon Squeezy";
+    }
+
     /**
      * Deactivate a license instance.
      *
@@ -125,6 +140,7 @@ public class LemonSqueezyClient {
      * @param instanceId the instance ID to deactivate
      * @return true if deactivation succeeded
      */
+    @Override
     public boolean deactivate(String licenseKey, String instanceId) {
         String body = formEncode(Map.of(
             "license_key", licenseKey,

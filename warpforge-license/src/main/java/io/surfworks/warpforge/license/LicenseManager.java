@@ -31,31 +31,69 @@ import java.util.HexFormat;
 public class LicenseManager {
 
     private static volatile LicenseManager instance;
+    private static volatile LicenseProvider configuredProvider;
 
     private final LicenseCache cache;
-    private final LemonSqueezyClient client;
+    private final LicenseProvider provider;
     private final UsageTracker usage;
     private final Path configDir;
 
-    private LicenseManager() {
+    /**
+     * Create a LicenseManager with the specified provider.
+     *
+     * @param provider the license provider to use
+     */
+    public LicenseManager(LicenseProvider provider) {
         this.configDir = LicenseConfig.getConfigDir();
         this.cache = new LicenseCache(configDir);
-        this.client = new LemonSqueezyClient();
+        this.provider = provider;
         this.usage = new UsageTracker(configDir);
     }
 
     /**
+     * Configure the default provider for the singleton instance.
+     *
+     * <p>Must be called before {@link #getInstance()} to take effect.
+     * If not called, no provider is configured and license operations
+     * will fail until a provider is set.
+     *
+     * @param provider the license provider to use
+     */
+    public static void configureProvider(LicenseProvider provider) {
+        configuredProvider = provider;
+        // Reset instance so next getInstance() uses new provider
+        instance = null;
+    }
+
+    /**
      * Get the singleton instance.
+     *
+     * <p>If no provider has been configured via {@link #configureProvider(LicenseProvider)},
+     * license operations requiring a provider will fail gracefully.
      */
     public static LicenseManager getInstance() {
         if (instance == null) {
             synchronized (LicenseManager.class) {
                 if (instance == null) {
-                    instance = new LicenseManager();
+                    LicenseProvider provider = configuredProvider;
+                    if (provider == null) {
+                        // No provider configured - use a no-op provider
+                        provider = new NoOpProvider();
+                    }
+                    instance = new LicenseManager(provider);
                 }
             }
         }
         return instance;
+    }
+
+    /**
+     * Get the current license provider.
+     *
+     * @return the configured provider, or NoOpProvider if none configured
+     */
+    public LicenseProvider getProvider() {
+        return provider;
     }
 
     /**
@@ -136,11 +174,11 @@ public class LicenseManager {
     /**
      * Activate a license key.
      *
-     * @param licenseKey the license key from Lemon Squeezy
+     * @param licenseKey the license key from the configured provider
      * @return activation result
      */
     public ActivationResult activate(String licenseKey) {
-        ActivationResult result = client.activate(licenseKey);
+        ActivationResult result = provider.activate(licenseKey);
         if (result.success()) {
             cache.save(result.license());
         }
@@ -155,7 +193,7 @@ public class LicenseManager {
     public void deactivate() {
         LicenseInfo cached = cache.load();
         if (cached != null && cached.instanceId() != null && cached.key() != null) {
-            client.deactivate(cached.key(), cached.instanceId());
+            provider.deactivate(cached.key(), cached.instanceId());
         }
         cache.clear();
     }
@@ -234,7 +272,7 @@ public class LicenseManager {
         LicenseInfo cached = cache.load();
         if (cached != null && licenseKey.equals(cached.key()) && cached.instanceId() != null) {
             // Already activated - validate
-            return client.validate(licenseKey, cached.instanceId());
+            return provider.validate(licenseKey, cached.instanceId());
         }
         // New key - activate
         return activate(licenseKey);
@@ -244,7 +282,7 @@ public class LicenseManager {
         // Simple background revalidation - update lastValidated on success
         Thread.ofVirtual().start(() -> {
             if (license.key() != null && license.instanceId() != null) {
-                ActivationResult result = client.validate(license.key(), license.instanceId());
+                ActivationResult result = provider.validate(license.key(), license.instanceId());
                 if (result.success()) {
                     cache.save(result.license());
                 }
@@ -263,9 +301,10 @@ public class LicenseManager {
     }
 
     /**
-     * Reset singleton (for testing).
+     * Reset singleton and configured provider (for testing).
      */
     static void resetInstance() {
         instance = null;
+        configuredProvider = null;
     }
 }

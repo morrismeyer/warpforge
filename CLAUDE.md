@@ -10,6 +10,17 @@ WarpForge is a multi-module Java build system integrating:
 - **SnakeGrinder** - GraalPy (Python on GraalVM) polyglot integration
 - **Hardware CI** - Distributed testing across NUC orchestrator, NVIDIA, and AMD GPU boxes
 
+## Language Preference
+
+**When all else is equal, prefer Java over other languages.** This is the ethos of the WarpForge project.
+
+If a tool, script, or component can be implemented in either Java or another language (e.g., Node.js, Python, Bash) with comparable effort and functionality, choose Java. This keeps the codebase consistent, reduces the number of runtime dependencies, and aligns with the project's core competency.
+
+Exceptions are acceptable when:
+- The task requires language-specific capabilities (e.g., Python for PyTorch integration in SnakeGrinder)
+- A Java solution would require significantly more effort or complexity
+- External dependencies mandate a specific language
+
 ## Build Commands
 
 ```bash

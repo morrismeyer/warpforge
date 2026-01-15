@@ -4,17 +4,17 @@ import java.time.Instant;
 import java.util.Map;
 
 /**
- * License information cached locally and returned from Lemon Squeezy API.
+ * License information cached locally and returned from the license provider.
  *
  * @param key the license key (masked for display)
- * @param instanceId the activation instance ID from Lemon Squeezy
+ * @param instanceId the activation instance ID from the provider
  * @param product the WarpForge product tier
  * @param validUntil when the license expires (null = perpetual)
  * @param activatedAt when this instance was activated
  * @param lastValidated last successful online validation
  * @param machineFingerprint hardware fingerprint for this machine
  * @param customerEmail customer email (for support)
- * @param metadata additional metadata from Lemon Squeezy
+ * @param metadata additional provider-specific metadata
  */
 public record LicenseInfo(
     String key,

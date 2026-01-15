@@ -27,4 +27,5 @@ include('snakegrinder-dist')
 include('warpforge-core')
 include('warpforge-backend-cpu')
 include('warpforge-license')
+include('tools:mcp-shared-context')
 

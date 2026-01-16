@@ -431,6 +431,34 @@ Track PyTorch version support: https://github.com/oracle/graalpython/issues/588
 
 - **Never include Co-Authored-By lines** in commit messages under any circumstances
 
+## Java Code Style
+
+- **Single blank line after package statement** before imports
+- Example:
+  ```java
+  package io.surfworks.warpforge.example;
+
+  import java.util.List;
+  ```
+
+## Configuration Preference: Minimize Environment Variables
+
+**Avoid environment variables for configuration wherever possible.** This aligns with the "It Just Works" philosophy.
+
+Preferred configuration sources (in order):
+1. **Auto-detection** - Discover paths, settings, and dependencies automatically
+2. **Sibling directories** - Look for related tools/configs in predictable locations (e.g., `../babylon`, `./lib/`)
+3. **Config files** - Use `~/.config/warpforge/*.json` for persistent user preferences
+4. **CLI arguments** - Explicit flags for one-time overrides
+
+Environment variables should only be used when:
+- Required by external tools (e.g., `JAVA_HOME` for JDK discovery)
+- Needed for CI/CD secrets that can't be stored in files
+- Overriding auto-detected values in unusual deployment scenarios
+
+**Bad**: `WARPFORGE_SCHEDULER=ray ./warpforge-launch submit ...`
+**Good**: `./warpforge-launch submit --scheduler ray ...` or auto-detect from config file
+
 ## Test Isolation: No Repo Modifications
 
 **Tests must NEVER create, modify, or delete files in the Git repository.**

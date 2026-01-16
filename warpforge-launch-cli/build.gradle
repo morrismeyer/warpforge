@@ -1,0 +1,34 @@
+plugins {
+    id 'application'
+}
+
+group = 'io.surfworks.warpforge'
+version = '0.0.1-SNAPSHOT'
+
+repositories {
+    mavenCentral()
+}
+
+description = 'WarpForge Launch CLI - Distributed job submission tool'
+
+dependencies {
+    implementation project(':warpforge-launch-core')
+    implementation project(':warpforge-license')
+
+    // Jackson for JSON output formatting
+    implementation 'com.fasterxml.jackson.core:jackson-databind:2.15.2'
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(25)
+    }
+}
+
+application {
+    mainClass = 'io.surfworks.warpforge.launch.cli.WarpforgeLaunchCli'
+}
+
+tasks.named('test') {
+    useJUnitPlatform()
+}

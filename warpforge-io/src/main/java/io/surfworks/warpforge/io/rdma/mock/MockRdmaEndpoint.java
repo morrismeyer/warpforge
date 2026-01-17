@@ -55,26 +55,22 @@ final class MockRdmaEndpoint implements RdmaEndpoint {
     @Override
     public CompletableFuture<Void> send(RdmaBuffer buffer, long offset, long length) {
         checkConnected();
-        return CompletableFuture.supplyAsync(() -> {
-            // Simulate send - in mock, this is just recording the operation
-            bytesSent.addAndGet(length);
-            sendOps.incrementAndGet();
-            parent.recordSend(length);
-            return null;
-        });
+        // Simulate send - in mock, this is just recording the operation
+        bytesSent.addAndGet(length);
+        sendOps.incrementAndGet();
+        parent.recordSend(length);
+        return CompletableFuture.completedFuture(null);
     }
 
     @Override
     public CompletableFuture<Long> receive(RdmaBuffer buffer) {
         checkConnected();
-        return CompletableFuture.supplyAsync(() -> {
-            // Simulate receive - return buffer size as if fully filled
-            long received = buffer.byteSize();
-            bytesReceived.addAndGet(received);
-            recvOps.incrementAndGet();
-            parent.recordReceive(received);
-            return received;
-        });
+        // Simulate receive - return buffer size as if fully filled
+        long received = buffer.byteSize();
+        bytesReceived.addAndGet(received);
+        recvOps.incrementAndGet();
+        parent.recordReceive(received);
+        return CompletableFuture.completedFuture(received);
     }
 
     @Override
@@ -86,22 +82,20 @@ final class MockRdmaEndpoint implements RdmaEndpoint {
     public CompletableFuture<Void> write(RdmaBuffer localBuffer, long localOffset, long length,
                                           long remoteAddress, long remoteKey) {
         checkConnected();
-        return CompletableFuture.supplyAsync(() -> {
-            // In mock mode, look up the remote buffer by key (which is the buffer ID)
-            MockRdmaBuffer remoteBuffer = parent.getBuffer(remoteKey);
-            if (remoteBuffer != null) {
-                // Perform actual copy if remote buffer exists (loopback scenario)
-                MemorySegment src = localBuffer.segment().asSlice(localOffset, length);
-                MemorySegment dst = remoteBuffer.segment().asSlice(
-                        remoteAddress - remoteBuffer.address(), length);
-                MemorySegment.copy(src, 0, dst, 0, length);
-            }
+        // In mock mode, look up the remote buffer by key (which is the buffer ID)
+        MockRdmaBuffer remoteBuffer = parent.getBuffer(remoteKey);
+        if (remoteBuffer != null) {
+            // Perform actual copy if remote buffer exists (loopback scenario)
+            MemorySegment src = localBuffer.segment().asSlice(localOffset, length);
+            MemorySegment dst = remoteBuffer.segment().asSlice(
+                    remoteAddress - remoteBuffer.address(), length);
+            MemorySegment.copy(src, 0, dst, 0, length);
+        }
 
-            bytesSent.addAndGet(length);
-            writeOps.incrementAndGet();
-            parent.recordSend(length);
-            return null;
-        });
+        bytesSent.addAndGet(length);
+        writeOps.incrementAndGet();
+        parent.recordSend(length);
+        return CompletableFuture.completedFuture(null);
     }
 
     @Override
@@ -120,76 +114,70 @@ final class MockRdmaEndpoint implements RdmaEndpoint {
     public CompletableFuture<Void> read(RdmaBuffer localBuffer, long localOffset, long length,
                                          long remoteAddress, long remoteKey) {
         checkConnected();
-        return CompletableFuture.supplyAsync(() -> {
-            // In mock mode, look up the remote buffer by key
-            MockRdmaBuffer remoteBuffer = parent.getBuffer(remoteKey);
-            if (remoteBuffer != null) {
-                // Perform actual copy if remote buffer exists (loopback scenario)
-                MemorySegment src = remoteBuffer.segment().asSlice(
-                        remoteAddress - remoteBuffer.address(), length);
-                MemorySegment dst = localBuffer.segment().asSlice(localOffset, length);
-                MemorySegment.copy(src, 0, dst, 0, length);
-            }
+        // In mock mode, look up the remote buffer by key
+        MockRdmaBuffer remoteBuffer = parent.getBuffer(remoteKey);
+        if (remoteBuffer != null) {
+            // Perform actual copy if remote buffer exists (loopback scenario)
+            MemorySegment src = remoteBuffer.segment().asSlice(
+                    remoteAddress - remoteBuffer.address(), length);
+            MemorySegment dst = localBuffer.segment().asSlice(localOffset, length);
+            MemorySegment.copy(src, 0, dst, 0, length);
+        }
 
-            bytesReceived.addAndGet(length);
-            readOps.incrementAndGet();
-            parent.recordReceive(length);
-            return null;
-        });
+        bytesReceived.addAndGet(length);
+        readOps.incrementAndGet();
+        parent.recordReceive(length);
+        return CompletableFuture.completedFuture(null);
     }
 
     @Override
     public CompletableFuture<Void> atomicCompareSwap(RdmaBuffer localBuffer, long remoteAddress,
                                                       long remoteKey, long expected, long desired) {
         checkConnected();
-        return CompletableFuture.supplyAsync(() -> {
-            MockRdmaBuffer remoteBuffer = parent.getBuffer(remoteKey);
-            if (remoteBuffer != null) {
-                MemorySegment remoteSeg = remoteBuffer.segment();
-                long remoteOffset = remoteAddress - remoteBuffer.address();
+        MockRdmaBuffer remoteBuffer = parent.getBuffer(remoteKey);
+        if (remoteBuffer != null) {
+            MemorySegment remoteSeg = remoteBuffer.segment();
+            long remoteOffset = remoteAddress - remoteBuffer.address();
 
-                // Read current value
-                long current = remoteSeg.get(java.lang.foreign.ValueLayout.JAVA_LONG, remoteOffset);
+            // Read current value
+            long current = remoteSeg.get(java.lang.foreign.ValueLayout.JAVA_LONG, remoteOffset);
 
-                // Write current to local buffer (return value)
-                localBuffer.segment().set(java.lang.foreign.ValueLayout.JAVA_LONG, 0, current);
+            // Write current to local buffer (return value)
+            localBuffer.segment().set(java.lang.foreign.ValueLayout.JAVA_LONG, 0, current);
 
-                // Conditionally update remote
-                if (current == expected) {
-                    remoteSeg.set(java.lang.foreign.ValueLayout.JAVA_LONG, remoteOffset, desired);
-                }
+            // Conditionally update remote
+            if (current == expected) {
+                remoteSeg.set(java.lang.foreign.ValueLayout.JAVA_LONG, remoteOffset, desired);
             }
+        }
 
-            atomicOps.incrementAndGet();
-            parent.recordOperation();
-            return null;
-        });
+        atomicOps.incrementAndGet();
+        parent.recordOperation();
+        return CompletableFuture.completedFuture(null);
     }
 
     @Override
     public CompletableFuture<Void> atomicFetchAdd(RdmaBuffer localBuffer, long remoteAddress,
                                                    long remoteKey, long delta) {
         checkConnected();
-        return CompletableFuture.supplyAsync(() -> {
-            MockRdmaBuffer remoteBuffer = parent.getBuffer(remoteKey);
-            if (remoteBuffer != null) {
-                MemorySegment remoteSeg = remoteBuffer.segment();
-                long remoteOffset = remoteAddress - remoteBuffer.address();
+        MockRdmaBuffer remoteBuffer = parent.getBuffer(remoteKey);
+        if (remoteBuffer != null) {
+            MemorySegment remoteSeg = remoteBuffer.segment();
+            long remoteOffset = remoteAddress - remoteBuffer.address();
 
-                // Read current value
-                long current = remoteSeg.get(java.lang.foreign.ValueLayout.JAVA_LONG, remoteOffset);
+            // Read current value
+            long current = remoteSeg.get(java.lang.foreign.ValueLayout.JAVA_LONG, remoteOffset);
 
-                // Write current to local buffer (return value)
-                localBuffer.segment().set(java.lang.foreign.ValueLayout.JAVA_LONG, 0, current);
+            // Write current to local buffer (return value)
+            localBuffer.segment().set(java.lang.foreign.ValueLayout.JAVA_LONG, 0, current);
 
-                // Update remote with sum
-                remoteSeg.set(java.lang.foreign.ValueLayout.JAVA_LONG, remoteOffset, current + delta);
-            }
+            // Update remote with sum
+            remoteSeg.set(java.lang.foreign.ValueLayout.JAVA_LONG, remoteOffset, current + delta);
+        }
 
-            atomicOps.incrementAndGet();
-            parent.recordOperation();
-            return null;
-        });
+        atomicOps.incrementAndGet();
+        parent.recordOperation();
+        return CompletableFuture.completedFuture(null);
     }
 
     @Override

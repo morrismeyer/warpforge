@@ -76,8 +76,8 @@ final class MockRdmaListener implements RdmaListener {
     @Override
     public void close() {
         active = false;
-        // Wake up any blocked accept() calls
-        pendingConnections.offer(null);
+        // Clear any pending connections - blocked accept() calls will check isActive
+        pendingConnections.clear();
     }
 
     /**

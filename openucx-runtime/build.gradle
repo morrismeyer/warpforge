@@ -25,6 +25,7 @@ def ucxRepoDir = new File(rootProject.projectDir, '../openucx')
 def uccRepoDir = new File(rootProject.projectDir, '../ucc')
 def ucxInstallDir = new File(ucxRepoDir, 'install')
 def uccInstallDir = new File(uccRepoDir, 'install')
+def moduleBuildDir = layout.buildDirectory.get().asFile
 
 def jextractPath = providers.gradleProperty('jextract.path')
         .orElse(providers.environmentVariable('JEXTRACT_HOME'))
@@ -53,7 +54,7 @@ tasks.register('checkOpenUCXDeps', Exec) {
 
     commandLine 'bash', '-c', '''
         missing=""
-        for cmd in git make automake autoconf libtool pkg-config; do
+        for cmd in git make automake autoconf libtoolize pkg-config; do
             if ! command -v $cmd &> /dev/null; then
                 missing="$missing $cmd"
             fi
@@ -346,7 +347,6 @@ tasks.register('jextractUCX', Exec) {
     }
 
     commandLine jextractBin.absolutePath,
-            '--source',
             '--output', generatedOutputDir.absolutePath,
             '--target-package', 'io.surfworks.warpforge.io.ffi.ucx',
             '--header-class-name', 'Ucx',
@@ -371,7 +371,6 @@ tasks.register('jextractUCC', Exec) {
     }
 
     commandLine jextractBin.absolutePath,
-            '--source',
             '--output', generatedOutputDir.absolutePath,
             '--target-package', 'io.surfworks.warpforge.io.ffi.ucc',
             '--header-class-name', 'Ucc',
@@ -386,14 +385,13 @@ tasks.register('jextractIbverbs', Exec) {
     description = 'Generate Java FFM stubs for libibverbs (direct RDMA access)'
 
     dependsOn 'checkJextract', 'checkOpenUCXDeps', 'jextractUCC'
-    onlyIf { isLinux && file('/usr/include/infiniband/verbs.h').exists() }
+    onlyIf { isLinux && new File('/usr/include/infiniband/verbs.h').exists() }
 
     doFirst {
         println "Generating libibverbs stubs..."
     }
 
     commandLine jextractBin.absolutePath,
-            '--source',
             '--output', generatedOutputDir.absolutePath,
             '--target-package', 'io.surfworks.warpforge.io.ffi.ibverbs',
             '--header-class-name', 'Ibverbs',
@@ -407,14 +405,13 @@ tasks.register('jextractRdmaCm', Exec) {
     description = 'Generate Java FFM stubs for librdmacm (RDMA connection management)'
 
     dependsOn 'checkJextract', 'checkOpenUCXDeps', 'jextractIbverbs'
-    onlyIf { isLinux && file('/usr/include/rdma/rdma_cma.h').exists() }
+    onlyIf { isLinux && new File('/usr/include/rdma/rdma_cma.h').exists() }
 
     doFirst {
         println "Generating librdmacm stubs..."
     }
 
     commandLine jextractBin.absolutePath,
-            '--source',
             '--output', generatedOutputDir.absolutePath,
             '--target-package', 'io.surfworks.warpforge.io.ffi.rdmacm',
             '--header-class-name', 'RdmaCm',
@@ -435,21 +432,22 @@ tasks.register('generateJextractStubs') {
 
         def headers = []
 
-        // UCX/UCC headers
-        if (ucxInstallDir.exists()) {
-            fileTree(new File(ucxInstallDir, 'include')) { include '**/*.h' }.each { headers << it }
-        }
-        if (uccInstallDir.exists()) {
-            fileTree(new File(uccInstallDir, 'include')) { include '**/*.h' }.each { headers << it }
+        // Helper closure to find all .h files in a directory
+        def findHeaders = { File dir ->
+            if (dir.exists() && dir.isDirectory()) {
+                java.nio.file.Files.walk(dir.toPath())
+                    .filter { java.nio.file.Files.isRegularFile(it) && it.toString().endsWith('.h') }
+                    .forEach { headers << it.toFile() }
+            }
         }
 
+        // UCX/UCC headers
+        findHeaders(new File(ucxInstallDir, 'include'))
+        findHeaders(new File(uccInstallDir, 'include'))
+
         // System ibverbs headers
-        if (file('/usr/include/infiniband').exists()) {
-            fileTree('/usr/include/infiniband') { include '**/*.h' }.each { headers << it }
-        }
-        if (file('/usr/include/rdma').exists()) {
-            fileTree('/usr/include/rdma') { include '**/*.h' }.each { headers << it }
-        }
+        findHeaders(new File('/usr/include/infiniband'))
+        findHeaders(new File('/usr/include/rdma'))
 
         headers.sort { it.absolutePath }.each { f ->
             digest.update(f.bytes)
@@ -554,11 +552,11 @@ To use in warpforge-io, set:
   LD_LIBRARY_PATH=${ucxInstallDir}/lib:${uccInstallDir}/lib:\$LD_LIBRARY_PATH
 
 Or source the generated environment file:
-  source ${buildDir}/openucx.env
+  source ${moduleBuildDir}/openucx.env
 """
 
         // Write environment file
-        def envFile = file("${buildDir}/openucx.env")
+        def envFile = new File(moduleBuildDir, 'openucx.env')
         envFile.parentFile.mkdirs()
         envFile.text = """# OpenUCX environment for WarpForge
 export UCX_HOME=${ucxInstallDir}

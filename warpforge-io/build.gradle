@@ -1,0 +1,209 @@
+/*
+ * warpforge-io: High-performance RDMA networking for WarpForge.
+ *
+ * Provides zero-copy data transfer between nodes using UCX/UCC libraries
+ * with Java FFM bindings. Supports AI/ML collective operations (allreduce, etc.)
+ * over Mellanox 100GbE InfiniBand/RoCE hardware.
+ */
+
+plugins {
+    id 'java-library'
+}
+
+group = 'io.surfworks.warpforge'
+version = '0.0.1-SNAPSHOT'
+
+repositories {
+    mavenCentral()
+}
+
+// ===== Source Sets =====
+
+sourceSets {
+    main {
+        java {
+            // Only include generated source if it exists
+            def generatedDir = file('src/generated/java')
+            if (generatedDir.exists()) {
+                srcDirs = ['src/main/java', 'src/generated/java']
+            } else {
+                srcDirs = ['src/main/java']
+            }
+        }
+    }
+}
+
+// ===== Dependencies =====
+
+dependencies {
+    // Core WarpForge (for Tensor, MemorySegment integration)
+    api project(':warpforge-core')
+
+    // Jackson for configuration serialization
+    implementation 'com.fasterxml.jackson.core:jackson-databind:2.17.0'
+
+    // Testing
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.10.2'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+
+    // Ray integration for distributed tests
+    testImplementation project(':warpforge-launch-core')
+}
+
+// ===== Java Configuration =====
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(25)
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.compilerArgs.addAll([
+        '--enable-preview',
+        '--add-modules', 'jdk.incubator.vector'
+    ])
+}
+
+// ===== FFM Native Access =====
+
+tasks.withType(JavaExec).configureEach {
+    jvmArgs '--enable-native-access=ALL-UNNAMED', '--enable-preview'
+}
+
+tasks.withType(Test).configureEach {
+    jvmArgs '--enable-native-access=ALL-UNNAMED', '--enable-preview'
+}
+
+// ===== Test Configuration =====
+
+test {
+    useJUnitPlatform {
+        // Exclude integration and performance tests from normal test run
+        excludeTags 'integration', 'rdma', 'rdma-perf', 'ray-integration'
+    }
+
+    testLogging {
+        events 'passed', 'skipped', 'failed'
+        showStandardStreams = true
+    }
+}
+
+// Unit tests run on NUC with mocks (no RDMA hardware required)
+tasks.register('unitTest', Test) {
+    description = 'Run unit tests with mock backends (can run on NUC without RDMA)'
+    group = 'verification'
+
+    useJUnitPlatform {
+        includeTags 'unit'
+        excludeTags 'integration', 'rdma', 'rdma-perf', 'ray-integration'
+    }
+
+    systemProperty 'warpforge.rdma.mode', 'mock'
+    systemProperty 'warpforge.collective.mode', 'mock'
+}
+
+// RDMA tests require actual hardware
+tasks.register('rdmaTest', Test) {
+    description = 'Run RDMA tests (requires Mellanox hardware)'
+    group = 'verification'
+
+    useJUnitPlatform {
+        includeTags 'rdma'
+        excludeTags 'rdma-perf', 'ray-integration'
+    }
+
+    // Longer timeout for hardware tests
+    systemProperty 'junit.jupiter.execution.timeout.default', '5m'
+}
+
+// Performance tests
+tasks.register('rdmaPerfTest', Test) {
+    description = 'Run RDMA performance tests (measures throughput vs ibperf baseline)'
+    group = 'verification'
+
+    useJUnitPlatform {
+        includeTags 'rdma-perf'
+    }
+
+    // Much longer timeout for perf tests
+    systemProperty 'junit.jupiter.execution.timeout.default', '30m'
+
+    // Performance test configuration
+    systemProperty 'rdma.perf.iterations', System.getProperty('rdma.perf.iterations', '10000')
+    systemProperty 'rdma.perf.message.size', System.getProperty('rdma.perf.message.size', '1048576')
+}
+
+// Ray-launched integration tests for distributed operations
+tasks.register('rayIntegrationTest', Test) {
+    description = 'Run Ray-launched integration tests for all RDMA and collective operations'
+    group = 'verification'
+
+    useJUnitPlatform {
+        includeTags 'ray-integration'
+    }
+
+    // Pass Ray cluster configuration
+    systemProperty 'ray.address', System.getProperty('ray.address', 'auto')
+    systemProperty 'rdma.world.size', System.getProperty('rdma.world.size', '2')
+
+    // Extended timeout for distributed tests
+    systemProperty 'junit.jupiter.execution.timeout.default', '15m'
+}
+
+// All integration tests
+tasks.register('integrationTest', Test) {
+    description = 'Run all integration tests (RDMA + Ray)'
+    group = 'verification'
+
+    useJUnitPlatform {
+        includeTags 'integration', 'rdma', 'ray-integration'
+        excludeTags 'rdma-perf'
+    }
+
+    systemProperty 'junit.jupiter.execution.timeout.default', '10m'
+}
+
+// ===== jextract Stub Dependency =====
+
+// Only depend on jextract stubs when building with real UCX support
+// For NUC development with mocks, this dependency is skipped
+tasks.named('compileJava') {
+    def openucxRuntime = rootProject.findProject(':openucx-runtime')
+    def generatedDir = file('src/generated/java')
+    def useRealUcx = providers.gradleProperty('warpforge.io.useRealUcx')
+            .orElse('false').get().toBoolean()
+
+    if (openucxRuntime != null && useRealUcx && !generatedDir.exists()) {
+        dependsOn openucxRuntime.tasks.matching { it.name == 'generateJextractStubs' }
+    }
+}
+
+// ===== Native Library Path Configuration =====
+
+def ucxLibPath = providers.gradleProperty('openucx.repo')
+        .orElse(new File(rootProject.projectDir, '../openucx').absolutePath)
+        .map { new File(it, 'install/lib').absolutePath }
+
+def uccLibPath = providers.gradleProperty('ucc.repo')
+        .orElse(new File(rootProject.projectDir, '../ucc').absolutePath)
+        .map { new File(it, 'install/lib').absolutePath }
+
+tasks.withType(Test).configureEach {
+    environment 'LD_LIBRARY_PATH', "${ucxLibPath.get()}:${uccLibPath.get()}:${System.getenv('LD_LIBRARY_PATH') ?: ''}"
+}
+
+tasks.withType(JavaExec).configureEach {
+    environment 'LD_LIBRARY_PATH', "${ucxLibPath.get()}:${uccLibPath.get()}:${System.getenv('LD_LIBRARY_PATH') ?: ''}"
+}
+
+// ===== Documentation =====
+
+javadoc {
+    options {
+        addBooleanOption('-enable-preview', true)
+        addStringOption('-add-modules', 'jdk.incubator.vector')
+        addStringOption('Xdoclint:none', '-quiet')
+    }
+}

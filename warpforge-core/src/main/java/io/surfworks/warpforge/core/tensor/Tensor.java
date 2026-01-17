@@ -150,6 +150,13 @@ public final class Tensor implements AutoCloseable {
         return spec.elementCount();
     }
 
+    /**
+     * Alias for elementCount() for API consistency.
+     */
+    public long numElements() {
+        return spec.elementCount();
+    }
+
     public ScalarType dtype() {
         return spec.dtype();
     }
@@ -290,6 +297,39 @@ public final class Tensor implements AutoCloseable {
                 "Source length " + source.length + " doesn't match tensor size " + elementCount());
         }
         MemorySegment.copy(source, 0, data, ValueLayout.JAVA_DOUBLE, 0, source.length);
+    }
+
+    /**
+     * Copy tensor data to a float array (symmetric with copyFrom).
+     */
+    public void copyTo(float[] dest) {
+        if (dest.length != elementCount()) {
+            throw new IllegalArgumentException(
+                "Destination length " + dest.length + " doesn't match tensor size " + elementCount());
+        }
+        MemorySegment.copy(data, ValueLayout.JAVA_FLOAT, 0, dest, 0, dest.length);
+    }
+
+    /**
+     * Copy tensor data to a double array (symmetric with copyFrom).
+     */
+    public void copyTo(double[] dest) {
+        if (dest.length != elementCount()) {
+            throw new IllegalArgumentException(
+                "Destination length " + dest.length + " doesn't match tensor size " + elementCount());
+        }
+        MemorySegment.copy(data, ValueLayout.JAVA_DOUBLE, 0, dest, 0, dest.length);
+    }
+
+    /**
+     * Copy tensor data to an int array.
+     */
+    public void copyTo(int[] dest) {
+        if (dest.length != elementCount()) {
+            throw new IllegalArgumentException(
+                "Destination length " + dest.length + " doesn't match tensor size " + elementCount());
+        }
+        MemorySegment.copy(data, ValueLayout.JAVA_INT, 0, dest, 0, dest.length);
     }
 
     /**

@@ -1,0 +1,70 @@
+plugins { id 'java-library' }
+
+group = 'io.surfworks.warpforge'
+version = '0.0.1-SNAPSHOT'
+
+repositories { mavenCentral() }
+
+dependencies {
+    api project(':warpforge-core')
+    api project(':warpforge-io')
+
+    testImplementation 'org.junit.jupiter:junit-jupiter-api:5.10.2'
+    testImplementation 'org.junit.jupiter:junit-jupiter-params:5.10.2'
+    testRuntimeOnly 'org.junit.jupiter:junit-jupiter-engine:5.10.2'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher:1.10.2'
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+}
+
+tasks.withType(Test).configureEach {
+    useJUnitPlatform()
+}
+
+test {
+    useJUnitPlatform {
+        excludeTags 'amd', 'gpu', 'rdma'
+    }
+}
+
+// AMD GPU tests require actual hardware
+tasks.register('amdBackendTest', Test) {
+    description = 'Run AMD GPU backend tests (requires ROCm hardware)'
+    group = 'verification'
+
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+
+    useJUnitPlatform {
+        includeTags 'amd'
+    }
+
+    // Set ROCm library paths
+    def rocmHome = System.getenv('ROCM_HOME') ?: '/opt/rocm'
+    environment 'LD_LIBRARY_PATH', "${rocmHome}/lib:${System.getenv('LD_LIBRARY_PATH') ?: ''}"
+
+    testLogging {
+        events 'passed', 'skipped', 'failed', 'standardOut'
+        showStandardStreams = true
+    }
+}
+
+// AMD RDMA tests (ROCm RDMA)
+tasks.register('rocmRdmaBackendTest', Test) {
+    description = 'Run ROCm RDMA backend tests (requires AMD GPU + RDMA NIC)'
+    group = 'verification'
+
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+
+    useJUnitPlatform {
+        includeTags 'amd', 'rdma'
+    }
+
+    testLogging {
+        events 'passed', 'skipped', 'failed', 'standardOut'
+        showStandardStreams = true
+    }
+}

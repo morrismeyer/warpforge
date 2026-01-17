@@ -1,0 +1,675 @@
+/*
+ * openucx-runtime: Build orchestration for UCX, UCC, and libibverbs libraries.
+ *
+ * This module manages the external UCX (Unified Communication X) and UCC (Unified Collective
+ * Communications) repositories, similar to how babylon-runtime manages the Babylon JDK.
+ * It also generates Java FFM bindings for direct libibverbs access.
+ *
+ * Key tasks:
+ *   - checkOpenUCXDeps: Verify build dependencies (rdma-core, libibverbs, cmake, etc.)
+ *   - cloneUCX/cloneUCC: Clone repos to ../openucx and ../ucc if missing
+ *   - configureUCX/configureUCC: Run ./autogen.sh and ./configure
+ *   - buildUCX/buildUCC: Run make
+ *   - generateJextractStubs: Generate Java FFM stubs from UCX/UCC/ibverbs headers
+ *   - checkApiStability: Fail if headers changed without stub regeneration
+ *   - ensureOpenUCXReady: Full build cycle orchestrator
+ */
+
+plugins {
+    id 'base'
+}
+
+// ===== Configuration Providers =====
+
+def ucxRepoDir = new File(rootProject.projectDir, '../openucx')
+def uccRepoDir = new File(rootProject.projectDir, '../ucc')
+def ucxInstallDir = new File(ucxRepoDir, 'install')
+def uccInstallDir = new File(uccRepoDir, 'install')
+
+def jextractPath = providers.gradleProperty('jextract.path')
+        .orElse(providers.environmentVariable('JEXTRACT_HOME'))
+        .orElse('/opt/jextract-22')
+        .get()
+
+def parallelJobs = providers.gradleProperty('openucx.jobs')
+        .orElse(String.valueOf(Runtime.getRuntime().availableProcessors()))
+        .get()
+
+// ===== Platform Detection =====
+
+def os = System.getProperty('os.name', '').toLowerCase(Locale.ROOT).with {
+    it.contains('linux') ? 'linux' : (it.contains('mac') ? 'macos' : it.replaceAll('[^a-z0-9]', ''))
+}
+
+def isLinux = os == 'linux'
+
+// ===== Dependency Checking =====
+
+tasks.register('checkOpenUCXDeps', Exec) {
+    group = 'openucx'
+    description = 'Verify build dependencies for UCX/UCC are installed'
+
+    onlyIf { isLinux }
+
+    commandLine 'bash', '-c', '''
+        missing=""
+        for cmd in git make automake autoconf libtool pkg-config; do
+            if ! command -v $cmd &> /dev/null; then
+                missing="$missing $cmd"
+            fi
+        done
+
+        # Check for RDMA headers on Linux
+        if [ ! -f /usr/include/infiniband/verbs.h ]; then
+            missing="$missing libibverbs-dev"
+        fi
+        if [ ! -f /usr/include/rdma/rdma_cma.h ]; then
+            missing="$missing librdmacm-dev"
+        fi
+        if [ ! -f /usr/include/numa.h ]; then
+            missing="$missing libnuma-dev"
+        fi
+
+        if [ -n "$missing" ]; then
+            echo "Missing dependencies:$missing"
+            echo ""
+            echo "Install on Ubuntu/Debian:"
+            echo "  sudo apt install build-essential automake autoconf libtool pkg-config \\"
+            echo "                   libibverbs-dev librdmacm-dev libnuma-dev"
+            echo ""
+            echo "Install on RHEL/CentOS:"
+            echo "  sudo dnf install automake autoconf libtool pkgconfig \\"
+            echo "                   rdma-core-devel numactl-devel"
+            exit 1
+        fi
+
+        echo "All UCX/UCC build dependencies are satisfied."
+
+        # Check for Mellanox OFED (optional)
+        if ! command -v ofed_info &> /dev/null; then
+            echo "WARNING: Mellanox OFED not detected. Using inbox drivers (may have lower performance)."
+        fi
+    '''
+
+    ignoreExitValue = false
+}
+
+tasks.register('checkOpenUCXDepsMac') {
+    group = 'openucx'
+    description = 'Check dependencies on macOS (warns that RDMA is Linux-only)'
+
+    onlyIf { !isLinux }
+
+    doLast {
+        logger.warn("WARNING: Platform '${os}' is not Linux. UCX RDMA support requires Linux with InfiniBand/RoCE hardware.")
+        logger.warn("Mock implementations will be used for development.")
+    }
+}
+
+// ===== Repository Management =====
+
+tasks.register('cloneUCX', Exec) {
+    group = 'openucx'
+    description = 'Clone UCX repository to ../openucx if not present'
+
+    onlyIf { !ucxRepoDir.exists() }
+
+    commandLine 'git', 'clone', '--depth', '1',
+            'https://github.com/openucx/ucx.git', ucxRepoDir.absolutePath
+
+    doFirst {
+        println "Cloning UCX repository to ${ucxRepoDir}..."
+    }
+}
+
+tasks.register('cloneUCC', Exec) {
+    group = 'openucx'
+    description = 'Clone UCC repository to ../ucc if not present'
+
+    onlyIf { !uccRepoDir.exists() }
+
+    commandLine 'git', 'clone', '--depth', '1',
+            'https://github.com/openucx/ucc.git', uccRepoDir.absolutePath
+
+    doFirst {
+        println "Cloning UCC repository to ${uccRepoDir}..."
+    }
+}
+
+tasks.register('updateUCX', Exec) {
+    group = 'openucx'
+    description = 'Pull latest UCX changes'
+
+    dependsOn 'cloneUCX'
+    onlyIf { ucxRepoDir.exists() }
+
+    workingDir ucxRepoDir
+    commandLine 'git', 'pull', '--ff-only'
+    ignoreExitValue = true
+
+    doFirst {
+        println "Updating UCX repository..."
+    }
+}
+
+tasks.register('updateUCC', Exec) {
+    group = 'openucx'
+    description = 'Pull latest UCC changes'
+
+    dependsOn 'cloneUCC'
+    onlyIf { uccRepoDir.exists() }
+
+    workingDir uccRepoDir
+    commandLine 'git', 'pull', '--ff-only'
+    ignoreExitValue = true
+
+    doFirst {
+        println "Updating UCC repository..."
+    }
+}
+
+// ===== UCX Build =====
+
+tasks.register('autogenUCX', Exec) {
+    group = 'openucx'
+    description = 'Run autogen.sh for UCX'
+
+    dependsOn 'cloneUCX'
+    onlyIf { isLinux }
+
+    def configureScript = new File(ucxRepoDir, 'configure')
+    onlyIf { !configureScript.exists() }
+
+    workingDir ucxRepoDir
+    commandLine './autogen.sh'
+
+    doFirst {
+        println "Running UCX autogen.sh..."
+    }
+}
+
+tasks.register('configureUCX', Exec) {
+    group = 'openucx'
+    description = 'Configure UCX build'
+
+    dependsOn 'autogenUCX', 'checkOpenUCXDeps'
+    onlyIf { isLinux }
+
+    def makefile = new File(ucxRepoDir, 'Makefile')
+    onlyIf { !makefile.exists() }
+
+    workingDir ucxRepoDir
+    commandLine './configure',
+            "--prefix=${ucxInstallDir.absolutePath}",
+            '--enable-mt',
+            '--with-verbs',
+            '--with-rdmacm',
+            '--enable-shared',
+            '--disable-static'
+
+    doFirst {
+        println "Configuring UCX..."
+    }
+}
+
+tasks.register('buildUCX', Exec) {
+    group = 'openucx'
+    description = 'Build and install UCX'
+
+    dependsOn 'configureUCX'
+    onlyIf { isLinux }
+
+    def libUcp = new File(ucxInstallDir, 'lib/libucp.so')
+    onlyIf { !libUcp.exists() }
+
+    workingDir ucxRepoDir
+    commandLine 'make', "-j${parallelJobs}", 'install'
+
+    doFirst {
+        println "Building UCX with ${parallelJobs} parallel jobs..."
+    }
+
+    doLast {
+        println "UCX installed to ${ucxInstallDir}"
+    }
+}
+
+// ===== UCC Build =====
+
+tasks.register('autogenUCC', Exec) {
+    group = 'openucx'
+    description = 'Run autogen.sh for UCC'
+
+    dependsOn 'cloneUCC'
+    onlyIf { isLinux }
+
+    def configureScript = new File(uccRepoDir, 'configure')
+    onlyIf { !configureScript.exists() }
+
+    workingDir uccRepoDir
+    commandLine './autogen.sh'
+
+    doFirst {
+        println "Running UCC autogen.sh..."
+    }
+}
+
+tasks.register('configureUCC', Exec) {
+    group = 'openucx'
+    description = 'Configure UCC build (requires UCX)'
+
+    dependsOn 'autogenUCC', 'buildUCX'
+    onlyIf { isLinux }
+
+    def makefile = new File(uccRepoDir, 'Makefile')
+    onlyIf { !makefile.exists() }
+
+    workingDir uccRepoDir
+    commandLine './configure',
+            "--prefix=${uccInstallDir.absolutePath}",
+            "--with-ucx=${ucxInstallDir.absolutePath}",
+            '--enable-shared',
+            '--disable-static'
+
+    doFirst {
+        println "Configuring UCC with UCX at ${ucxInstallDir}..."
+    }
+}
+
+tasks.register('buildUCC', Exec) {
+    group = 'openucx'
+    description = 'Build and install UCC'
+
+    dependsOn 'configureUCC'
+    onlyIf { isLinux }
+
+    def libUcc = new File(uccInstallDir, 'lib/libucc.so')
+    onlyIf { !libUcc.exists() }
+
+    workingDir uccRepoDir
+    commandLine 'make', "-j${parallelJobs}", 'install'
+
+    doFirst {
+        println "Building UCC with ${parallelJobs} parallel jobs..."
+    }
+
+    doLast {
+        println "UCC installed to ${uccInstallDir}"
+    }
+}
+
+// ===== jextract Stub Generation =====
+
+def generatedOutputDir = rootProject.file('warpforge-io/src/generated/java')
+def headerFingerprint = file("${buildDir}/header-fingerprint.sha256")
+def jextractBin = new File(jextractPath, 'bin/jextract')
+
+tasks.register('checkJextract') {
+    group = 'openucx'
+    description = 'Verify jextract is installed'
+
+    doLast {
+        if (!jextractBin.exists()) {
+            throw new GradleException("""
+jextract not found at: ${jextractBin}
+
+Install jextract:
+  1. Download from: https://jdk.java.net/jextract/
+  2. Extract to /opt/jextract-22 (or set -Pjextract.path=/your/path)
+  3. Or set JEXTRACT_HOME environment variable
+""")
+        }
+        println "Found jextract at: ${jextractBin}"
+    }
+}
+
+tasks.register('cleanGeneratedStubs', Delete) {
+    group = 'openucx'
+    description = 'Clean generated FFM stubs'
+
+    delete generatedOutputDir
+}
+
+tasks.register('jextractUCX', Exec) {
+    group = 'openucx'
+    description = 'Generate Java FFM stubs for UCX (UCP API)'
+
+    dependsOn 'buildUCX', 'checkJextract', 'cleanGeneratedStubs'
+    onlyIf { isLinux && ucxInstallDir.exists() }
+
+    def ucxInclude = new File(ucxInstallDir, 'include')
+    def ucpHeader = new File(ucxInclude, 'ucp/api/ucp.h')
+
+    doFirst {
+        generatedOutputDir.mkdirs()
+        println "Generating UCX/UCP stubs from ${ucpHeader}..."
+    }
+
+    commandLine jextractBin.absolutePath,
+            '--source',
+            '--output', generatedOutputDir.absolutePath,
+            '--target-package', 'io.surfworks.warpforge.io.ffi.ucx',
+            '--header-class-name', 'Ucx',
+            '--library', 'ucp',
+            '--include-dir', ucxInclude.absolutePath,
+            ucpHeader.absolutePath
+}
+
+tasks.register('jextractUCC', Exec) {
+    group = 'openucx'
+    description = 'Generate Java FFM stubs for UCC'
+
+    dependsOn 'buildUCC', 'checkJextract', 'jextractUCX'
+    onlyIf { isLinux && uccInstallDir.exists() }
+
+    def ucxInclude = new File(ucxInstallDir, 'include')
+    def uccInclude = new File(uccInstallDir, 'include')
+    def uccHeader = new File(uccInclude, 'ucc/api/ucc.h')
+
+    doFirst {
+        println "Generating UCC stubs from ${uccHeader}..."
+    }
+
+    commandLine jextractBin.absolutePath,
+            '--source',
+            '--output', generatedOutputDir.absolutePath,
+            '--target-package', 'io.surfworks.warpforge.io.ffi.ucc',
+            '--header-class-name', 'Ucc',
+            '--library', 'ucc',
+            '--include-dir', uccInclude.absolutePath,
+            '--include-dir', ucxInclude.absolutePath,
+            uccHeader.absolutePath
+}
+
+tasks.register('jextractIbverbs', Exec) {
+    group = 'openucx'
+    description = 'Generate Java FFM stubs for libibverbs (direct RDMA access)'
+
+    dependsOn 'checkJextract', 'checkOpenUCXDeps', 'jextractUCC'
+    onlyIf { isLinux && file('/usr/include/infiniband/verbs.h').exists() }
+
+    doFirst {
+        println "Generating libibverbs stubs..."
+    }
+
+    commandLine jextractBin.absolutePath,
+            '--source',
+            '--output', generatedOutputDir.absolutePath,
+            '--target-package', 'io.surfworks.warpforge.io.ffi.ibverbs',
+            '--header-class-name', 'Ibverbs',
+            '--library', 'ibverbs',
+            '--include-dir', '/usr/include',
+            '/usr/include/infiniband/verbs.h'
+}
+
+tasks.register('jextractRdmaCm', Exec) {
+    group = 'openucx'
+    description = 'Generate Java FFM stubs for librdmacm (RDMA connection management)'
+
+    dependsOn 'checkJextract', 'checkOpenUCXDeps', 'jextractIbverbs'
+    onlyIf { isLinux && file('/usr/include/rdma/rdma_cma.h').exists() }
+
+    doFirst {
+        println "Generating librdmacm stubs..."
+    }
+
+    commandLine jextractBin.absolutePath,
+            '--source',
+            '--output', generatedOutputDir.absolutePath,
+            '--target-package', 'io.surfworks.warpforge.io.ffi.rdmacm',
+            '--header-class-name', 'RdmaCm',
+            '--library', 'rdmacm',
+            '--include-dir', '/usr/include',
+            '/usr/include/rdma/rdma_cma.h'
+}
+
+tasks.register('generateJextractStubs') {
+    group = 'openucx'
+    description = 'Generate all Java FFM stubs (UCX, UCC, ibverbs, rdmacm)'
+
+    dependsOn 'jextractUCX', 'jextractUCC', 'jextractIbverbs', 'jextractRdmaCm'
+
+    doLast {
+        // Compute header fingerprint for API stability detection
+        def digest = java.security.MessageDigest.getInstance('SHA-256')
+
+        def headers = []
+
+        // UCX/UCC headers
+        if (ucxInstallDir.exists()) {
+            fileTree(new File(ucxInstallDir, 'include')) { include '**/*.h' }.each { headers << it }
+        }
+        if (uccInstallDir.exists()) {
+            fileTree(new File(uccInstallDir, 'include')) { include '**/*.h' }.each { headers << it }
+        }
+
+        // System ibverbs headers
+        if (file('/usr/include/infiniband').exists()) {
+            fileTree('/usr/include/infiniband') { include '**/*.h' }.each { headers << it }
+        }
+        if (file('/usr/include/rdma').exists()) {
+            fileTree('/usr/include/rdma') { include '**/*.h' }.each { headers << it }
+        }
+
+        headers.sort { it.absolutePath }.each { f ->
+            digest.update(f.bytes)
+        }
+
+        def hash = digest.digest().encodeHex().toString()
+        headerFingerprint.parentFile.mkdirs()
+        headerFingerprint.text = hash
+
+        println ""
+        println "Generated FFM stubs in: ${generatedOutputDir}"
+        println "Header fingerprint: ${hash}"
+        println ""
+        println "Packages generated:"
+        println "  - io.surfworks.warpforge.io.ffi.ucx      (UCX/UCP high-level API)"
+        println "  - io.surfworks.warpforge.io.ffi.ucc      (UCC collective operations)"
+        println "  - io.surfworks.warpforge.io.ffi.ibverbs  (libibverbs low-level RDMA)"
+        println "  - io.surfworks.warpforge.io.ffi.rdmacm   (RDMA connection management)"
+    }
+}
+
+// ===== API Stability Checking =====
+
+tasks.register('checkApiStability') {
+    group = 'openucx'
+    description = 'Verify UCX/UCC/ibverbs API has not changed since last jextract generation'
+
+    dependsOn 'generateJextractStubs'
+
+    def savedFingerprint = rootProject.file('warpforge-io/api-fingerprint.sha256')
+
+    doLast {
+        if (!headerFingerprint.exists()) {
+            throw new GradleException("Header fingerprint not generated. Run generateJextractStubs first.")
+        }
+
+        def current = headerFingerprint.text.trim()
+
+        if (!savedFingerprint.exists()) {
+            // First time: save the fingerprint
+            savedFingerprint.text = current
+            println "Saved initial API fingerprint: ${current}"
+            return
+        }
+
+        def saved = savedFingerprint.text.trim()
+
+        if (current != saved) {
+            throw new GradleException("""
+UCX/UCC/ibverbs API has changed!
+
+Previous fingerprint: ${saved}
+Current fingerprint:  ${current}
+
+If this is intentional:
+  1. Review the API changes
+  2. Update warpforge-io code if needed
+  3. Run: cp ${headerFingerprint} ${savedFingerprint}
+  4. Commit the updated fingerprint
+""")
+        }
+
+        println "API fingerprint unchanged: ${current}"
+    }
+}
+
+// ===== Orchestrator Task =====
+
+tasks.register('ensureOpenUCXReady') {
+    group = 'openucx'
+    description = 'Full build cycle: update repos, build UCX/UCC, generate stubs, verify API stability'
+
+    if (isLinux) {
+        dependsOn 'updateUCX', 'updateUCC', 'checkApiStability'
+    } else {
+        dependsOn 'checkOpenUCXDepsMac'
+    }
+
+    doLast {
+        if (!isLinux) {
+            println """
+OpenUCX: Running on non-Linux platform (${os})
+Mock implementations will be used for warpforge-io development.
+Full RDMA support requires Linux with InfiniBand/RoCE hardware.
+"""
+            return
+        }
+
+        println """
+OpenUCX Ready!
+
+UCX installed at: ${ucxInstallDir}
+UCC installed at: ${uccInstallDir}
+
+Generated FFM packages:
+  - io.surfworks.warpforge.io.ffi.ucx      (UCX/UCP)
+  - io.surfworks.warpforge.io.ffi.ucc      (UCC)
+  - io.surfworks.warpforge.io.ffi.ibverbs  (libibverbs)
+  - io.surfworks.warpforge.io.ffi.rdmacm   (librdmacm)
+
+To use in warpforge-io, set:
+  LD_LIBRARY_PATH=${ucxInstallDir}/lib:${uccInstallDir}/lib:\$LD_LIBRARY_PATH
+
+Or source the generated environment file:
+  source ${buildDir}/openucx.env
+"""
+
+        // Write environment file
+        def envFile = file("${buildDir}/openucx.env")
+        envFile.parentFile.mkdirs()
+        envFile.text = """# OpenUCX environment for WarpForge
+export UCX_HOME=${ucxInstallDir}
+export UCC_HOME=${uccInstallDir}
+export LD_LIBRARY_PATH=${ucxInstallDir}/lib:${uccInstallDir}/lib:\$LD_LIBRARY_PATH
+export PKG_CONFIG_PATH=${ucxInstallDir}/lib/pkgconfig:${uccInstallDir}/lib/pkgconfig:\$PKG_CONFIG_PATH
+"""
+    }
+}
+
+// Alias for convenience
+tasks.register('openucxUpdate') {
+    group = 'openucx'
+    description = 'Alias for ensureOpenUCXReady'
+    dependsOn 'ensureOpenUCXReady'
+}
+
+// ===== Clean Task =====
+
+clean {
+    doLast {
+        if (ucxRepoDir.exists()) {
+            println "Note: UCX repo at ${ucxRepoDir} was not deleted. Run 'make clean' there if needed."
+        }
+        if (uccRepoDir.exists()) {
+            println "Note: UCC repo at ${uccRepoDir} was not deleted. Run 'make clean' there if needed."
+        }
+    }
+}
+
+// ===== Hardware Detection =====
+
+tasks.register('detectRdmaHardware', Exec) {
+    group = 'openucx'
+    description = 'Detect RDMA-capable hardware on this system'
+
+    onlyIf { isLinux }
+
+    commandLine 'bash', '-c', '''
+        echo "Detecting RDMA hardware..."
+        echo ""
+
+        echo "=== InfiniBand Devices ==="
+        ls /sys/class/infiniband/ 2>/dev/null || echo "No InfiniBand devices found"
+        echo ""
+
+        echo "=== ibstat Output ==="
+        ibstat 2>/dev/null || echo "ibstat not available (install infiniband-diags)"
+        echo ""
+
+        echo "=== Mellanox Devices (lspci) ==="
+        lspci | grep -i mellanox || echo "No Mellanox devices found"
+        echo ""
+
+        echo "=== RDMA Links (rdma link) ==="
+        rdma link 2>/dev/null || echo "rdma tool not available"
+    '''
+}
+
+tasks.register('detectRdmaHardwareMac') {
+    group = 'openucx'
+    description = 'RDMA hardware detection (macOS stub)'
+
+    onlyIf { !isLinux }
+
+    doLast {
+        println "RDMA hardware detection is only available on Linux."
+        println "macOS does not support InfiniBand/RoCE."
+    }
+}
+
+// ===== Individual Library Tasks =====
+
+tasks.register('rebuildUCX') {
+    group = 'openucx'
+    description = 'Force rebuild of UCX (cleans and rebuilds)'
+
+    doFirst {
+        if (ucxRepoDir.exists()) {
+            println "Cleaning UCX build..."
+            def makeClean = ['make', 'clean'].execute([], ucxRepoDir)
+            makeClean.waitFor()
+        }
+        // Delete install dir to force rebuild
+        delete ucxInstallDir
+    }
+
+    finalizedBy 'buildUCX'
+}
+
+tasks.register('rebuildUCC') {
+    group = 'openucx'
+    description = 'Force rebuild of UCC (cleans and rebuilds)'
+
+    doFirst {
+        if (uccRepoDir.exists()) {
+            println "Cleaning UCC build..."
+            def makeClean = ['make', 'clean'].execute([], uccRepoDir)
+            makeClean.waitFor()
+        }
+        // Delete install dir to force rebuild
+        delete uccInstallDir
+    }
+
+    finalizedBy 'buildUCC'
+}
+
+tasks.register('rebuildAll') {
+    group = 'openucx'
+    description = 'Force rebuild of UCX, UCC, and regenerate all stubs'
+
+    dependsOn 'rebuildUCX', 'rebuildUCC'
+    finalizedBy 'generateJextractStubs'
+}

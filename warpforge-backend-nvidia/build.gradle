@@ -1,0 +1,70 @@
+plugins { id 'java-library' }
+
+group = 'io.surfworks.warpforge'
+version = '0.0.1-SNAPSHOT'
+
+repositories { mavenCentral() }
+
+dependencies {
+    api project(':warpforge-core')
+    api project(':warpforge-io')
+
+    testImplementation 'org.junit.jupiter:junit-jupiter-api:5.10.2'
+    testImplementation 'org.junit.jupiter:junit-jupiter-params:5.10.2'
+    testRuntimeOnly 'org.junit.jupiter:junit-jupiter-engine:5.10.2'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher:1.10.2'
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+}
+
+tasks.withType(Test).configureEach {
+    useJUnitPlatform()
+}
+
+test {
+    useJUnitPlatform {
+        excludeTags 'nvidia', 'gpu', 'rdma'
+    }
+}
+
+// NVIDIA GPU tests require actual hardware
+tasks.register('nvidiaBackendTest', Test) {
+    description = 'Run NVIDIA GPU backend tests (requires CUDA hardware)'
+    group = 'verification'
+
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+
+    useJUnitPlatform {
+        includeTags 'nvidia'
+    }
+
+    // Set CUDA library paths
+    def cudaHome = System.getenv('CUDA_HOME') ?: '/usr/local/cuda'
+    environment 'LD_LIBRARY_PATH', "${cudaHome}/lib64:${System.getenv('LD_LIBRARY_PATH') ?: ''}"
+
+    testLogging {
+        events 'passed', 'skipped', 'failed', 'standardOut'
+        showStandardStreams = true
+    }
+}
+
+// GPUDirect RDMA tests
+tasks.register('gpuDirectRdmaTest', Test) {
+    description = 'Run GPUDirect RDMA tests (requires NVIDIA GPU + RDMA NIC)'
+    group = 'verification'
+
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+
+    useJUnitPlatform {
+        includeTags 'nvidia', 'rdma'
+    }
+
+    testLogging {
+        events 'passed', 'skipped', 'failed', 'standardOut'
+        showStandardStreams = true
+    }
+}

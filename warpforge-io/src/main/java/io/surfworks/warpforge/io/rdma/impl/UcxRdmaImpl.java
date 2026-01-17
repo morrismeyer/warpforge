@@ -26,6 +26,11 @@ import java.util.concurrent.atomic.AtomicLong;
  * <h2>Implementation Status</h2>
  * <p>This class requires jextract-generated FFM bindings to function.
  * Run {@code ./gradlew :openucx-runtime:generateJextractStubs} to generate them.
+ *
+ * <p>TODO: Consider migrating from CompletableFuture with ForkJoinPool to virtual threads
+ * and structured concurrency (JEP 453, JEP 462). Virtual threads would provide better
+ * scalability for I/O-bound RDMA operations and structured concurrency would simplify
+ * error handling and cancellation across endpoint operations.
  */
 public class UcxRdmaImpl implements RdmaApi {
 

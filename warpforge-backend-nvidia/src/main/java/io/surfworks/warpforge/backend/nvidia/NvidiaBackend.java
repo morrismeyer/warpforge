@@ -7,6 +7,8 @@ import io.surfworks.warpforge.core.backend.GpuBackendCapabilities;
 import io.surfworks.warpforge.core.tensor.Tensor;
 import io.surfworks.warpforge.core.tensor.TensorSpec;
 
+import io.surfworks.warpforge.backend.nvidia.ops.CudaOpDispatcher;
+
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.util.List;
@@ -37,6 +39,7 @@ public class NvidiaBackend implements GpuBackend {
 
     private final int deviceIndex;
     private final GpuBackendCapabilities capabilities;
+    private final CudaOpDispatcher dispatcher;
     private final ConcurrentHashMap<Long, StreamInfo> streams;
     private final AtomicLong allocatedBytes;
     private volatile boolean closed = false;
@@ -59,6 +62,7 @@ public class NvidiaBackend implements GpuBackend {
      */
     public NvidiaBackend(int deviceIndex) {
         this.deviceIndex = deviceIndex;
+        this.dispatcher = new CudaOpDispatcher();
         this.streams = new ConcurrentHashMap<>();
         this.allocatedBytes = new AtomicLong(0);
 
@@ -99,9 +103,7 @@ public class NvidiaBackend implements GpuBackend {
     @Override
     public List<Tensor> execute(StableHloAst.Operation op, List<Tensor> inputs) {
         checkNotClosed();
-        // TODO: Implement CUDA kernel dispatch
-        throw new UnsupportedOperationException(
-            "CUDA kernel execution not yet implemented. Operation: " + op.opName());
+        return dispatcher.dispatch(op, inputs);
     }
 
     @Override
@@ -114,8 +116,14 @@ public class NvidiaBackend implements GpuBackend {
 
     @Override
     public boolean supports(StableHloAst.Operation op) {
-        // TODO: Check which operations have CUDA implementations
-        return false;
+        return dispatcher.supports(op);
+    }
+
+    /**
+     * Get list of all supported operations (even if not yet implemented).
+     */
+    public List<String> supportedOperations() {
+        return dispatcher.supportedOps();
     }
 
     // ==================== GPU Memory Management ====================

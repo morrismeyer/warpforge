@@ -1,4 +1,4 @@
-package io.surfworks.warpforge.core.e2e;
+package io.surfworks.warpforge.core.endtoend;
 
 import io.surfworks.warpforge.core.io.NpyIO;
 import io.surfworks.warpforge.core.tensor.Tensor;
@@ -26,7 +26,7 @@ import java.util.Map;
  *     └── output_0.npy
  * </pre>
  */
-public final class E2ETestFixture implements AutoCloseable {
+public final class EndToEndTestFixture implements AutoCloseable {
 
     private final Path fixtureDir;
     private final String name;
@@ -36,9 +36,9 @@ public final class E2ETestFixture implements AutoCloseable {
     private final Map<String, Object> manifest;
     private final long seed;
 
-    private E2ETestFixture(Path fixtureDir, String name, String mlir,
-                           List<Tensor> inputs, List<Tensor> expectedOutputs,
-                           Map<String, Object> manifest, long seed) {
+    private EndToEndTestFixture(Path fixtureDir, String name, String mlir,
+                                List<Tensor> inputs, List<Tensor> expectedOutputs,
+                                Map<String, Object> manifest, long seed) {
         this.fixtureDir = fixtureDir;
         this.name = name;
         this.mlir = mlir;
@@ -55,7 +55,7 @@ public final class E2ETestFixture implements AutoCloseable {
      * @return Loaded fixture with tensors
      * @throws IOException if files cannot be read
      */
-    public static E2ETestFixture load(Path fixtureDir) throws IOException {
+    public static EndToEndTestFixture load(Path fixtureDir) throws IOException {
         String name = fixtureDir.getFileName().toString();
 
         // Load MLIR
@@ -83,7 +83,7 @@ public final class E2ETestFixture implements AutoCloseable {
         // Load expected output tensors
         List<Tensor> outputs = loadTensorsFromDir(fixtureDir.resolve("outputs"));
 
-        return new E2ETestFixture(fixtureDir, name, mlir, inputs, outputs, manifest, seed);
+        return new EndToEndTestFixture(fixtureDir, name, mlir, inputs, outputs, manifest, seed);
     }
 
     /**
@@ -249,7 +249,7 @@ public final class E2ETestFixture implements AutoCloseable {
 
     @Override
     public String toString() {
-        return "E2ETestFixture{" +
+        return "EndToEndTestFixture{" +
                "name='" + name + '\'' +
                ", inputs=" + inputs.size() +
                ", outputs=" + expectedOutputs.size() +

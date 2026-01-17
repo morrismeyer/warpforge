@@ -86,15 +86,26 @@ public final class OpDispatcher {
     }
 
     private void registerDefaultKernels() {
-        // Binary elementwise operations
+        // Binary elementwise operations (float)
         register(StableHloAst.AddOp.class, new AddKernel());
         register(StableHloAst.SubtractOp.class, new SubtractKernel());
         register(StableHloAst.MultiplyOp.class, new MultiplyKernel());
         register(StableHloAst.DivideOp.class, new DivideKernel());
         register(StableHloAst.MaximumOp.class, new MaximumKernel());
         register(StableHloAst.MinimumOp.class, new MinimumKernel());
+        register(StableHloAst.PowerOp.class, new PowerKernel());
+        register(StableHloAst.RemainderOp.class, new RemainderKernel());
+        register(StableHloAst.Atan2Op.class, new Atan2Kernel());
 
-        // Unary elementwise operations
+        // Binary elementwise operations (integer/bitwise)
+        register(StableHloAst.AndOp.class, new AndKernel());
+        register(StableHloAst.OrOp.class, new OrKernel());
+        register(StableHloAst.XorOp.class, new XorKernel());
+        register(StableHloAst.ShiftLeftOp.class, new ShiftLeftKernel());
+        register(StableHloAst.ShiftRightArithmeticOp.class, new ShiftRightArithmeticKernel());
+        register(StableHloAst.ShiftRightLogicalOp.class, new ShiftRightLogicalKernel());
+
+        // Unary elementwise operations (float)
         register(StableHloAst.NegateOp.class, new NegateKernel());
         register(StableHloAst.AbsOp.class, new AbsKernel());
         register(StableHloAst.ExpOp.class, new ExpKernel());
@@ -104,7 +115,22 @@ public final class OpDispatcher {
         register(StableHloAst.RsqrtOp.class, new RsqrtKernel());
         register(StableHloAst.SinOp.class, new SinKernel());
         register(StableHloAst.CosOp.class, new CosKernel());
+        register(StableHloAst.TanOp.class, new TanKernel());
         register(StableHloAst.LogisticOp.class, new LogisticKernel());
+        register(StableHloAst.CeilOp.class, new CeilKernel());
+        register(StableHloAst.FloorOp.class, new FloorKernel());
+        register(StableHloAst.SignOp.class, new SignKernel());
+        register(StableHloAst.Expm1Op.class, new Expm1Kernel());
+        register(StableHloAst.Log1pOp.class, new Log1pKernel());
+        register(StableHloAst.CbrtOp.class, new CbrtKernel());
+        register(StableHloAst.IsFiniteOp.class, new IsFiniteKernel());
+        register(StableHloAst.RoundNearestEvenOp.class, new RoundNearestEvenKernel());
+        register(StableHloAst.RoundNearestAfzOp.class, new RoundNearestAfzKernel());
+
+        // Unary elementwise operations (integer/bitwise)
+        register(StableHloAst.NotOp.class, new NotKernel());
+        register(StableHloAst.PopcntOp.class, new PopcntKernel());
+        register(StableHloAst.ClzOp.class, new ClzKernel());
 
         // Comparison and selection
         register(StableHloAst.CompareOp.class, new CompareKernel());
@@ -118,8 +144,38 @@ public final class OpDispatcher {
         register(StableHloAst.ReshapeOp.class, new ReshapeKernel());
         register(StableHloAst.TransposeOp.class, new TransposeKernel());
         register(StableHloAst.BroadcastInDimOp.class, new BroadcastInDimKernel());
+        register(StableHloAst.ConcatenateOp.class, new ConcatenateKernel());
+        register(StableHloAst.SliceOp.class, new SliceKernel());
+        register(StableHloAst.ReverseOp.class, new ReverseKernel());
+        register(StableHloAst.PadOp.class, new PadKernel());
+        register(StableHloAst.IotaOp.class, new IotaKernel());
+        register(StableHloAst.GatherOp.class, new GatherKernel());
+        register(StableHloAst.ScatterOp.class, new ScatterKernel());
+        register(StableHloAst.DynamicSliceOp.class, new DynamicSliceKernel());
+        register(StableHloAst.DynamicUpdateSliceOp.class, new DynamicUpdateSliceKernel());
+        register(StableHloAst.GetDimensionSizeOp.class, new GetDimensionSizeKernel());
 
         // Type conversion
         register(StableHloAst.ConvertOp.class, new ConvertKernel());
+        register(StableHloAst.BitcastConvertOp.class, new BitcastConvertKernel());
+
+        // Reduction operations
+        register(StableHloAst.ReduceOp.class, new ReduceKernel());
+        register(StableHloAst.ReduceWindowOp.class, new ReduceWindowKernel());
+
+        // Linear algebra
+        register(StableHloAst.DotOp.class, new DotKernel());
+        register(StableHloAst.DotGeneralOp.class, new DotGeneralKernel());
+
+        // Convolution and neural network
+        register(StableHloAst.ConvolutionOp.class, new ConvolutionKernel());
+        register(StableHloAst.BatchNormInferenceOp.class, new BatchNormInferenceKernel());
+        register(StableHloAst.BatchNormTrainingOp.class, new BatchNormTrainingKernel());
+
+        // Sorting
+        register(StableHloAst.SortOp.class, new SortKernel());
+
+        // Random number generation
+        register(StableHloAst.RngOp.class, new RngKernel());
     }
 }

@@ -1,4 +1,4 @@
-package io.surfworks.warpforge.core.e2e;
+package io.surfworks.warpforge.core.endtoend;
 
 import io.surfworks.snakeburger.stablehlo.StableHloAst;
 import io.surfworks.snakeburger.stablehlo.StableHloParser;
@@ -99,7 +99,7 @@ class PytorchWarpforgeE2ETest {
             return;
         }
 
-        try (E2ETestFixture fixture = E2ETestFixture.load(fixtureDir)) {
+        try (EndToEndTestFixture fixture = EndToEndTestFixture.load(fixtureDir)) {
             // Skip if no outputs to compare
             if (fixture.expectedOutputs().isEmpty()) {
                 System.out.println("Skipping " + fixture.name() + " - no expected outputs");

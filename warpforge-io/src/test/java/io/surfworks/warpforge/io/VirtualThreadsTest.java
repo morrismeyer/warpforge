@@ -40,13 +40,10 @@ class VirtualThreadsTest {
     @Test
     @DisplayName("Should execute supplier asynchronously on virtual thread")
     void testSupplyAsync() throws Exception {
-        String threadName = VirtualThreads.supplyAsync(() -> Thread.currentThread().getName())
+        boolean isVirtual = VirtualThreads.supplyAsync(() -> Thread.currentThread().isVirtual())
                 .get(5, TimeUnit.SECONDS);
 
-        assertNotNull(threadName);
-        // Virtual threads have names like "VirtualThread[#X]/"
-        assertTrue(threadName.contains("VirtualThread") || threadName.contains("virtual"),
-                "Expected virtual thread but got: " + threadName);
+        assertTrue(isVirtual, "Task should execute on a virtual thread");
     }
 
     @Test

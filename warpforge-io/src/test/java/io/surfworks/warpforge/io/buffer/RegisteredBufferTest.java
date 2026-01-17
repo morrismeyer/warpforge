@@ -11,6 +11,9 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
+import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
+
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -184,9 +187,9 @@ class RegisteredBufferTest {
             float[] data = {1.0f, 2.0f, 3.0f, 4.0f};
             buffer.tensor().copyFrom(data);
 
-            // Read through segment
+            // Read through segment using MemorySegment.copy (avoids byte order issues)
             float[] readBack = new float[4];
-            buffer.segment().asByteBuffer().asFloatBuffer().get(readBack);
+            MemorySegment.copy(buffer.segment(), ValueLayout.JAVA_FLOAT, 0, readBack, 0, 4);
 
             assertArrayEquals(data, readBack);
         }

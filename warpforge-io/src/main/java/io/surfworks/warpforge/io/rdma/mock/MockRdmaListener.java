@@ -1,5 +1,6 @@
 package io.surfworks.warpforge.io.rdma.mock;
 
+import io.surfworks.warpforge.io.VirtualThreads;
 import io.surfworks.warpforge.io.rdma.RdmaEndpoint;
 import io.surfworks.warpforge.io.rdma.RdmaException;
 import io.surfworks.warpforge.io.rdma.RdmaListener;
@@ -10,6 +11,7 @@ import java.util.concurrent.TimeUnit;
 
 /**
  * Mock implementation of RdmaListener for testing.
+ * Async operations use virtual threads for consistency with real implementations.
  */
 final class MockRdmaListener implements RdmaListener {
 
@@ -65,7 +67,7 @@ final class MockRdmaListener implements RdmaListener {
 
     @Override
     public CompletableFuture<RdmaEndpoint> acceptAsync() {
-        return CompletableFuture.supplyAsync(this::accept);
+        return VirtualThreads.supplyAsync(this::accept);
     }
 
     @Override

@@ -1,12 +1,35 @@
 package io.surfworks.warpforge.backend.cpu.ops;
 
-import io.surfworks.snakeburger.stablehlo.StableHloAst;
-import io.surfworks.warpforge.backend.cpu.ops.scalar.*;
-import io.surfworks.warpforge.core.tensor.Tensor;
-
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+
+import io.surfworks.snakeburger.stablehlo.StableHloAst;
+import io.surfworks.warpforge.backend.cpu.ops.scalar.AbsKernel;
+import io.surfworks.warpforge.backend.cpu.ops.scalar.AddKernel;
+import io.surfworks.warpforge.backend.cpu.ops.scalar.BroadcastInDimKernel;
+import io.surfworks.warpforge.backend.cpu.ops.scalar.ClampKernel;
+import io.surfworks.warpforge.backend.cpu.ops.scalar.CompareKernel;
+import io.surfworks.warpforge.backend.cpu.ops.scalar.ConstantKernel;
+import io.surfworks.warpforge.backend.cpu.ops.scalar.ConvertKernel;
+import io.surfworks.warpforge.backend.cpu.ops.scalar.CosKernel;
+import io.surfworks.warpforge.backend.cpu.ops.scalar.DivideKernel;
+import io.surfworks.warpforge.backend.cpu.ops.scalar.ExpKernel;
+import io.surfworks.warpforge.backend.cpu.ops.scalar.LogKernel;
+import io.surfworks.warpforge.backend.cpu.ops.scalar.LogisticKernel;
+import io.surfworks.warpforge.backend.cpu.ops.scalar.MaximumKernel;
+import io.surfworks.warpforge.backend.cpu.ops.scalar.MinimumKernel;
+import io.surfworks.warpforge.backend.cpu.ops.scalar.MultiplyKernel;
+import io.surfworks.warpforge.backend.cpu.ops.scalar.NegateKernel;
+import io.surfworks.warpforge.backend.cpu.ops.scalar.ReshapeKernel;
+import io.surfworks.warpforge.backend.cpu.ops.scalar.RsqrtKernel;
+import io.surfworks.warpforge.backend.cpu.ops.scalar.SelectKernel;
+import io.surfworks.warpforge.backend.cpu.ops.scalar.SinKernel;
+import io.surfworks.warpforge.backend.cpu.ops.scalar.SqrtKernel;
+import io.surfworks.warpforge.backend.cpu.ops.scalar.SubtractKernel;
+import io.surfworks.warpforge.backend.cpu.ops.scalar.TanhKernel;
+import io.surfworks.warpforge.backend.cpu.ops.scalar.TransposeKernel;
+import io.surfworks.warpforge.core.tensor.Tensor;
 
 /**
  * Dispatches StableHLO operations to their corresponding kernels.

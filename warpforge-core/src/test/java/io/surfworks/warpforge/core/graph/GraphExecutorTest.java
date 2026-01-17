@@ -1,7 +1,15 @@
 package io.surfworks.warpforge.core.graph;
 
 import io.surfworks.snakeburger.stablehlo.StableHloAst;
-import io.surfworks.snakeburger.stablehlo.StableHloAst.*;
+import io.surfworks.snakeburger.stablehlo.StableHloAst.AbsOp;
+import io.surfworks.snakeburger.stablehlo.StableHloAst.AddOp;
+import io.surfworks.snakeburger.stablehlo.StableHloAst.Argument;
+import io.surfworks.snakeburger.stablehlo.StableHloAst.Function;
+import io.surfworks.snakeburger.stablehlo.StableHloAst.MultiplyOp;
+import io.surfworks.snakeburger.stablehlo.StableHloAst.NegateOp;
+import io.surfworks.snakeburger.stablehlo.StableHloAst.ReturnOp;
+import io.surfworks.snakeburger.stablehlo.StableHloAst.TensorType;
+import io.surfworks.snakeburger.stablehlo.StableHloAst.Value;
 import io.surfworks.warpforge.backend.cpu.CpuBackend;
 import io.surfworks.warpforge.core.tensor.Tensor;
 import org.junit.jupiter.api.AfterEach;
@@ -13,7 +21,10 @@ import org.junit.jupiter.api.Test;
 import java.util.Arrays;
 import java.util.List;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class GraphExecutorTest {
 

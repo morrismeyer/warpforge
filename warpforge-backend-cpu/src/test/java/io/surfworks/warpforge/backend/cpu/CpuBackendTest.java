@@ -1,7 +1,24 @@
 package io.surfworks.warpforge.backend.cpu;
 
 import io.surfworks.snakeburger.stablehlo.StableHloAst;
-import io.surfworks.snakeburger.stablehlo.StableHloAst.*;
+import io.surfworks.snakeburger.stablehlo.StableHloAst.AbsOp;
+import io.surfworks.snakeburger.stablehlo.StableHloAst.AddOp;
+import io.surfworks.snakeburger.stablehlo.StableHloAst.CompareOp;
+import io.surfworks.snakeburger.stablehlo.StableHloAst.ComparisonDirection;
+import io.surfworks.snakeburger.stablehlo.StableHloAst.DivideOp;
+import io.surfworks.snakeburger.stablehlo.StableHloAst.ExpOp;
+import io.surfworks.snakeburger.stablehlo.StableHloAst.LogisticOp;
+import io.surfworks.snakeburger.stablehlo.StableHloAst.MaximumOp;
+import io.surfworks.snakeburger.stablehlo.StableHloAst.MinimumOp;
+import io.surfworks.snakeburger.stablehlo.StableHloAst.MultiplyOp;
+import io.surfworks.snakeburger.stablehlo.StableHloAst.NegateOp;
+import io.surfworks.snakeburger.stablehlo.StableHloAst.ReshapeOp;
+import io.surfworks.snakeburger.stablehlo.StableHloAst.SelectOp;
+import io.surfworks.snakeburger.stablehlo.StableHloAst.SubtractOp;
+import io.surfworks.snakeburger.stablehlo.StableHloAst.TanhOp;
+import io.surfworks.snakeburger.stablehlo.StableHloAst.TensorType;
+import io.surfworks.snakeburger.stablehlo.StableHloAst.TransposeOp;
+import io.surfworks.snakeburger.stablehlo.StableHloAst.Value;
 import io.surfworks.warpforge.core.tensor.ScalarType;
 import io.surfworks.warpforge.core.tensor.Tensor;
 import io.surfworks.warpforge.core.testing.TensorAssert;
@@ -14,7 +31,11 @@ import org.junit.jupiter.api.Test;
 import java.util.Arrays;
 import java.util.List;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class CpuBackendTest {
 

@@ -1,13 +1,21 @@
 package io.surfworks.warpforge.io.rdma.impl;
 
-import io.surfworks.warpforge.io.rdma.*;
-
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
+
+import io.surfworks.warpforge.io.rdma.RdmaApi;
+import io.surfworks.warpforge.io.rdma.RdmaApi.MemoryFlags;
+import io.surfworks.warpforge.io.rdma.RdmaApi.RdmaStats;
+import io.surfworks.warpforge.io.rdma.RdmaBuffer;
+import io.surfworks.warpforge.io.rdma.RdmaConfig;
+import io.surfworks.warpforge.io.rdma.RdmaDevice;
+import io.surfworks.warpforge.io.rdma.RdmaEndpoint;
+import io.surfworks.warpforge.io.rdma.RdmaException;
+import io.surfworks.warpforge.io.rdma.RdmaListener;
 
 /**
  * UCX-backed implementation of RdmaApi.
@@ -27,10 +35,9 @@ import java.util.concurrent.atomic.AtomicLong;
  * <p>This class requires jextract-generated FFM bindings to function.
  * Run {@code ./gradlew :openucx-runtime:generateJextractStubs} to generate them.
  *
- * <p>TODO: Consider migrating from CompletableFuture with ForkJoinPool to virtual threads
- * and structured concurrency (JEP 453, JEP 462). Virtual threads would provide better
- * scalability for I/O-bound RDMA operations and structured concurrency would simplify
- * error handling and cancellation across endpoint operations.
+ * <h2>Threading Model</h2>
+ * <p>Async operations use virtual threads (JEP 444) for better scalability
+ * with I/O-bound RDMA operations. Each operation runs on its own virtual thread.
  */
 public class UcxRdmaImpl implements RdmaApi {
 

@@ -1,5 +1,6 @@
 package io.surfworks.warpforge.io.rdma.impl;
 
+import io.surfworks.warpforge.io.VirtualThreads;
 import io.surfworks.warpforge.io.rdma.RdmaEndpoint;
 import io.surfworks.warpforge.io.rdma.RdmaException;
 import io.surfworks.warpforge.io.rdma.RdmaListener;
@@ -8,6 +9,7 @@ import java.util.concurrent.CompletableFuture;
 
 /**
  * UCX implementation of RdmaListener.
+ * Async operations use virtual threads for better scalability.
  */
 final class UcxRdmaListener implements RdmaListener {
 
@@ -49,7 +51,7 @@ final class UcxRdmaListener implements RdmaListener {
 
     @Override
     public CompletableFuture<RdmaEndpoint> acceptAsync() {
-        return CompletableFuture.supplyAsync(this::accept);
+        return VirtualThreads.supplyAsync(this::accept);
     }
 
     @Override

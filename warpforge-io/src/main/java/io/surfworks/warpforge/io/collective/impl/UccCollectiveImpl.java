@@ -1,12 +1,17 @@
 package io.surfworks.warpforge.io.collective.impl;
 
-import io.surfworks.warpforge.core.tensor.Tensor;
-import io.surfworks.warpforge.io.collective.*;
-
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicLong;
+
+import io.surfworks.warpforge.core.tensor.Tensor;
+import io.surfworks.warpforge.io.VirtualThreads;
+import io.surfworks.warpforge.io.collective.AllReduceOp;
+import io.surfworks.warpforge.io.collective.CollectiveApi;
+import io.surfworks.warpforge.io.collective.CollectiveConfig;
+import io.surfworks.warpforge.io.collective.CollectiveException;
+import io.surfworks.warpforge.io.collective.CollectiveApi.CollectiveStats;
 
 /**
  * UCC-backed implementation of CollectiveApi.
@@ -27,10 +32,9 @@ import java.util.concurrent.atomic.AtomicLong;
  * <p>This class requires jextract-generated FFM bindings to function.
  * Run {@code ./gradlew :openucx-runtime:generateJextractStubs} to generate them.
  *
- * <p>TODO: Consider migrating from CompletableFuture with ForkJoinPool to virtual threads
- * and structured concurrency (JEP 453, JEP 462). Virtual threads would provide better
- * scalability for I/O-bound RDMA operations and structured concurrency would simplify
- * error handling and cancellation across collective operations.
+ * <h2>Threading Model</h2>
+ * <p>Async operations use virtual threads (JEP 444) for better scalability
+ * with I/O-bound RDMA operations. Each operation runs on its own virtual thread.
  */
 public class UccCollectiveImpl implements CollectiveApi {
 
@@ -129,7 +133,7 @@ public class UccCollectiveImpl implements CollectiveApi {
     public CompletableFuture<Tensor> allReduce(Tensor input, AllReduceOp op) {
         checkInitialized();
         checkNotClosed();
-        return CompletableFuture.supplyAsync(() -> {
+        return VirtualThreads.supplyAsync(() -> {
             // TODO: Use ucc_collective_init() with UCC_COLL_TYPE_ALLREDUCE
             // Then ucc_collective_post() and ucc_collective_test() / ucc_collective_finalize()
             allReduceCount.incrementAndGet();
@@ -147,7 +151,7 @@ public class UccCollectiveImpl implements CollectiveApi {
     public CompletableFuture<Void> allReduceInPlace(Tensor tensor, AllReduceOp op) {
         checkInitialized();
         checkNotClosed();
-        return CompletableFuture.runAsync(() -> {
+        return VirtualThreads.runAsync(() -> {
             // TODO: In-place allreduce with UCC_COLL_ARGS_FLAG_IN_PLACE
             allReduceCount.incrementAndGet();
             totalOps.incrementAndGet();
@@ -159,7 +163,7 @@ public class UccCollectiveImpl implements CollectiveApi {
     public CompletableFuture<Void> allReduceRaw(MemorySegment buffer, long count, int datatype, AllReduceOp op) {
         checkInitialized();
         checkNotClosed();
-        return CompletableFuture.runAsync(() -> {
+        return VirtualThreads.runAsync(() -> {
             // TODO: Raw memory allreduce
             allReduceCount.incrementAndGet();
             totalOps.incrementAndGet();
@@ -171,7 +175,7 @@ public class UccCollectiveImpl implements CollectiveApi {
     public CompletableFuture<Tensor> allGather(Tensor input) {
         checkInitialized();
         checkNotClosed();
-        return CompletableFuture.supplyAsync(() -> {
+        return VirtualThreads.supplyAsync(() -> {
             // TODO: Use UCC_COLL_TYPE_ALLGATHER
             allGatherCount.incrementAndGet();
             totalOps.incrementAndGet();
@@ -187,7 +191,7 @@ public class UccCollectiveImpl implements CollectiveApi {
     public CompletableFuture<Void> allGather(Tensor input, Tensor output) {
         checkInitialized();
         checkNotClosed();
-        return CompletableFuture.runAsync(() -> {
+        return VirtualThreads.runAsync(() -> {
             allGatherCount.incrementAndGet();
             totalOps.incrementAndGet();
             totalBytes.addAndGet(input.spec().byteSize() * config.worldSize());
@@ -199,7 +203,7 @@ public class UccCollectiveImpl implements CollectiveApi {
         checkInitialized();
         checkNotClosed();
         validateRank(root);
-        return CompletableFuture.supplyAsync(() -> {
+        return VirtualThreads.supplyAsync(() -> {
             // TODO: Use UCC_COLL_TYPE_BCAST
             broadcastCount.incrementAndGet();
             totalOps.incrementAndGet();
@@ -216,7 +220,7 @@ public class UccCollectiveImpl implements CollectiveApi {
         checkInitialized();
         checkNotClosed();
         validateRank(root);
-        return CompletableFuture.runAsync(() -> {
+        return VirtualThreads.runAsync(() -> {
             broadcastCount.incrementAndGet();
             totalOps.incrementAndGet();
             totalBytes.addAndGet(tensor.spec().byteSize());
@@ -227,7 +231,7 @@ public class UccCollectiveImpl implements CollectiveApi {
     public CompletableFuture<Tensor> reduceScatter(Tensor input, AllReduceOp op) {
         checkInitialized();
         checkNotClosed();
-        return CompletableFuture.supplyAsync(() -> {
+        return VirtualThreads.supplyAsync(() -> {
             // TODO: Use UCC_COLL_TYPE_REDUCE_SCATTER
             reduceScatterCount.incrementAndGet();
             totalOps.incrementAndGet();
@@ -243,7 +247,7 @@ public class UccCollectiveImpl implements CollectiveApi {
     public CompletableFuture<Void> reduceScatter(Tensor input, Tensor output, AllReduceOp op) {
         checkInitialized();
         checkNotClosed();
-        return CompletableFuture.runAsync(() -> {
+        return VirtualThreads.runAsync(() -> {
             reduceScatterCount.incrementAndGet();
             totalOps.incrementAndGet();
             totalBytes.addAndGet(input.spec().byteSize());
@@ -254,7 +258,7 @@ public class UccCollectiveImpl implements CollectiveApi {
     public CompletableFuture<Tensor> allToAll(Tensor input) {
         checkInitialized();
         checkNotClosed();
-        return CompletableFuture.supplyAsync(() -> {
+        return VirtualThreads.supplyAsync(() -> {
             // TODO: Use UCC_COLL_TYPE_ALLTOALL
             totalOps.incrementAndGet();
             totalBytes.addAndGet(input.spec().byteSize());
@@ -266,7 +270,7 @@ public class UccCollectiveImpl implements CollectiveApi {
     public CompletableFuture<Void> allToAll(Tensor input, Tensor output) {
         checkInitialized();
         checkNotClosed();
-        return CompletableFuture.runAsync(() -> {
+        return VirtualThreads.runAsync(() -> {
             totalOps.incrementAndGet();
             totalBytes.addAndGet(input.spec().byteSize());
         });
@@ -277,7 +281,7 @@ public class UccCollectiveImpl implements CollectiveApi {
         checkInitialized();
         checkNotClosed();
         validateRank(root);
-        return CompletableFuture.supplyAsync(() -> {
+        return VirtualThreads.supplyAsync(() -> {
             // TODO: Use UCC_COLL_TYPE_REDUCE
             totalOps.incrementAndGet();
             totalBytes.addAndGet(input.spec().byteSize());
@@ -290,7 +294,7 @@ public class UccCollectiveImpl implements CollectiveApi {
         checkInitialized();
         checkNotClosed();
         validateRank(root);
-        return CompletableFuture.supplyAsync(() -> {
+        return VirtualThreads.supplyAsync(() -> {
             // TODO: Use UCC_COLL_TYPE_SCATTER
             totalOps.incrementAndGet();
             int[] newShape = input.shape().clone();
@@ -305,7 +309,7 @@ public class UccCollectiveImpl implements CollectiveApi {
         checkInitialized();
         checkNotClosed();
         validateRank(root);
-        return CompletableFuture.supplyAsync(() -> {
+        return VirtualThreads.supplyAsync(() -> {
             // TODO: Use UCC_COLL_TYPE_GATHER
             totalOps.incrementAndGet();
             totalBytes.addAndGet(input.spec().byteSize());
@@ -323,7 +327,7 @@ public class UccCollectiveImpl implements CollectiveApi {
     public CompletableFuture<Void> barrier() {
         checkInitialized();
         checkNotClosed();
-        return CompletableFuture.runAsync(() -> {
+        return VirtualThreads.runAsync(() -> {
             // TODO: Use UCC_COLL_TYPE_BARRIER
             barrierCount.incrementAndGet();
             totalOps.incrementAndGet();
@@ -335,7 +339,7 @@ public class UccCollectiveImpl implements CollectiveApi {
         checkInitialized();
         checkNotClosed();
         validateRank(destRank);
-        return CompletableFuture.runAsync(() -> {
+        return VirtualThreads.runAsync(() -> {
             // Point-to-point via UCX directly (not UCC)
             totalOps.incrementAndGet();
             totalBytes.addAndGet(tensor.spec().byteSize());
@@ -347,7 +351,7 @@ public class UccCollectiveImpl implements CollectiveApi {
         checkInitialized();
         checkNotClosed();
         validateRank(srcRank);
-        return CompletableFuture.runAsync(() -> {
+        return VirtualThreads.runAsync(() -> {
             // Point-to-point via UCX directly (not UCC)
             totalOps.incrementAndGet();
             totalBytes.addAndGet(tensor.spec().byteSize());

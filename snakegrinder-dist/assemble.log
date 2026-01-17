@@ -1,0 +1,126 @@
+> Task :build-logic:extractPluginRequests UP-TO-DATE
+> Task :build-logic:generatePluginAdapters UP-TO-DATE
+> Task :build-logic:compileJava UP-TO-DATE
+> Task :build-logic:compileGroovy NO-SOURCE
+> Task :build-logic:compileGroovyPlugins UP-TO-DATE
+> Task :build-logic:pluginDescriptors UP-TO-DATE
+> Task :build-logic:processResources UP-TO-DATE
+> Task :build-logic:classes UP-TO-DATE
+> Task :build-logic:jar UP-TO-DATE
+> Task :snakegrinder-cli:fixNativeImageSymlink
+> Task :warpforge-license:compileJava UP-TO-DATE
+> Task :snakegrinder-cli:processResources UP-TO-DATE
+> Task :snakegrinder-core:compileJava UP-TO-DATE
+> Task :warpforge-license:processResources NO-SOURCE
+> Task :warpforge-license:classes UP-TO-DATE
+> Task :snakegrinder-core:processResources UP-TO-DATE
+> Task :snakegrinder-core:classes UP-TO-DATE
+> Task :warpforge-license:jar UP-TO-DATE
+> Task :snakegrinder-core:jar UP-TO-DATE
+> Task :snakegrinder-cli:compileJava UP-TO-DATE
+> Task :snakegrinder-cli:classes UP-TO-DATE
+> Task :snakegrinder-cli:jar UP-TO-DATE
+> Task :snakegrinder-cli:generateResourcesConfigFile UP-TO-DATE
+
+> Task :snakegrinder-cli:nativeCompile
+[native-image-plugin] GraalVM Toolchain detection is enabled
+[native-image-plugin] GraalVM uses toolchain detection. Selected:
+[native-image-plugin]    - language version: 25
+[native-image-plugin]    - vendor: GraalVM Community
+[native-image-plugin]    - runtime version: 25.0.1+8-jvmci-b01
+[native-image-plugin] Native Image executable path: /home/actions/.gradle/jdks/graalvm_community-25-amd64-linux.2/lib/svm/bin/native-image
+Warning: The option '-H:IncludeResources=snakegrinder/.*\.py$' is experimental and must be enabled via '-H:+UnlockExperimentalVMOptions' in the future.
+Warning: Please re-evaluate whether any experimental option is required, and either remove or unlock it. The build output lists all active experimental options, including where they come from and possible alternatives. If you think an experimental option should be considered as stable, please file an issue.
+WARNING: Unknown module: org.graalvm.py specified to --add-exports 
+========================================================================================================================
+GraalVM Native Image: Generating 'snakegrinder' (executable)...
+========================================================================================================================
+For detailed information and explanations on the build output, visit:
+https://github.com/oracle/graal/blob/master/docs/reference-manual/native-image/BuildOutput.md
+------------------------------------------------------------------------------------------------------------------------
+WARNING: A restricted method in java.lang.System has been called
+WARNING: java.lang.System::load has been called by com.oracle.truffle.polyglot.JDKSupport in module org.graalvm.truffle (file:/home/actions/.gradle/caches/modules-2/files-2.1/org.graalvm.truffle/truffle-api/25.0.1/7b3f32fd4b7f0c24607328435652f758791eab56/truffle-api-25.0.1.jar)
+WARNING: Use --enable-native-access=org.graalvm.truffle to avoid a warning for callers in this module
+WARNING: Restricted methods will be blocked in a future release unless native access is enabled
+
+WARNING: A terminally deprecated method in sun.misc.Unsafe has been called
+WARNING: sun.misc.Unsafe::arrayBaseOffset has been called by com.oracle.truffle.api.object.UnsafeAccess (file:/home/actions/.gradle/caches/modules-2/files-2.1/org.graalvm.truffle/truffle-api/25.0.1/7b3f32fd4b7f0c24607328435652f758791eab56/truffle-api-25.0.1.jar)
+WARNING: Please consider reporting this to the maintainers of class com.oracle.truffle.api.object.UnsafeAccess
+WARNING: sun.misc.Unsafe::arrayBaseOffset will be removed in a future release
+[1/8] Initializing...                                                                                    (6.0s @ 1.19GB)
+ Java version: 25.0.1+8, vendor version: GraalVM CE 25.0.1+8.1
+ Graal compiler: optimization level: 2, target machine: x86-64-v3
+ C compiler: gcc (linux, x86_64, 11.4.0)
+ Garbage collector: Serial GC (max heap size: 80% of RAM)
+ 9 user-specific feature(s):
+ - com.oracle.graal.python.BouncyCastleFeature
+ - com.oracle.svm.thirdparty.gson.GsonFeature
+ - com.oracle.svm.truffle.TruffleBaseFeature: Provides support for Truffle languages
+ - com.oracle.svm.truffle.TruffleFeature: Provides support for Truffle runtime compilation
+ - com.oracle.svm.truffle.nfi.TruffleNFIFeature
+ - com.oracle.svm.truffle.nfi.posix.PosixTruffleNFIFeature
+ - com.oracle.truffle.api.object.DynamicObjectFeature: Provides support for DynamicObject
+ - org.graalvm.home.HomeFinderFeature: Finds GraalVM paths and its version number
+ - org.graalvm.shadowed.com.ibm.icu.ICU4JFeature
+------------------------------------------------------------------------------------------------------------------------
+ 1 experimental option(s) unlocked:
+ - '-H:IncludeResources': Use a resource-config.json in your META-INF/native-image/<groupID>/<artifactID> directory instead. (origin(s): command line)
+------------------------------------------------------------------------------------------------------------------------
+Build resources:
+ - 28.45GB of memory (42.6% of system memory, using available memory)
+ - 16 thread(s) (100.0% of 16 available processor(s), determined at start)
+[2/8] Performing analysis...  [********]                                                                (40.0s @ 5.65GB)
+   35,875 types,  64,236 fields, and 145,223 methods found reachable
+    9,394 types,     154 fields, and   2,449 methods registered for reflection
+       62 types,      66 fields, and      55 methods registered for JNI access
+        0 downcalls and 0 upcalls registered for foreign access
+        4 native libraries: dl, pthread, rt, z
+   19,104 runtime compiled methods (13.2% of all reachable methods)
+[3/8] Building universe...                                                                               (8.5s @ 7.40GB)
+[4/8] Parsing methods...      [**]                                                                       (2.4s @ 6.98GB)
+[5/8] Inlining methods...     [****]                                                                     (2.5s @ 7.18GB)
+[6/8] Compiling methods...    [*******]                                                                 (54.7s @ 7.55GB)
+[7/8] Laying out methods...   [****]                                                                   (16.5s @ 10.39GB)
+[8/8] Creating image...       [***]                                                                     (8.5s @ 10.72GB)
+ 122.44MB (41.16%) for code area:   115,871 compilation units
+ 156.43MB (52.59%) for image heap:1,106,343 objects and 2,173 resources
+  18.57MB ( 6.24%) for other data
+ 297.44MB in total image size, 286.98MB in total file size
+------------------------------------------------------------------------------------------------------------------------
+Top 10 origins of code area:                                Top 10 object types in image heap:
+  75.03MB python-language-25.0.1.jar                          40.42MB byte[] for code metadata
+  12.58MB java.base                                           30.95MB byte[] for general heap data
+   7.52MB org.graalvm.truffle                                 17.06MB byte[] for graph encodings
+   6.81MB jdk.graal.compiler                                  10.78MB byte[] for java.lang.String
+   5.34MB bcprov-jdk18on-1.78.1.jar                            7.46MB com.oracle.svm.core.hub.DynamicHubCompanion
+   3.21MB regex-25.0.1.jar                                     6.40MB java.lang.String
+   2.30MB svm.jar (Native Image)                               5.88MB java.lang.Class
+   1.48MB java.net.http                                        3.71MB com.oracle.svm.truffle.api.SubstrateTruffleField
+   1.32MB icu4j-25.0.1.jar                                     3.17MB com.oracle.svm.truffle.api.SubstrateTruffleMethod
+ 826.16kB com.oracle.truffle.truffle_nfi                       2.43MB java.lang.Object[]
+   4.26MB for 40 more packages                                28.18MB for 9930 more object types
+------------------------------------------------------------------------------------------------------------------------
+Recommendations:
+ FUTR: Use '--future-defaults=all' to prepare for future releases.
+ HEAP: Set max heap for improved and more predictable memory usage.
+ CPU:  Enable more CPU features with '-march=native' for improved performance.
+------------------------------------------------------------------------------------------------------------------------
+                       7.9s (5.5% of total time) in 80 GCs | Peak RSS: 14.09GB | CPU load: 10.73
+------------------------------------------------------------------------------------------------------------------------
+Build artifacts:
+ /home/actions/surfworks/warpforge/snakegrinder-cli/build/native/nativeCompile/snakegrinder (executable)
+========================================================================================================================
+Finished generating 'snakegrinder' in 2m 23s.
+[native-image-plugin] Native Image written to: /home/actions/surfworks/warpforge/snakegrinder-cli/build/native/nativeCompile
+
+> Task :snakegrinder-dist:assembleDist
+
+Distribution assembled at: /home/actions/surfworks/warpforge/snakegrinder-dist/build/dist
+
+Contents:
+  bin/snakegrinder       - Launcher script (sets library paths)
+  bin/snakegrinder-bin   - Native image binary
+  venv/                  - PyTorch virtual environment
+
+BUILD SUCCESSFUL in 2m 28s
+19 actionable tasks: 3 executed, 16 up-to-date

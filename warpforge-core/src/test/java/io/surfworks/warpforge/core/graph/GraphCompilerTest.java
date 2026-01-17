@@ -1,7 +1,14 @@
 package io.surfworks.warpforge.core.graph;
 
 import io.surfworks.snakeburger.stablehlo.StableHloAst;
-import io.surfworks.snakeburger.stablehlo.StableHloAst.*;
+import io.surfworks.snakeburger.stablehlo.StableHloAst.AbsOp;
+import io.surfworks.snakeburger.stablehlo.StableHloAst.AddOp;
+import io.surfworks.snakeburger.stablehlo.StableHloAst.Argument;
+import io.surfworks.snakeburger.stablehlo.StableHloAst.Function;
+import io.surfworks.snakeburger.stablehlo.StableHloAst.NegateOp;
+import io.surfworks.snakeburger.stablehlo.StableHloAst.ReturnOp;
+import io.surfworks.snakeburger.stablehlo.StableHloAst.TensorType;
+import io.surfworks.snakeburger.stablehlo.StableHloAst.Value;
 import io.surfworks.warpforge.core.tensor.ScalarType;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -9,7 +16,10 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class GraphCompilerTest {
 

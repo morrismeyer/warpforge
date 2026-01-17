@@ -1,5 +1,6 @@
 package io.surfworks.warpforge.io.rdma.impl;
 
+import io.surfworks.warpforge.io.VirtualThreads;
 import io.surfworks.warpforge.io.rdma.RdmaBuffer;
 import io.surfworks.warpforge.io.rdma.RdmaEndpoint;
 import io.surfworks.warpforge.io.rdma.RdmaException;
@@ -12,6 +13,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * UCX implementation of RdmaEndpoint.
  *
  * <p>Wraps a UCX endpoint (ucp_ep_h) for RDMA operations.
+ * Async operations use virtual threads for better scalability.
  */
 final class UcxRdmaEndpoint implements RdmaEndpoint {
 
@@ -55,7 +57,7 @@ final class UcxRdmaEndpoint implements RdmaEndpoint {
     @Override
     public CompletableFuture<Void> send(RdmaBuffer buffer, long offset, long length) {
         checkConnected();
-        return CompletableFuture.supplyAsync(() -> {
+        return VirtualThreads.supplyAsync(() -> {
             // TODO: Use ucp_tag_send_nb() or ucp_tag_send_sync_nb()
             bytesSent.addAndGet(length);
             sendOps.incrementAndGet();
@@ -67,7 +69,7 @@ final class UcxRdmaEndpoint implements RdmaEndpoint {
     @Override
     public CompletableFuture<Long> receive(RdmaBuffer buffer) {
         checkConnected();
-        return CompletableFuture.supplyAsync(() -> {
+        return VirtualThreads.supplyAsync(() -> {
             // TODO: Use ucp_tag_recv_nb()
             long received = buffer.byteSize();
             bytesReceived.addAndGet(received);
@@ -86,7 +88,7 @@ final class UcxRdmaEndpoint implements RdmaEndpoint {
     public CompletableFuture<Void> write(RdmaBuffer localBuffer, long localOffset, long length,
                                           long remoteAddress, long remoteKey) {
         checkConnected();
-        return CompletableFuture.supplyAsync(() -> {
+        return VirtualThreads.supplyAsync(() -> {
             // TODO: Use ucp_put_nb() for RDMA write
             bytesSent.addAndGet(length);
             writeOps.incrementAndGet();
@@ -111,7 +113,7 @@ final class UcxRdmaEndpoint implements RdmaEndpoint {
     public CompletableFuture<Void> read(RdmaBuffer localBuffer, long localOffset, long length,
                                          long remoteAddress, long remoteKey) {
         checkConnected();
-        return CompletableFuture.supplyAsync(() -> {
+        return VirtualThreads.supplyAsync(() -> {
             // TODO: Use ucp_get_nb() for RDMA read
             bytesReceived.addAndGet(length);
             readOps.incrementAndGet();
@@ -124,7 +126,7 @@ final class UcxRdmaEndpoint implements RdmaEndpoint {
     public CompletableFuture<Void> atomicCompareSwap(RdmaBuffer localBuffer, long remoteAddress,
                                                       long remoteKey, long expected, long desired) {
         checkConnected();
-        return CompletableFuture.supplyAsync(() -> {
+        return VirtualThreads.supplyAsync(() -> {
             // TODO: Use ucp_atomic_cswap64()
             atomicOps.incrementAndGet();
             return null;
@@ -135,7 +137,7 @@ final class UcxRdmaEndpoint implements RdmaEndpoint {
     public CompletableFuture<Void> atomicFetchAdd(RdmaBuffer localBuffer, long remoteAddress,
                                                    long remoteKey, long delta) {
         checkConnected();
-        return CompletableFuture.supplyAsync(() -> {
+        return VirtualThreads.supplyAsync(() -> {
             // TODO: Use ucp_atomic_fadd64()
             atomicOps.incrementAndGet();
             return null;

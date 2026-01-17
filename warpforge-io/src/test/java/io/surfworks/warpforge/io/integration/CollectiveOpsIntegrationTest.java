@@ -3,11 +3,13 @@ package io.surfworks.warpforge.io.integration;
 import io.surfworks.warpforge.core.tensor.ScalarType;
 import io.surfworks.warpforge.core.tensor.Tensor;
 import io.surfworks.warpforge.io.collective.AllReduceOp;
-import org.junit.jupiter.api.*;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Tag;
+import org.junit.jupiter.api.Test;
 
 import java.util.concurrent.TimeUnit;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 /**
  * Ray-launched integration tests for all collective operations.

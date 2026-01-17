@@ -434,11 +434,20 @@ Track PyTorch version support: https://github.com/oracle/graalpython/issues/588
 ## Java Code Style
 
 - **Single blank line after package statement** before imports
+- **Explicit imports only** - never use wildcard imports like `import foo.bar.*`
+  - Every import must specify the exact class being imported
+  - This improves code readability and makes dependencies explicit
+  - Static imports must also be explicit (e.g., `import static org.junit.jupiter.api.Assertions.assertEquals`)
 - Example:
   ```java
   package io.surfworks.warpforge.example;
 
   import java.util.List;
+  import java.util.Map;
+  import java.util.Optional;
+
+  import static org.junit.jupiter.api.Assertions.assertEquals;
+  import static org.junit.jupiter.api.Assertions.assertNotNull;
   ```
 
 ## Configuration Preference: Minimize Environment Variables

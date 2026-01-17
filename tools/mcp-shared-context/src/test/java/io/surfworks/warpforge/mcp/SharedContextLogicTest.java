@@ -2,7 +2,10 @@ package io.surfworks.warpforge.mcp;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
-import io.surfworks.warpforge.mcp.model.*;
+import io.surfworks.warpforge.mcp.model.Handoff;
+import io.surfworks.warpforge.mcp.model.Project;
+import io.surfworks.warpforge.mcp.model.SharedState;
+import io.surfworks.warpforge.mcp.model.Task;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.DisplayName;
@@ -17,7 +20,10 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Tests for SharedContextServer logic.

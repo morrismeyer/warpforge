@@ -7,6 +7,13 @@ import jdk.incubator.code.Op;
 import jdk.incubator.code.Reflect;
 import jdk.incubator.code.dialect.core.CoreOp;
 
+// TODO: Rename this class to BabylonVersion and change CLI command from -hello to -babylon
+//       Add version detection using `git describe` from Babylon repo:
+//         - Format: jdk-26+25-852-gfbff3d4a833 (jdk-{version}+{build}-{commits}-g{sha})
+//         - Store in JAR manifest as "Babylon-Version" for codegen compatibility checks
+//         - WarpForge can verify generated JARs are compatible with current Babylon
+//       See: ../babylon && git describe --tags
+
 public final class BabylonHello {
 
     private BabylonHello() {}

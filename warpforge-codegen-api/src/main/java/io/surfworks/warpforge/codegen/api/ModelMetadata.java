@@ -9,6 +9,10 @@ package io.surfworks.warpforge.codegen.api;
  * @param generatedAt      Timestamp when the model was compiled (epoch millis)
  * @param generatorVersion Version of the code generator that produced this model
  */
+// TODO: Add babylonVersion field to track jdk.incubator.code compatibility
+//       Format from `git describe` in Babylon repo: jdk-26+25-852-gfbff3d4a833
+//       This enables WarpForge to detect incompatible generated JARs when Babylon API changes
+//       Store in JAR manifest as "Babylon-Version" attribute
 public record ModelMetadata(
     String name,
     String sourceHash,

@@ -133,8 +133,22 @@ public final class TestRunner {
                 EspressoModelLoader loader = EspressoModelLoader.load(jarPath);
                 yield new EspressoModelHandle(loader);
             }
-            case NATIVE -> throw new UnsupportedOperationException(
-                "Native mode requires the model to be compiled into the binary");
+            case NATIVE -> {
+                // In NATIVE mode, models are pre-compiled into the binary.
+                // Extract model name from JAR path (e.g., "addmodel.jar" -> "addmodel")
+                String fileName = jarPath.getFileName().toString();
+                String modelName = fileName.endsWith(".jar")
+                    ? fileName.substring(0, fileName.length() - 4)
+                    : fileName;
+
+                CompiledModel model = NativeModelRegistry.get(modelName)
+                    .orElseThrow(() -> new IllegalArgumentException(
+                        "Model not found in native registry: " + modelName + "\n" +
+                        "Available models: " + NativeModelRegistry.listModels() + "\n" +
+                        "In NATIVE mode, models must be compiled into the binary at build time."));
+
+                yield new JvmModelHandle(model);  // JvmModelHandle works for pre-loaded models too
+            }
         };
     }
 
@@ -249,7 +263,7 @@ public final class TestRunner {
         System.out.println("Execution Modes:");
         System.out.println("  jvm      - Load model via standard class loading (default)");
         System.out.println("  espresso - Load model via Espresso in native-image");
-        System.out.println("  native   - Fully AOT-compiled model (not yet supported)");
+        System.out.println("  native   - Load pre-registered model from NativeModelRegistry");
     }
 
     /**

@@ -66,8 +66,15 @@ public enum ExecutionMode {
 
     /**
      * Check if this mode is currently supported.
+     *
+     * <p>All modes are now supported:
+     * <ul>
+     *   <li>JVM: Always works with JAR files</li>
+     *   <li>ESPRESSO: Works on GraalVM JVM (native-image requires special setup)</li>
+     *   <li>NATIVE: Works if models are pre-registered in NativeModelRegistry</li>
+     * </ul>
      */
     public boolean isSupported() {
-        return this != NATIVE; // Native mode is future work
+        return true; // All modes now have basic support
     }
 }

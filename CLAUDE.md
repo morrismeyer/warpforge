@@ -431,6 +431,35 @@ Track PyTorch version support: https://github.com/oracle/graalpython/issues/588
 
 - **Never include Co-Authored-By lines** in commit messages under any circumstances
 
+## Pre-Commit Validation: Clean and Build for Green CI Build
+
+**Before every commit, run a full clean build and all unit tests locally.**
+
+CI builds will grow longer over time. Catching compilation errors and test failures locally—before pushing—avoids wasted CI cycles and keeps the main branch green.
+
+**Required pre-commit checks:**
+
+```bash
+# 1. Clean rebuild - catches missing imports, syntax errors, dependency issues
+./gradlew clean assemble
+
+# 2. Run all unit tests - catches regressions and logic errors
+./gradlew test
+```
+
+**Why this matters:**
+- A failed CI build that could have been caught locally wastes everyone's time
+- CI infrastructure has limited capacity; don't use it as your first line of defense
+- Other developers may be blocked waiting for a green build
+- Missing imports, typos, and basic test failures should never reach CI
+
+**If the local build passes but CI still fails:**
+- Check for platform-specific issues (macOS vs Linux)
+- Check for environment differences (JDK version, dependencies)
+- Check for flaky tests that need fixing
+
+This discipline ensures CI remains a verification step, not a discovery step.
+
 ## Java Code Style
 
 - **Single blank line after package statement** before imports

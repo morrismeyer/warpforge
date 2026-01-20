@@ -1,0 +1,50 @@
+plugins {
+    id 'application'
+}
+
+group = 'io.surfworks.warpforge'
+version = '0.0.1-SNAPSHOT'
+
+repositories { mavenCentral() }
+
+dependencies {
+    implementation project(':warpforge-codegen-api')
+    implementation project(':warpforge-backend-cpu')
+    // GPU backends are optional runtime dependencies
+    runtimeOnly project(':warpforge-backend-nvidia')
+    runtimeOnly project(':warpforge-backend-amd')
+
+    testImplementation 'org.junit.jupiter:junit-jupiter-api:5.10.2'
+    testImplementation 'org.junit.jupiter:junit-jupiter-params:5.10.2'
+    testRuntimeOnly 'org.junit.jupiter:junit-jupiter-engine:5.10.2'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher:1.10.2'
+}
+
+application {
+    mainClass = 'io.surfworks.warpforge.runner.TestRunner'
+}
+
+// Note: JDK routing (gradle/jdk-routing.gradle) handles:
+// - Babylon JDK (Java 26) toolchain configuration
+// - --add-modules jdk.incubator.code,jdk.incubator.vector
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+}
+
+tasks.withType(Test).configureEach {
+    useJUnitPlatform()
+}
+
+test {
+    useJUnitPlatform {
+        excludeTags 'integration', 'fixture-generator'
+    }
+}
+
+// Distribution configuration
+distributions {
+    main {
+        distributionBaseName = 'warpforge-test-runner'
+    }
+}

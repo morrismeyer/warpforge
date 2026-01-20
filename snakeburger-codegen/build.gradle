@@ -1,0 +1,61 @@
+plugins { id 'java-library' }
+
+group = 'io.surfworks.snakeburger'
+version = '0.0.1-SNAPSHOT'
+
+repositories { mavenCentral() }
+
+dependencies {
+    api project(':snakeburger-core')
+    api project(':warpforge-codegen-api')
+
+    // ASM for bytecode generation (well-documented, standard library)
+    implementation 'org.ow2.asm:asm:9.7.1'
+    implementation 'org.ow2.asm:asm-util:9.7.1'
+
+    testImplementation project(':warpforge-backend-cpu')
+    testImplementation 'org.junit.jupiter:junit-jupiter-api:5.10.2'
+    testImplementation 'org.junit.jupiter:junit-jupiter-params:5.10.2'
+    testRuntimeOnly 'org.junit.jupiter:junit-jupiter-engine:5.10.2'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher:1.10.2'
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(26)
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.compilerArgs.addAll(['--add-modules', 'jdk.incubator.code'])
+}
+
+tasks.withType(Test).configureEach {
+    useJUnitPlatform()
+    // Tests need both incubator modules because they depend on warpforge-backend-cpu
+    // which uses jdk.incubator.vector for SIMD operations
+    jvmArgs += ['--add-modules', 'jdk.incubator.code,jdk.incubator.vector']
+}
+
+test {
+    useJUnitPlatform {
+        excludeTags 'integration', 'fixture-generator'
+    }
+}
+
+// CLI task for compiling MLIR to JAR
+tasks.register('compileModel', JavaExec) {
+    description = 'Compile a StableHLO MLIR file to a model JAR'
+    group = 'application'
+
+    mainClass = 'io.surfworks.snakeburger.codegen.ModelCompiler'
+    classpath = sourceSets.main.runtimeClasspath
+
+    args = [
+        '--input', project.findProperty('mlir') ?: 'model.mlir',
+        '--output', project.findProperty('jar') ?: 'build/model.jar'
+    ]
+
+    jvmArgs += ['--add-modules', 'jdk.incubator.code']
+}

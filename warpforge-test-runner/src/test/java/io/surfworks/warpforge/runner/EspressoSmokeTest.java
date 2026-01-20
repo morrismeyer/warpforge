@@ -27,6 +27,14 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
  *   <li>Model JARs must be pre-generated via generateTestModelJars task</li>
  * </ul>
  *
+ * <p>Platform Support:
+ * Espresso's LLVM bitcode libraries are only available on:
+ * <ul>
+ *   <li>linux-amd64 (Linux x86_64)</li>
+ *   <li>darwin-amd64 (Intel Mac)</li>
+ * </ul>
+ * Tests will skip on unsupported platforms like darwin-aarch64 (Apple Silicon).
+ *
  * <p>Run with: ./gradlew :warpforge-test-runner:espressoSmokeTest
  */
 @Tag("espresso-smoke")
@@ -174,16 +182,52 @@ class EspressoSmokeTest {
     }
 
     /**
-     * Check if Espresso is available in the current runtime.
+     * Check if Espresso is available and functional in the current runtime.
+     *
+     * <p>This performs a comprehensive check that:
+     * <ol>
+     *   <li>Polyglot API is available</li>
+     *   <li>Platform is supported (linux-amd64 or darwin-amd64)</li>
+     *   <li>Espresso context can be created</li>
+     *   <li>A class can actually be loaded (verifies native libraries work)</li>
+     * </ol>
      */
     private static boolean isEspressoAvailable() {
+        // Check platform support first
+        String osName = System.getProperty("os.name", "").toLowerCase();
+        String osArch = System.getProperty("os.arch", "").toLowerCase();
+
+        boolean isLinux = osName.contains("linux");
+        boolean isMac = osName.contains("mac") || osName.contains("darwin");
+        boolean isAmd64 = osArch.contains("amd64") || osArch.contains("x86_64");
+        boolean isAarch64 = osArch.contains("aarch64") || osArch.contains("arm64");
+
+        if (isAarch64) {
+            System.out.println("Platform: " + osName + "/" + osArch +
+                " - Espresso native libraries not available for aarch64");
+            System.out.println("Espresso embedding is supported on linux-amd64 and darwin-amd64 only.");
+            return false;
+        }
+
+        if (!((isLinux || isMac) && isAmd64)) {
+            System.out.println("Platform: " + osName + "/" + osArch + " - not a supported Espresso platform");
+            return false;
+        }
+
         try {
             Class.forName("org.graalvm.polyglot.Context");
             org.graalvm.polyglot.Context context = org.graalvm.polyglot.Context.newBuilder("java")
                 .allowAllAccess(true)
                 .option("java.Classpath", System.getProperty("java.class.path"))
                 .build();
-            context.close();
+
+            // Actually try to load a class to verify native libraries work
+            try {
+                context.getBindings("java").getMember("java.lang.String");
+            } finally {
+                context.close();
+            }
+
             return true;
         } catch (Exception | Error e) {
             System.out.println("Espresso not available: " + e.getClass().getSimpleName() + ": " + e.getMessage());
@@ -193,6 +237,7 @@ class EspressoSmokeTest {
 
     private void assumeEspressoAvailable() {
         assumeTrue(isEspressoAvailable(),
-            "Espresso not available - this test requires GraalVM JDK with Espresso support");
+            "Espresso not available - this test requires a supported platform (linux-amd64 or darwin-amd64) " +
+            "with GraalVM JDK and Espresso runtime resources");
     }
 }

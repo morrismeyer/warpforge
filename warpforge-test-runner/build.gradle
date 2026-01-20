@@ -12,10 +12,13 @@ dependencies {
     implementation project(':warpforge-codegen-api')
     implementation project(':warpforge-backend-cpu')
 
-    // Polyglot API for potential Espresso support (version must match GraalVM)
+    // Polyglot API for Espresso support (version must match GraalVM)
     implementation 'org.graalvm.polyglot:polyglot:25.0.1'
-    // Note: java-community (Espresso) is not available for GraalVM 25 yet
-    // implementation 'org.graalvm.polyglot:java-community:25.0.1'
+    // Espresso (Java-on-Truffle) language implementation for polyglot
+    // Required for running model JARs via Espresso in JVM mode
+    runtimeOnly 'org.graalvm.polyglot:java-community:25.0.1'
+    // Espresso runtime resources (JDK 25 class libraries for guest JVM)
+    runtimeOnly 'org.graalvm.espresso:espresso-runtime-resources-jdk25:25.0.1'
 
     // GPU backends are optional runtime dependencies
     runtimeOnly project(':warpforge-backend-nvidia')

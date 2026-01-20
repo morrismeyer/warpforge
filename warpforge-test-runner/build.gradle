@@ -12,9 +12,10 @@ dependencies {
     implementation project(':warpforge-codegen-api')
     implementation project(':warpforge-backend-cpu')
 
-    // Espresso (Java-on-Truffle) for loading model JARs in native-image
-    implementation 'org.graalvm.polyglot:polyglot:24.1.1'
-    implementation 'org.graalvm.polyglot:java-community:24.1.1'
+    // Polyglot API for potential Espresso support (version must match GraalVM)
+    implementation 'org.graalvm.polyglot:polyglot:25.0.1'
+    // Note: java-community (Espresso) is not available for GraalVM 25 yet
+    // implementation 'org.graalvm.polyglot:java-community:25.0.1'
 
     // GPU backends are optional runtime dependencies
     runtimeOnly project(':warpforge-backend-nvidia')
@@ -79,25 +80,32 @@ tasks.register('integrationTest', Test) {
     }
 }
 
-// Native image configuration for Espresso mode
+// Native image configuration
+// Note: Espresso (--language:java) requires special GraalVM setup and is not
+// available in standard distributions. The native image works in JVM-only mode.
+// For Espresso support, see: https://www.graalvm.org/latest/reference-manual/espresso/
 graalvmNative {
     binaries {
         main {
             imageName = 'warpforge-test-runner'
             buildArgs.addAll([
-                // Enable Java language (Espresso) in native image
-                '--language:java',
                 // Allow all charsets for proper string handling
                 '-H:+AddAllCharsets',
                 // Include resources
                 '-H:IncludeResources=.*\\.properties',
-                // Allow incomplete classpath (some classes loaded at runtime)
-                '--allow-incomplete-classpath',
                 // Enable URL protocols for JAR loading
-                '--enable-url-protocols=jar,file'
+                '--enable-url-protocols=jar,file',
+                // Enable JFR for profiling (optional)
+                '--enable-monitoring=jfr'
             ])
-            // Espresso requires more memory for compilation
+            // Native compilation requires more memory
             jvmArgs.addAll(['-Xmx8g'])
+
+            // Use GraalVM toolchain for native-image
+            javaLauncher = javaToolchains.launcherFor {
+                languageVersion = JavaLanguageVersion.of(25)
+                vendor = JvmVendorSpec.matching("GraalVM")
+            }
         }
     }
     toolchainDetection = false
@@ -151,8 +159,23 @@ tasks.register('espressoSmokeTest', Test) {
 }
 
 // ============================================================================
-// Mode 2a: Native-Image with Espresso
+// Mode 2a: Native-Image
 // ============================================================================
-// Full native-image compilation with Espresso for production deployment.
-// Build: ./gradlew nativeCompile
-// Run:   ./build/native/nativeCompile/warpforge-test-runner --jar model.jar
+// Native-image compilation for production deployment.
+//
+// CURRENT STATUS:
+// - Native image builds successfully (~33MB, ~36s)
+// - JVM mode doesn't work in native-image (no dynamic class loading)
+// - Espresso mode requires special GraalVM setup (not in standard distribution)
+//
+// LIMITATIONS:
+// - Standard GraalVM doesn't include Espresso (Java-on-Truffle)
+// - Dynamic class loading from JARs isn't supported in native-image
+// - For JAR loading in native, need Espresso compiled into the image
+//
+// FUTURE:
+// - Mode 3 (fully AOT-compiled models) would avoid dynamic loading entirely
+// - Espresso could be added with custom GraalVM build
+//
+// Build: ./gradlew :warpforge-test-runner:nativeCompile --no-configuration-cache
+// Run:   ./warpforge-test-runner/build/native/nativeCompile/warpforge-test-runner --help

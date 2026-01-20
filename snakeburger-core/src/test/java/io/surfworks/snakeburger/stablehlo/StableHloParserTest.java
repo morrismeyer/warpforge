@@ -2,6 +2,7 @@ package io.surfworks.snakeburger.stablehlo;
 
 import io.surfworks.snakeburger.stablehlo.StableHloAst.AbsOp;
 import io.surfworks.snakeburger.stablehlo.StableHloAst.AddOp;
+import io.surfworks.snakeburger.stablehlo.StableHloAst.AfterAllOp;
 import io.surfworks.snakeburger.stablehlo.StableHloAst.ArrayAttr;
 import io.surfworks.snakeburger.stablehlo.StableHloAst.AllGatherOp;
 import io.surfworks.snakeburger.stablehlo.StableHloAst.AllReduceOp;
@@ -9,7 +10,9 @@ import io.surfworks.snakeburger.stablehlo.StableHloAst.AllToAllOp;
 import io.surfworks.snakeburger.stablehlo.StableHloAst.AndOp;
 import io.surfworks.snakeburger.stablehlo.StableHloAst.Argument;
 import io.surfworks.snakeburger.stablehlo.StableHloAst.Atan2Op;
+import io.surfworks.snakeburger.stablehlo.StableHloAst.BatchNormGradOp;
 import io.surfworks.snakeburger.stablehlo.StableHloAst.BatchNormInferenceOp;
+import io.surfworks.snakeburger.stablehlo.StableHloAst.BatchNormTrainingOp;
 import io.surfworks.snakeburger.stablehlo.StableHloAst.BitcastConvertOp;
 import io.surfworks.snakeburger.stablehlo.StableHloAst.BroadcastInDimOp;
 import io.surfworks.snakeburger.stablehlo.StableHloAst.CaseOp;
@@ -41,6 +44,7 @@ import io.surfworks.snakeburger.stablehlo.StableHloAst.DynamicGatherOp;
 import io.surfworks.snakeburger.stablehlo.StableHloAst.DynamicIotaOp;
 import io.surfworks.snakeburger.stablehlo.StableHloAst.DynamicPadOp;
 import io.surfworks.snakeburger.stablehlo.StableHloAst.DynamicReshapeOp;
+import io.surfworks.snakeburger.stablehlo.StableHloAst.DynamicConvOp;
 import io.surfworks.snakeburger.stablehlo.StableHloAst.DynamicSliceOp;
 import io.surfworks.snakeburger.stablehlo.StableHloAst.ExpOp;
 import io.surfworks.snakeburger.stablehlo.StableHloAst.Expm1Op;
@@ -52,7 +56,9 @@ import io.surfworks.snakeburger.stablehlo.StableHloAst.FunctionType;
 import io.surfworks.snakeburger.stablehlo.StableHloAst.GatherOp;
 import io.surfworks.snakeburger.stablehlo.StableHloAst.GetDimensionSizeOp;
 import io.surfworks.snakeburger.stablehlo.StableHloAst.GetTupleElementOp;
+import io.surfworks.snakeburger.stablehlo.StableHloAst.IfOp;
 import io.surfworks.snakeburger.stablehlo.StableHloAst.ImagOp;
+import io.surfworks.snakeburger.stablehlo.StableHloAst.InfeedOp;
 import io.surfworks.snakeburger.stablehlo.StableHloAst.IntegerAttr;
 import io.surfworks.snakeburger.stablehlo.StableHloAst.IotaOp;
 import io.surfworks.snakeburger.stablehlo.StableHloAst.IsFiniteOp;
@@ -68,6 +74,7 @@ import io.surfworks.snakeburger.stablehlo.StableHloAst.NegateOp;
 import io.surfworks.snakeburger.stablehlo.StableHloAst.NotOp;
 import io.surfworks.snakeburger.stablehlo.StableHloAst.OptimizationBarrierOp;
 import io.surfworks.snakeburger.stablehlo.StableHloAst.OrOp;
+import io.surfworks.snakeburger.stablehlo.StableHloAst.OutfeedOp;
 import io.surfworks.snakeburger.stablehlo.StableHloAst.PadOp;
 import io.surfworks.snakeburger.stablehlo.StableHloAst.PartitionIdOp;
 import io.surfworks.snakeburger.stablehlo.StableHloAst.PopcntOp;
@@ -79,17 +86,21 @@ import io.surfworks.snakeburger.stablehlo.StableHloAst.RemainderOp;
 import io.surfworks.snakeburger.stablehlo.StableHloAst.RoundNearestAfzOp;
 import io.surfworks.snakeburger.stablehlo.StableHloAst.RoundNearestEvenOp;
 import io.surfworks.snakeburger.stablehlo.StableHloAst.ReduceScatterOp;
+import io.surfworks.snakeburger.stablehlo.StableHloAst.RecvOp;
 import io.surfworks.snakeburger.stablehlo.StableHloAst.ReduceWindowOp;
 import io.surfworks.snakeburger.stablehlo.StableHloAst.ReplicaIdOp;
 import io.surfworks.snakeburger.stablehlo.StableHloAst.ReshapeOp;
 import io.surfworks.snakeburger.stablehlo.StableHloAst.ReturnOp;
 import io.surfworks.snakeburger.stablehlo.StableHloAst.ReverseOp;
+import io.surfworks.snakeburger.stablehlo.StableHloAst.RngAlgorithm;
+import io.surfworks.snakeburger.stablehlo.StableHloAst.RngBitGeneratorOp;
 import io.surfworks.snakeburger.stablehlo.StableHloAst.RngOp;
 import io.surfworks.snakeburger.stablehlo.StableHloAst.RsqrtOp;
 import io.surfworks.snakeburger.stablehlo.StableHloAst.ScalarType;
 import io.surfworks.snakeburger.stablehlo.StableHloAst.ScatterOp;
 import io.surfworks.snakeburger.stablehlo.StableHloAst.SelectAndScatterOp;
 import io.surfworks.snakeburger.stablehlo.StableHloAst.SelectOp;
+import io.surfworks.snakeburger.stablehlo.StableHloAst.SendOp;
 import io.surfworks.snakeburger.stablehlo.StableHloAst.ShiftLeftOp;
 import io.surfworks.snakeburger.stablehlo.StableHloAst.ShiftRightArithmeticOp;
 import io.surfworks.snakeburger.stablehlo.StableHloAst.ShiftRightLogicalOp;
@@ -110,6 +121,7 @@ import io.surfworks.snakeburger.stablehlo.StableHloAst.Type;
 import io.surfworks.snakeburger.stablehlo.StableHloAst.UniformDequantizeOp;
 import io.surfworks.snakeburger.stablehlo.StableHloAst.UniformQuantizeOp;
 import io.surfworks.snakeburger.stablehlo.StableHloAst.Value;
+import io.surfworks.snakeburger.stablehlo.StableHloAst.WhileOp;
 import io.surfworks.snakeburger.stablehlo.StableHloAst.XorOp;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Nested;
@@ -3232,6 +3244,304 @@ class StableHloParserTest {
 
             AllGatherOp op = (AllGatherOp) func.body().get(0);
             assertEquals(0L, op.allGatherDim());
+        }
+
+        @Test
+        void parseAfterAll() {
+            String mlir = """
+                module @test {
+                  func.func public @f(%t1: tensor<ui32>, %t2: tensor<ui32>) -> (tensor<ui32>) {
+                    %0 = stablehlo.after_all %t1, %t2 : (tensor<ui32>, tensor<ui32>) -> tensor<ui32>
+                    stablehlo.return %0 : tensor<ui32>
+                  }
+                }
+                """;
+
+            Module module = StableHloParser.parse(mlir);
+            Function func = module.functions().get(0);
+            assertInstanceOf(AfterAllOp.class, func.body().get(0));
+
+            AfterAllOp op = (AfterAllOp) func.body().get(0);
+            assertEquals(2, op.inputs().size());
+        }
+    }
+
+    // ==================== Control Flow Operations Tests ====================
+
+    @Nested
+    class ControlFlowOpsTests {
+
+        @Test
+        void parseIf() {
+            String mlir = """
+                module @test {
+                  func.func public @f(%pred: tensor<i1>, %x: tensor<4xf32>) -> (tensor<4xf32>) {
+                    %0 = stablehlo.if %pred {
+                      %a = stablehlo.negate %x : tensor<4xf32>
+                      stablehlo.return %a : tensor<4xf32>
+                    } else {
+                      %b = stablehlo.abs %x : tensor<4xf32>
+                      stablehlo.return %b : tensor<4xf32>
+                    } : (tensor<i1>) -> tensor<4xf32>
+                    stablehlo.return %0 : tensor<4xf32>
+                  }
+                }
+                """;
+
+            Module module = StableHloParser.parse(mlir);
+            Function func = module.functions().get(0);
+            assertInstanceOf(IfOp.class, func.body().get(0));
+
+            IfOp op = (IfOp) func.body().get(0);
+            assertEquals("pred", op.pred().name());
+            assertFalse(op.trueBranch().isEmpty());
+            assertFalse(op.falseBranch().isEmpty());
+        }
+
+        @Test
+        void parseWhile() {
+            // Note: Using numeric constant 1 for true in i1 since parser doesn't handle dense<true/false>
+            String mlir = """
+                module @test {
+                  func.func public @f(%init: tensor<4xf32>) -> (tensor<4xf32>) {
+                    %0 = stablehlo.while %init {
+                      %cond = stablehlo.constant dense<1> : tensor<i1>
+                      stablehlo.return %cond : tensor<i1>
+                    } do {
+                      %next = stablehlo.negate %init : tensor<4xf32>
+                      stablehlo.return %next : tensor<4xf32>
+                    } : (tensor<4xf32>) -> tensor<4xf32>
+                    stablehlo.return %0 : tensor<4xf32>
+                  }
+                }
+                """;
+
+            Module module = StableHloParser.parse(mlir);
+            Function func = module.functions().get(0);
+            assertInstanceOf(WhileOp.class, func.body().get(0));
+
+            WhileOp op = (WhileOp) func.body().get(0);
+            assertFalse(op.condBody().isEmpty());
+            assertFalse(op.body().isEmpty());
+        }
+    }
+
+    // ==================== Neural Network Gradient Operations Tests ====================
+
+    @Nested
+    class NeuralNetGradOpsTests {
+
+        @Test
+        void parseBatchNormTraining() {
+            String mlir = """
+                module @test {
+                  func.func public @f(%x: tensor<4x256xf32>, %scale: tensor<256xf32>, %offset: tensor<256xf32>) -> (tensor<4x256xf32>) {
+                    %out = stablehlo.batch_norm_training %x, %scale, %offset, epsilon=1.0e-5, feature_index=1 : (tensor<4x256xf32>, tensor<256xf32>, tensor<256xf32>) -> (tensor<4x256xf32>, tensor<256xf32>, tensor<256xf32>)
+                    stablehlo.return %out : tensor<4x256xf32>
+                  }
+                }
+                """;
+
+            Module module = StableHloParser.parse(mlir);
+            Function func = module.functions().get(0);
+            assertInstanceOf(BatchNormTrainingOp.class, func.body().get(0));
+
+            BatchNormTrainingOp op = (BatchNormTrainingOp) func.body().get(0);
+            assertEquals(1.0e-5f, op.epsilon(), 1e-10);
+            assertEquals(1L, op.featureIndex());
+            assertEquals(3, op.results().size());
+        }
+
+        @Test
+        void parseBatchNormGrad() {
+            String mlir = """
+                module @test {
+                  func.func public @f(%operand: tensor<4x256xf32>, %scale: tensor<256xf32>, %mean: tensor<256xf32>, %variance: tensor<256xf32>, %grad_output: tensor<4x256xf32>) -> (tensor<4x256xf32>) {
+                    %grad = stablehlo.batch_norm_grad %operand, %scale, %mean, %variance, %grad_output, epsilon=1.0e-5, feature_index=1 : (tensor<4x256xf32>, tensor<256xf32>, tensor<256xf32>, tensor<256xf32>, tensor<4x256xf32>) -> (tensor<4x256xf32>, tensor<256xf32>, tensor<256xf32>)
+                    stablehlo.return %grad : tensor<4x256xf32>
+                  }
+                }
+                """;
+
+            Module module = StableHloParser.parse(mlir);
+            Function func = module.functions().get(0);
+            assertInstanceOf(BatchNormGradOp.class, func.body().get(0));
+
+            BatchNormGradOp op = (BatchNormGradOp) func.body().get(0);
+            assertEquals(1.0e-5f, op.epsilon(), 1e-10);
+            assertEquals(1L, op.featureIndex());
+            assertEquals(3, op.results().size());
+        }
+    }
+
+    // ==================== Dynamic Shape Operations Tests ====================
+
+    @Nested
+    class DynamicConvOpsTests {
+
+        @Test
+        void parseDynamicConv() {
+            String mlir = """
+                module @test {
+                  func.func public @f(%input: tensor<1x4x4x1xf32>, %kernel: tensor<3x3x1x1xf32>, %padding: tensor<4xi32>) -> (tensor<1x4x4x1xf32>) {
+                    %0 = stablehlo.dynamic_conv %input, %kernel, %padding, strides=[1, 1], lhs_dilation=[1, 1], rhs_dilation=[1, 1], feature_group_count=1, batch_group_count=1 : (tensor<1x4x4x1xf32>, tensor<3x3x1x1xf32>, tensor<4xi32>) -> tensor<1x4x4x1xf32>
+                    stablehlo.return %0 : tensor<1x4x4x1xf32>
+                  }
+                }
+                """;
+
+            Module module = StableHloParser.parse(mlir);
+            Function func = module.functions().get(0);
+            assertInstanceOf(DynamicConvOp.class, func.body().get(0));
+
+            DynamicConvOp op = (DynamicConvOp) func.body().get(0);
+            assertEquals(List.of(1L, 1L), op.windowStrides());
+            assertEquals(1L, op.featureGroupCount());
+        }
+    }
+
+    // ==================== Random Operations Tests ====================
+
+    @Nested
+    class RandomOpsTests {
+
+        @Test
+        void parseRngBitGenerator() {
+            String mlir = """
+                module @test {
+                  func.func public @f(%state: tensor<2xui64>) -> (tensor<2xui64>) {
+                    %out = stablehlo.rng_bit_generator %state, algorithm=DEFAULT : tensor<2xui64> -> (tensor<2xui64>, tensor<4x4xui32>)
+                    stablehlo.return %out : tensor<2xui64>
+                  }
+                }
+                """;
+
+            Module module = StableHloParser.parse(mlir);
+            Function func = module.functions().get(0);
+            assertInstanceOf(RngBitGeneratorOp.class, func.body().get(0));
+
+            RngBitGeneratorOp op = (RngBitGeneratorOp) func.body().get(0);
+            assertEquals(RngAlgorithm.DEFAULT, op.algorithm());
+            assertEquals(2, op.results().size());
+        }
+
+        @Test
+        void parseRngBitGeneratorThreeFry() {
+            String mlir = """
+                module @test {
+                  func.func public @f(%state: tensor<2xui64>) -> (tensor<2xui64>) {
+                    %out = stablehlo.rng_bit_generator %state, algorithm=THREE_FRY : tensor<2xui64> -> (tensor<2xui64>, tensor<8xui64>)
+                    stablehlo.return %out : tensor<2xui64>
+                  }
+                }
+                """;
+
+            Module module = StableHloParser.parse(mlir);
+            Function func = module.functions().get(0);
+            RngBitGeneratorOp op = (RngBitGeneratorOp) func.body().get(0);
+            assertEquals(RngAlgorithm.THREE_FRY, op.algorithm());
+        }
+
+        @Test
+        void parseRngBitGeneratorPhilox() {
+            String mlir = """
+                module @test {
+                  func.func public @f(%state: tensor<3xui64>) -> (tensor<3xui64>) {
+                    %out = stablehlo.rng_bit_generator %state, algorithm=PHILOX : tensor<3xui64> -> (tensor<3xui64>, tensor<16xui32>)
+                    stablehlo.return %out : tensor<3xui64>
+                  }
+                }
+                """;
+
+            Module module = StableHloParser.parse(mlir);
+            Function func = module.functions().get(0);
+            RngBitGeneratorOp op = (RngBitGeneratorOp) func.body().get(0);
+            assertEquals(RngAlgorithm.PHILOX, op.algorithm());
+        }
+    }
+
+    // ==================== Communication Operations Tests ====================
+
+    @Nested
+    class CommunicationOpsTests {
+
+        @Test
+        void parseInfeed() {
+            String mlir = """
+                module @test {
+                  func.func public @f(%token: tensor<ui32>) -> (tensor<4xf32>) {
+                    %data = stablehlo.infeed %token, infeed_config="config_string" : tensor<ui32> -> (tensor<4xf32>, tensor<ui32>)
+                    stablehlo.return %data : tensor<4xf32>
+                  }
+                }
+                """;
+
+            Module module = StableHloParser.parse(mlir);
+            Function func = module.functions().get(0);
+            assertInstanceOf(InfeedOp.class, func.body().get(0));
+
+            InfeedOp op = (InfeedOp) func.body().get(0);
+            assertEquals("config_string", op.infeedConfig());
+            assertEquals("token", op.token().name());
+        }
+
+        @Test
+        void parseOutfeed() {
+            String mlir = """
+                module @test {
+                  func.func public @f(%data: tensor<4xf32>, %token: tensor<ui32>) -> (tensor<ui32>) {
+                    %token_out = stablehlo.outfeed %data, %token, outfeed_config="out_config" : (tensor<4xf32>, tensor<ui32>) -> tensor<ui32>
+                    stablehlo.return %token_out : tensor<ui32>
+                  }
+                }
+                """;
+
+            Module module = StableHloParser.parse(mlir);
+            Function func = module.functions().get(0);
+            assertInstanceOf(OutfeedOp.class, func.body().get(0));
+
+            OutfeedOp op = (OutfeedOp) func.body().get(0);
+            assertEquals("out_config", op.outfeedConfig());
+        }
+
+        @Test
+        void parseRecv() {
+            String mlir = """
+                module @test {
+                  func.func public @f(%token: tensor<ui32>) -> (tensor<4xf32>) {
+                    %data = stablehlo.recv %token, channel_id=42, channel_type=host_to_device : tensor<ui32> -> (tensor<4xf32>, tensor<ui32>)
+                    stablehlo.return %data : tensor<4xf32>
+                  }
+                }
+                """;
+
+            Module module = StableHloParser.parse(mlir);
+            Function func = module.functions().get(0);
+            assertInstanceOf(RecvOp.class, func.body().get(0));
+
+            RecvOp op = (RecvOp) func.body().get(0);
+            assertEquals(42L, op.channelId());
+            assertEquals("host_to_device", op.channelType());
+        }
+
+        @Test
+        void parseSend() {
+            String mlir = """
+                module @test {
+                  func.func public @f(%data: tensor<4xf32>, %token: tensor<ui32>) -> (tensor<ui32>) {
+                    %token_out = stablehlo.send %data, %token, channel_id=99, channel_type=device_to_host : (tensor<4xf32>, tensor<ui32>) -> tensor<ui32>
+                    stablehlo.return %token_out : tensor<ui32>
+                  }
+                }
+                """;
+
+            Module module = StableHloParser.parse(mlir);
+            Function func = module.functions().get(0);
+            assertInstanceOf(SendOp.class, func.body().get(0));
+
+            SendOp op = (SendOp) func.body().get(0);
+            assertEquals(99L, op.channelId());
+            assertEquals("device_to_host", op.channelType());
         }
     }
 }

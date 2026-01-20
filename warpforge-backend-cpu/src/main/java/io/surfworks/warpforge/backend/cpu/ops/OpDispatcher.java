@@ -5,58 +5,80 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 import io.surfworks.snakeburger.stablehlo.StableHloAst;
+import io.surfworks.warpforge.backend.cpu.ops.controlflow.ControlFlowKernels;
+import io.surfworks.warpforge.backend.cpu.ops.distributed.DistributedOpKernels;
 import io.surfworks.warpforge.backend.cpu.ops.scalar.AbsKernel;
 import io.surfworks.warpforge.backend.cpu.ops.scalar.AddKernel;
 import io.surfworks.warpforge.backend.cpu.ops.scalar.AndKernel;
 import io.surfworks.warpforge.backend.cpu.ops.scalar.Atan2Kernel;
+import io.surfworks.warpforge.backend.cpu.ops.scalar.BatchNormGradKernel;
 import io.surfworks.warpforge.backend.cpu.ops.scalar.BatchNormInferenceKernel;
 import io.surfworks.warpforge.backend.cpu.ops.scalar.BatchNormTrainingKernel;
 import io.surfworks.warpforge.backend.cpu.ops.scalar.BitcastConvertKernel;
 import io.surfworks.warpforge.backend.cpu.ops.scalar.BroadcastInDimKernel;
 import io.surfworks.warpforge.backend.cpu.ops.scalar.CbrtKernel;
 import io.surfworks.warpforge.backend.cpu.ops.scalar.CeilKernel;
+import io.surfworks.warpforge.backend.cpu.ops.scalar.CholeskyKernel;
 import io.surfworks.warpforge.backend.cpu.ops.scalar.ClampKernel;
 import io.surfworks.warpforge.backend.cpu.ops.scalar.ClzKernel;
 import io.surfworks.warpforge.backend.cpu.ops.scalar.CompareKernel;
+import io.surfworks.warpforge.backend.cpu.ops.scalar.ComplexKernel;
+import io.surfworks.warpforge.backend.cpu.ops.scalar.CompositeKernel;
 import io.surfworks.warpforge.backend.cpu.ops.scalar.ConcatenateKernel;
 import io.surfworks.warpforge.backend.cpu.ops.scalar.ConstantKernel;
 import io.surfworks.warpforge.backend.cpu.ops.scalar.ConvertKernel;
 import io.surfworks.warpforge.backend.cpu.ops.scalar.ConvolutionKernel;
 import io.surfworks.warpforge.backend.cpu.ops.scalar.CosKernel;
+import io.surfworks.warpforge.backend.cpu.ops.scalar.CustomCallKernel;
 import io.surfworks.warpforge.backend.cpu.ops.scalar.DivideKernel;
 import io.surfworks.warpforge.backend.cpu.ops.scalar.DotGeneralKernel;
 import io.surfworks.warpforge.backend.cpu.ops.scalar.DotKernel;
+import io.surfworks.warpforge.backend.cpu.ops.scalar.DynamicBroadcastInDimKernel;
+import io.surfworks.warpforge.backend.cpu.ops.scalar.DynamicConvKernel;
+import io.surfworks.warpforge.backend.cpu.ops.scalar.DynamicGatherKernel;
+import io.surfworks.warpforge.backend.cpu.ops.scalar.DynamicIotaKernel;
+import io.surfworks.warpforge.backend.cpu.ops.scalar.DynamicPadKernel;
+import io.surfworks.warpforge.backend.cpu.ops.scalar.DynamicReshapeKernel;
 import io.surfworks.warpforge.backend.cpu.ops.scalar.DynamicSliceKernel;
 import io.surfworks.warpforge.backend.cpu.ops.scalar.DynamicUpdateSliceKernel;
 import io.surfworks.warpforge.backend.cpu.ops.scalar.ExpKernel;
 import io.surfworks.warpforge.backend.cpu.ops.scalar.Expm1Kernel;
+import io.surfworks.warpforge.backend.cpu.ops.scalar.FftKernel;
 import io.surfworks.warpforge.backend.cpu.ops.scalar.FloorKernel;
 import io.surfworks.warpforge.backend.cpu.ops.scalar.GatherKernel;
 import io.surfworks.warpforge.backend.cpu.ops.scalar.GetDimensionSizeKernel;
+import io.surfworks.warpforge.backend.cpu.ops.scalar.GetTupleElementKernel;
+import io.surfworks.warpforge.backend.cpu.ops.scalar.ImagKernel;
 import io.surfworks.warpforge.backend.cpu.ops.scalar.IotaKernel;
 import io.surfworks.warpforge.backend.cpu.ops.scalar.IsFiniteKernel;
 import io.surfworks.warpforge.backend.cpu.ops.scalar.Log1pKernel;
 import io.surfworks.warpforge.backend.cpu.ops.scalar.LogKernel;
 import io.surfworks.warpforge.backend.cpu.ops.scalar.LogisticKernel;
+import io.surfworks.warpforge.backend.cpu.ops.scalar.MapKernel;
 import io.surfworks.warpforge.backend.cpu.ops.scalar.MaximumKernel;
 import io.surfworks.warpforge.backend.cpu.ops.scalar.MinimumKernel;
 import io.surfworks.warpforge.backend.cpu.ops.scalar.MultiplyKernel;
 import io.surfworks.warpforge.backend.cpu.ops.scalar.NegateKernel;
 import io.surfworks.warpforge.backend.cpu.ops.scalar.NotKernel;
+import io.surfworks.warpforge.backend.cpu.ops.scalar.OptimizationBarrierKernel;
 import io.surfworks.warpforge.backend.cpu.ops.scalar.OrKernel;
 import io.surfworks.warpforge.backend.cpu.ops.scalar.PadKernel;
 import io.surfworks.warpforge.backend.cpu.ops.scalar.PopcntKernel;
 import io.surfworks.warpforge.backend.cpu.ops.scalar.PowerKernel;
+import io.surfworks.warpforge.backend.cpu.ops.scalar.RealKernel;
 import io.surfworks.warpforge.backend.cpu.ops.scalar.ReduceKernel;
+import io.surfworks.warpforge.backend.cpu.ops.scalar.ReducePrecisionKernel;
 import io.surfworks.warpforge.backend.cpu.ops.scalar.ReduceWindowKernel;
 import io.surfworks.warpforge.backend.cpu.ops.scalar.RemainderKernel;
 import io.surfworks.warpforge.backend.cpu.ops.scalar.ReshapeKernel;
 import io.surfworks.warpforge.backend.cpu.ops.scalar.ReverseKernel;
+import io.surfworks.warpforge.backend.cpu.ops.scalar.RngBitGeneratorKernel;
 import io.surfworks.warpforge.backend.cpu.ops.scalar.RngKernel;
 import io.surfworks.warpforge.backend.cpu.ops.scalar.RoundNearestAfzKernel;
 import io.surfworks.warpforge.backend.cpu.ops.scalar.RoundNearestEvenKernel;
 import io.surfworks.warpforge.backend.cpu.ops.scalar.RsqrtKernel;
 import io.surfworks.warpforge.backend.cpu.ops.scalar.ScatterKernel;
+import io.surfworks.warpforge.backend.cpu.ops.scalar.SelectAndScatterKernel;
 import io.surfworks.warpforge.backend.cpu.ops.scalar.SelectKernel;
 import io.surfworks.warpforge.backend.cpu.ops.scalar.ShiftLeftKernel;
 import io.surfworks.warpforge.backend.cpu.ops.scalar.ShiftRightArithmeticKernel;
@@ -70,6 +92,10 @@ import io.surfworks.warpforge.backend.cpu.ops.scalar.SubtractKernel;
 import io.surfworks.warpforge.backend.cpu.ops.scalar.TanKernel;
 import io.surfworks.warpforge.backend.cpu.ops.scalar.TanhKernel;
 import io.surfworks.warpforge.backend.cpu.ops.scalar.TransposeKernel;
+import io.surfworks.warpforge.backend.cpu.ops.scalar.TriangularSolveKernel;
+import io.surfworks.warpforge.backend.cpu.ops.scalar.TupleKernel;
+import io.surfworks.warpforge.backend.cpu.ops.scalar.UniformDequantizeKernel;
+import io.surfworks.warpforge.backend.cpu.ops.scalar.UniformQuantizeKernel;
 import io.surfworks.warpforge.backend.cpu.ops.scalar.XorKernel;
 import io.surfworks.warpforge.core.tensor.Tensor;
 
@@ -219,5 +245,70 @@ public final class OpDispatcher {
 
         // Random number generation
         register(StableHloAst.RngOp.class, new RngKernel());
+        register(StableHloAst.RngBitGeneratorOp.class, new RngBitGeneratorKernel());
+
+        // Tuple operations
+        register(StableHloAst.TupleOp.class, new TupleKernel());
+        register(StableHloAst.GetTupleElementOp.class, new GetTupleElementKernel());
+
+        // Complex number operations
+        register(StableHloAst.ComplexOp.class, new ComplexKernel());
+        register(StableHloAst.RealOp.class, new RealKernel());
+        register(StableHloAst.ImagOp.class, new ImagKernel());
+
+        // Dynamic shape operations
+        register(StableHloAst.DynamicBroadcastInDimOp.class, new DynamicBroadcastInDimKernel());
+        register(StableHloAst.DynamicIotaOp.class, new DynamicIotaKernel());
+        register(StableHloAst.DynamicReshapeOp.class, new DynamicReshapeKernel());
+        register(StableHloAst.DynamicPadOp.class, new DynamicPadKernel());
+        register(StableHloAst.DynamicGatherOp.class, new DynamicGatherKernel());
+        register(StableHloAst.DynamicConvOp.class, new DynamicConvKernel());
+
+        // Neural network gradients
+        register(StableHloAst.BatchNormGradOp.class, new BatchNormGradKernel());
+
+        // Linear algebra
+        register(StableHloAst.CholeskyOp.class, new CholeskyKernel());
+        register(StableHloAst.TriangularSolveOp.class, new TriangularSolveKernel());
+
+        // Signal processing
+        register(StableHloAst.FftOp.class, new FftKernel());
+
+        // Quantization
+        register(StableHloAst.UniformQuantizeOp.class, new UniformQuantizeKernel());
+        register(StableHloAst.UniformDequantizeOp.class, new UniformDequantizeKernel());
+
+        // Precision and optimization
+        register(StableHloAst.ReducePrecisionOp.class, new ReducePrecisionKernel());
+        register(StableHloAst.OptimizationBarrierOp.class, new OptimizationBarrierKernel());
+
+        // Composite and custom operations
+        register(StableHloAst.CompositeOp.class, new CompositeKernel());
+        register(StableHloAst.CustomCallOp.class, new CustomCallKernel());
+
+        // Map and scatter operations
+        register(StableHloAst.MapOp.class, new MapKernel());
+        register(StableHloAst.SelectAndScatterOp.class, new SelectAndScatterKernel());
+
+        // Distributed/communication operations (stubs for single CPU)
+        register(StableHloAst.AfterAllOp.class, new DistributedOpKernels.AfterAllKernel());
+        register(StableHloAst.AllGatherOp.class, new DistributedOpKernels.AllGatherKernel());
+        register(StableHloAst.AllReduceOp.class, new DistributedOpKernels.AllReduceKernel());
+        register(StableHloAst.AllToAllOp.class, new DistributedOpKernels.AllToAllKernel());
+        register(StableHloAst.CollectiveBroadcastOp.class, new DistributedOpKernels.CollectiveBroadcastKernel());
+        register(StableHloAst.CollectivePermuteOp.class, new DistributedOpKernels.CollectivePermuteKernel());
+        register(StableHloAst.InfeedOp.class, new DistributedOpKernels.InfeedKernel());
+        register(StableHloAst.OutfeedOp.class, new DistributedOpKernels.OutfeedKernel());
+        register(StableHloAst.PartitionIdOp.class, new DistributedOpKernels.PartitionIdKernel());
+        register(StableHloAst.RecvOp.class, new DistributedOpKernels.RecvKernel());
+        register(StableHloAst.ReduceScatterOp.class, new DistributedOpKernels.ReduceScatterKernel());
+        register(StableHloAst.ReplicaIdOp.class, new DistributedOpKernels.ReplicaIdKernel());
+        register(StableHloAst.SendOp.class, new DistributedOpKernels.SendKernel());
+
+        // Control flow operations (require interpreter for full execution)
+        register(StableHloAst.ReturnOp.class, new ControlFlowKernels.ReturnKernel());
+        register(StableHloAst.IfOp.class, new ControlFlowKernels.IfKernel());
+        register(StableHloAst.WhileOp.class, new ControlFlowKernels.WhileKernel());
+        register(StableHloAst.CaseOp.class, new ControlFlowKernels.CaseKernel());
     }
 }

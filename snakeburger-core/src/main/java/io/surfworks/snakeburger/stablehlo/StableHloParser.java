@@ -58,6 +58,7 @@ import io.surfworks.snakeburger.stablehlo.StableHloAst.Function;
 import io.surfworks.snakeburger.stablehlo.StableHloAst.GatherOp;
 import io.surfworks.snakeburger.stablehlo.StableHloAst.GetDimensionSizeOp;
 import io.surfworks.snakeburger.stablehlo.StableHloAst.GetTupleElementOp;
+import io.surfworks.snakeburger.stablehlo.StableHloAst.IfOp;
 import io.surfworks.snakeburger.stablehlo.StableHloAst.ImagOp;
 import io.surfworks.snakeburger.stablehlo.StableHloAst.InfeedOp;
 import io.surfworks.snakeburger.stablehlo.StableHloAst.IotaOp;
@@ -120,6 +121,7 @@ import io.surfworks.snakeburger.stablehlo.StableHloAst.Type;
 import io.surfworks.snakeburger.stablehlo.StableHloAst.UniformDequantizeOp;
 import io.surfworks.snakeburger.stablehlo.StableHloAst.UniformQuantizeOp;
 import io.surfworks.snakeburger.stablehlo.StableHloAst.Value;
+import io.surfworks.snakeburger.stablehlo.StableHloAst.WhileOp;
 import io.surfworks.snakeburger.stablehlo.StableHloAst.XorOp;
 import io.surfworks.snakeburger.stablehlo.StableHloAst.RngAlgorithm;
 import io.surfworks.snakeburger.stablehlo.StableHloTokenizer.Token;
@@ -405,6 +407,8 @@ public final class StableHloParser {
             // Additional neural network operations
             case "stablehlo.batch_norm_grad" -> parseBatchNormGrad(resultName);
             // Control flow
+            case "stablehlo.if" -> parseIf(resultName);
+            case "stablehlo.while" -> parseWhile(resultName);
             case "stablehlo.case" -> parseCase(resultName);
             case "stablehlo.map" -> parseMap(resultName);
             // Distributed/collective operations
@@ -2714,6 +2718,89 @@ public final class StableHloParser {
     }
 
     // ==================== Control Flow Operations ====================
+
+    private IfOp parseIf(String resultName) {
+        // %r = stablehlo.if %pred { ... } else { ... } : (i1) -> tensor<...>
+        Value pred = lookupValue(parsePercentId());
+
+        // Parse true branch
+        List<Operation> trueBranch = new ArrayList<>();
+        expect(TokenType.LBRACE);
+        while (!check(TokenType.RBRACE)) {
+            trueBranch.add(parseOperation());
+        }
+        expect(TokenType.RBRACE);
+
+        // Expect 'else' keyword
+        if (checkIdentifier("else")) {
+            advance();
+        }
+
+        // Parse false branch
+        List<Operation> falseBranch = new ArrayList<>();
+        expect(TokenType.LBRACE);
+        while (!check(TokenType.RBRACE)) {
+            falseBranch.add(parseOperation());
+        }
+        expect(TokenType.RBRACE);
+
+        expect(TokenType.COLON);
+        expect(TokenType.LPAREN);
+        parseType();
+        expect(TokenType.RPAREN);
+        expect(TokenType.ARROW);
+        TensorType resultType = parseTensorType();
+
+        Value result = new Value(resultName, resultType);
+        valueMap.put(resultName, result);
+
+        return new IfOp(List.of(result), pred, trueBranch, falseBranch, resultType);
+    }
+
+    private WhileOp parseWhile(String resultName) {
+        // %r = stablehlo.while %init { cond } do { body } : (tensor<...>) -> tensor<...>
+        List<Value> operands = new ArrayList<>();
+        operands.add(lookupValue(parsePercentId()));
+
+        while (check(TokenType.COMMA)) {
+            advance();
+            if (check(TokenType.LBRACE)) break;
+            operands.add(lookupValue(parsePercentId()));
+        }
+
+        // Parse condition body
+        List<Operation> condBody = new ArrayList<>();
+        expect(TokenType.LBRACE);
+        while (!check(TokenType.RBRACE)) {
+            condBody.add(parseOperation());
+        }
+        expect(TokenType.RBRACE);
+
+        // Expect 'do' keyword
+        if (checkIdentifier("do")) {
+            advance();
+        }
+
+        // Parse loop body
+        List<Operation> body = new ArrayList<>();
+        expect(TokenType.LBRACE);
+        while (!check(TokenType.RBRACE)) {
+            body.add(parseOperation());
+        }
+        expect(TokenType.RBRACE);
+
+        expect(TokenType.COLON);
+        expect(TokenType.LPAREN);
+        parseType();
+        expect(TokenType.RPAREN);
+        expect(TokenType.ARROW);
+        TensorType resultType = parseTensorType();
+
+        Value result = new Value(resultName, resultType);
+        valueMap.put(resultName, result);
+
+        return new WhileOp(List.of(result), operands, condBody, body, resultType);
+    }
 
     private CaseOp parseCase(String resultName) {
         // %r = stablehlo.case %index { ... } { ... } : (i32) -> tensor<...>

@@ -7,7 +7,9 @@ import java.net.URL;
 import java.net.URLClassLoader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.util.jar.Attributes;
 import java.util.jar.JarFile;
+import java.util.jar.Manifest;
 
 /**
  * Utility for loading compiled models from JAR files.
@@ -27,6 +29,7 @@ import java.util.jar.JarFile;
 public final class ModelLoader {
 
     private static final String DEFAULT_MODEL_CLASS = "io.surfworks.warpforge.generated.Model";
+    private static final String MODEL_CLASS_ATTRIBUTE = "Model-Class";
     private static final String METADATA_PATH = "META-INF/warpforge/model.json";
     private static final String SOURCE_PATH = "META-INF/warpforge/source.mlir";
 
@@ -35,12 +38,39 @@ public final class ModelLoader {
     /**
      * Load a compiled model from a JAR file.
      *
+     * <p>The model class name is read from the "Model-Class" manifest attribute.
+     * If not present, falls back to the default class name.
+     *
      * @param jarPath Path to the model JAR
      * @return The loaded CompiledModel
      * @throws ModelLoadException if loading fails
      */
     public static CompiledModel load(Path jarPath) throws ModelLoadException {
-        return load(jarPath, DEFAULT_MODEL_CLASS);
+        String className = readModelClassFromManifest(jarPath);
+        return load(jarPath, className);
+    }
+
+    /**
+     * Read the model class name from the JAR manifest.
+     *
+     * @param jarPath Path to the model JAR
+     * @return The model class name, or the default if not specified
+     * @throws ModelLoadException if the JAR cannot be read
+     */
+    private static String readModelClassFromManifest(Path jarPath) throws ModelLoadException {
+        try (JarFile jar = new JarFile(jarPath.toFile())) {
+            Manifest manifest = jar.getManifest();
+            if (manifest != null) {
+                Attributes attrs = manifest.getMainAttributes();
+                String className = attrs.getValue(MODEL_CLASS_ATTRIBUTE);
+                if (className != null && !className.isBlank()) {
+                    return className;
+                }
+            }
+            return DEFAULT_MODEL_CLASS;
+        } catch (IOException e) {
+            throw new ModelLoadException("Failed to read JAR manifest: " + jarPath, e);
+        }
     }
 
     /**

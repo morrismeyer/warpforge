@@ -20,22 +20,19 @@ dependencies {
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher:1.10.2'
 }
 
-java {
-    toolchain {
-        languageVersion = JavaLanguageVersion.of(26)
-    }
-}
+// snakeburger-codegen requires Babylon JDK 26 for jdk.incubator.code
+// This allows future use of Babylon's code reflection API for sophisticated code generation
+// Note: Generated model JARs target Java 25 bytecode for runtime compatibility
+// JDK routing is handled by gradle/jdk-routing.gradle
 
 tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8'
-    options.compilerArgs.addAll(['--add-modules', 'jdk.incubator.code'])
 }
 
 tasks.withType(Test).configureEach {
     useJUnitPlatform()
-    // Tests need both incubator modules because they depend on warpforge-backend-cpu
-    // which uses jdk.incubator.vector for SIMD operations
-    jvmArgs += ['--add-modules', 'jdk.incubator.code,jdk.incubator.vector']
+    // Tests depend on warpforge-backend-cpu which uses jdk.incubator.vector
+    jvmArgs += ['--add-modules', 'jdk.incubator.vector']
 }
 
 test {
@@ -56,6 +53,27 @@ tasks.register('compileModel', JavaExec) {
         '--input', project.findProperty('mlir') ?: 'model.mlir',
         '--output', project.findProperty('jar') ?: 'build/model.jar'
     ]
+}
 
-    jvmArgs += ['--add-modules', 'jdk.incubator.code']
+// ============================================================================
+// Test Model JAR Generation (for Mode 2b Espresso smoke tests)
+// ============================================================================
+// This task runs on Babylon JDK and generates JARs with Java 25 bytecode.
+// Output is consumed by warpforge-test-runner:espressoSmokeTest.
+
+def testModelJarsDir = layout.buildDirectory.dir('test-model-jars')
+
+tasks.register('generateTestModelJars', JavaExec) {
+    description = 'Generate test model JARs from embedded MLIR (runs on Babylon JDK)'
+    group = 'verification'
+
+    mainClass = 'io.surfworks.snakeburger.codegen.TestModelJarGenerator'
+    classpath = sourceSets.main.runtimeClasspath
+    args = [testModelJarsDir.get().asFile.absolutePath]
+
+    outputs.dir(testModelJarsDir)
+
+    doFirst {
+        testModelJarsDir.get().asFile.mkdirs()
+    }
 }

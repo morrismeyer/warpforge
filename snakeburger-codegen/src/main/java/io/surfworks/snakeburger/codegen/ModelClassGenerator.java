@@ -183,8 +183,11 @@ public final class ModelClassGenerator {
         ClassWriter cw = new ClassWriter(ClassWriter.COMPUTE_FRAMES | ClassWriter.COMPUTE_MAXS);
 
         // Class declaration: public final class <Name> extends AbstractCompiledModel
+        // Target Java 25 (class file version 69) for GraalVM compatibility
+        // Note: ASM 9.7.1 doesn't have Opcodes.V25, so we use the raw value
+        int JAVA_25_CLASS_VERSION = 69;  // Opcodes.V24 is 68
         cw.visit(
-            Opcodes.V21,
+            JAVA_25_CLASS_VERSION,
             Opcodes.ACC_PUBLIC | Opcodes.ACC_FINAL | Opcodes.ACC_SUPER,
             internalName,
             null,

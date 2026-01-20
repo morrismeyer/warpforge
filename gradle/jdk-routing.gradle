@@ -108,8 +108,9 @@ def configureSnakeBurgerProject = { Project p ->
     }
 
     // Determine which incubator modules to enable
-    // warpforge modules also need jdk.incubator.vector for SIMD operations
-    def incubatorModules = p.name.startsWith("warpforge")
+    // warpforge modules and snakeburger-codegen (tests depend on warpforge) need jdk.incubator.vector
+    def needsVector = p.name.startsWith("warpforge") || p.name == "snakeburger-codegen"
+    def incubatorModules = needsVector
         ? "jdk.incubator.code,jdk.incubator.vector"
         : "jdk.incubator.code"
 
@@ -135,13 +136,34 @@ def configureSnakeBurgerProject = { Project p ->
 def autoUpdateEnabled = project.hasProperty('babylon.autoUpdate') &&
     project.property('babylon.autoUpdate').toString().toLowerCase() in ['true', '1', 'yes']
 
-// Configure snakeburger and warpforge during normal configuration.
-// Both require Babylon JDK (Java 26) for jdk.incubator.code module.
+// ============================================================================
+// JDK Routing for snakeburger and warpforge modules
+// ============================================================================
+// Babylon JDK modules (require jdk.incubator.code):
+//   - snakeburger-cli: BabylonHello.java demo
+//   - snakeburger-codegen: Future sophisticated code generation via code reflection
+//
+// Standard Java 25 modules:
+//   - snakeburger-core: Pure Java AST/parser (no Babylon APIs)
+//   - warpforge-*: Runtime components (use jdk.incubator.vector)
+//
+// Mode 2b architecture:
+//   1. generateTestModelJars runs on Babylon JDK → produces JARs with Java 25 bytecode
+//   2. espressoSmokeTest runs on GraalVM → loads pre-generated JARs via Espresso
+
+// Modules that REQUIRE Babylon JDK (use jdk.incubator.code)
+// snakeburger-codegen needs Babylon for future sophisticated code generation via code reflection
+def babylonModules = ['snakeburger-cli', 'snakeburger-codegen'] as Set
+
+// Modules that need jdk.incubator.vector (available in Java 25+)
+def vectorModules = ['warpforge-core', 'warpforge-backend-cpu', 'warpforge-backend-nvidia',
+                     'warpforge-backend-amd', 'warpforge-test-runner', 'warpforge-io'] as Set
+
 subprojects { p ->
-    if (p.name.startsWith("snakeburger") || p.name.startsWith("warpforge")) {
+    // Babylon JDK modules (only snakeburger-cli now)
+    if (babylonModules.contains(p.name)) {
         configureSnakeBurgerProject.call(p)
 
-        // If auto-update is enabled, make snakeburger compile tasks depend on ensureBabylonReady
         if (autoUpdateEnabled) {
             p.afterEvaluate {
                 def babylonRuntime = rootProject.findProject(':babylon-runtime')
@@ -153,6 +175,20 @@ subprojects { p ->
             }
         }
     }
+    // Vector API modules (standard Java 25 with jdk.incubator.vector)
+    else if (vectorModules.contains(p.name)) {
+        p.tasks.withType(JavaCompile).configureEach { JavaCompile c ->
+            c.options.compilerArgs.addAll(["--add-modules", "jdk.incubator.vector"])
+        }
+        p.tasks.withType(JavaExec).configureEach { JavaExec e ->
+            e.jvmArgs("--add-modules", "jdk.incubator.vector", "--enable-native-access=ALL-UNNAMED")
+        }
+        p.tasks.withType(Test).configureEach { Test t ->
+            t.jvmArgs("--add-modules", "jdk.incubator.vector", "--enable-native-access=ALL-UNNAMED")
+        }
+    }
+    // Other snakeburger modules (standard Java 25, no special modules)
+    // snakeburger-core, snakeburger-codegen compile with default toolchain
 }
 
 // Configure snakegrinder as late as possible so nothing overrides it.
@@ -180,6 +216,24 @@ gradle.projectsEvaluated {
             t.executable = graalJava
 
             t.jvmArgs(
+                "--enable-native-access=ALL-UNNAMED",
+                "-XX:+UnlockExperimentalVMOptions",
+                "-XX:+EnableJVMCI"
+            )
+        }
+    }
+
+    // Configure espressoSmokeTest in warpforge-test-runner to use GraalVM
+    // Note: generateTestModelJars is now in snakeburger-codegen (runs on Babylon JDK automatically)
+    def testRunner = rootProject.findProject(':warpforge-test-runner')
+    if (testRunner != null) {
+        // espressoSmokeTest runs on GraalVM (loads pre-generated JARs via Espresso)
+        testRunner.tasks.matching { it.name == 'espressoSmokeTest' }.configureEach { Test t ->
+            t.javaLauncher.set(graalvm25LauncherProvider)
+            t.executable = graalJava
+
+            t.jvmArgs(
+                "--add-modules", "jdk.incubator.vector",
                 "--enable-native-access=ALL-UNNAMED",
                 "-XX:+UnlockExperimentalVMOptions",
                 "-XX:+EnableJVMCI"

@@ -1,6 +1,6 @@
 package io.surfworks.snakeburger.cli;
 
-import io.surfworks.snakeburger.core.BabylonHello;
+import io.surfworks.snakeburger.cli.BabylonHello;
 import io.surfworks.snakeburger.stablehlo.StableHloAst.Module;
 import io.surfworks.snakeburger.stablehlo.StableHloParser;
 import io.surfworks.snakeburger.stablehlo.StableHloToBabylon;

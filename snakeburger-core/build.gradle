@@ -12,21 +12,20 @@ dependencies {
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher:1.10.2'
 }
 
+// snakeburger-core uses standard Java 25 (no Babylon APIs after BabylonHello.java was moved)
+// This enables Mode 2b: GraalVM JVM + Espresso smoke testing
 java {
     toolchain {
-        languageVersion = JavaLanguageVersion.of(26)
+        languageVersion = JavaLanguageVersion.of(25)
     }
 }
 
 tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8'
-    // Use the Babylon JDK toolchain javac (26) and also force the incubator module on.
-    options.compilerArgs.addAll(['--add-modules', 'jdk.incubator.code'])
 }
 
 tasks.withType(Test).configureEach {
     useJUnitPlatform()
-    jvmArgs += ['--add-modules', 'jdk.incubator.code']
 }
 
 // Exclude cross-project integration tests from regular test task
@@ -49,7 +48,6 @@ tasks.register('crossProjectTest', Test) {
     useJUnitPlatform {
         includeTags 'cross-project'
     }
-    jvmArgs += ['--add-modules', 'jdk.incubator.code']
 
     // Allow more time for native image execution
     systemProperty 'junit.jupiter.execution.timeout.default', '5m'

@@ -1,4 +1,4 @@
-package io.surfworks.snakeburger.core;
+package io.surfworks.snakeburger.cli;
 
 import java.lang.reflect.Method;
 import java.util.Optional;

@@ -15,13 +15,13 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 # -------- CONFIG (override via environment variables) --------
 
 TARGET_HOST="${TARGET_HOST_OVERRIDE:-nvidia}"
-TARGET_MAC="${TARGET_MAC_OVERRIDE:-10:ff:e0:c4:be:75}"
+TARGET_MAC="${TARGET_MAC_OVERRIDE:-10:7C:61:3D:E7:8F}"
 
 # Broadcast IP for your LAN (Wake-on-LAN uses broadcast, not the sleeping host IP)
 BROADCAST_IP="${BROADCAST_IP_OVERRIDE:-192.168.1.255}"
 
 # Path to the repo on the NVIDIA box
-REMOTE_REPO_DIR="${REMOTE_REPO_DIR_OVERRIDE:-/home/morris/surfworks/warpforge}"
+REMOTE_REPO_DIR="${REMOTE_REPO_DIR_OVERRIDE:-/home/actions/surfworks/warpforge}"
 
 # WarpForge repo URL for cloning if missing
 WARP_FORGE_REPO_URL="${WARP_FORGE_REPO_URL_OVERRIDE:-git@github.com:morrismeyer/warpforge.git}"

@@ -3,7 +3,7 @@ set -euo pipefail
 
 # Wake the NVIDIA box from the NUC via Wake-on-LAN (WOL).
 
-MAC="${MAC_OVERRIDE:-10:ff:e0:c4:be:75}"                 # NVIDIA NIC MAC
+MAC="${MAC_OVERRIDE:-10:7C:61:3D:E7:8F}"                 # NVIDIA NIC MAC
 BROADCAST_IP="${BROADCAST_IP_OVERRIDE:-192.168.1.255}"   # broadcast for your LAN
 LOG_FILE="${LOG_FILE_OVERRIDE:-$HOME/wake-nvidia.log}"
 WOL_SEND_TIMEOUT_SECONDS="${WOL_SEND_TIMEOUT_SECONDS:-3}"

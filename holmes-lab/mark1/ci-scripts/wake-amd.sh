@@ -3,7 +3,7 @@ set -euo pipefail
 
 # Wake the AMD box from the NUC via Wake-on-LAN (WOL).
 
-MAC="${MAC_OVERRIDE:-30:56:0f:20:67:79}"                 # AMD NIC MAC
+MAC="${MAC_OVERRIDE:-10:7C:61:63:CF:BD}"                 # AMD NIC MAC
 BROADCAST_IP="${BROADCAST_IP_OVERRIDE:-192.168.1.255}"   # broadcast for your LAN
 LOG_FILE="${LOG_FILE_OVERRIDE:-$HOME/wake-amd.log}"
 WOL_SEND_TIMEOUT_SECONDS="${WOL_SEND_TIMEOUT_SECONDS:-3}"

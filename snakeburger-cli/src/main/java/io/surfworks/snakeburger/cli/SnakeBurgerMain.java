@@ -1,6 +1,6 @@
 package io.surfworks.snakeburger.cli;
 
-import io.surfworks.snakeburger.cli.BabylonHello;
+import io.surfworks.snakeburger.cli.BabylonVersion;
 import io.surfworks.snakeburger.stablehlo.StableHloAst.Module;
 import io.surfworks.snakeburger.stablehlo.StableHloParser;
 import io.surfworks.snakeburger.stablehlo.StableHloToBabylon;
@@ -26,7 +26,7 @@ public final class SnakeBurgerMain {
         String command = args[0];
         switch (command) {
             case "--help", "-h" -> printUsage();
-            case "--hello" -> runHello();
+            case "--babylon" -> runBabylon();
             case "--stablehlo-ingest" -> runStableHloIngest(args);
             case "--stablehlo-example" -> runStableHloExample();
             case "--activate" -> runActivate(args);
@@ -46,7 +46,7 @@ public final class SnakeBurgerMain {
         System.out.println("Usage: snakeburger <command> [options]");
         System.out.println();
         System.out.println("Commands:");
-        System.out.println("  --hello                  Print Babylon hello world example");
+        System.out.println("  --babylon                Verify Babylon code reflection and show version");
         System.out.println("  --stablehlo-ingest FILE  Parse StableHLO MLIR and emit Babylon Op tree");
         System.out.println("  --stablehlo-example      Parse and emit built-in MLP example");
         System.out.println("  --help, -h               Print this help message");
@@ -57,10 +57,14 @@ public final class SnakeBurgerMain {
         System.out.println("  --license-info           Show license information");
     }
 
-    private static void runHello() {
-        System.out.println("hello world babylon");
+    private static void runBabylon() {
+        System.out.println("Babylon Code Reflection Status");
+        System.out.println("==============================");
         System.out.println();
-        System.out.println(BabylonHello.helloModelText());
+        System.out.println("Available: " + BabylonVersion.isAvailable());
+        System.out.println();
+        System.out.println("Code model for reflected method:");
+        System.out.println(BabylonVersion.getCodeModelText());
     }
 
     private static void runStableHloIngest(String[] args) {

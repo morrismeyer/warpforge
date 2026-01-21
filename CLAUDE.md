@@ -10,6 +10,15 @@ WarpForge is a multi-module Java build system integrating:
 - **SnakeGrinder** - GraalPy (Python on GraalVM) polyglot integration
 - **Hardware CI** - Distributed testing across NUC orchestrator, NVIDIA, and AMD GPU boxes
 
+## Architecture Documentation
+
+For detailed architectural decisions and implementation roadmaps, see the `architecture/` directory:
+
+- **[ARCHITECTURE.md](architecture/ARCHITECTURE.md)** - High-level system overview, module map, design principles
+- **[backend-phases.md](architecture/backend-phases.md)** - Phased approach to GPU backend development
+
+This file (CLAUDE.md) covers build commands, development workflow, and code style. The architecture docs cover **what to build and why**.
+
 ## Language Preference
 
 **When all else is equal, prefer Java over other languages.** This is the ethos of the WarpForge project.
@@ -121,12 +130,18 @@ source babylon-runtime/build/babylon.toolchain.env
 
 ## Project Structure
 
+- **architecture/** - Architectural documentation and roadmaps
 - **app** - Main application with NVML (NVIDIA GPU) integration via FFM
 - **babylon-runtime** - Build orchestration for Babylon JDK (not a Java library)
-- **snakeburger-core/cli** - Babylon code model reflection (requires Java 26)
-- **snakegrinder-core/cli** - GraalPy polyglot context (requires GraalVM 25)
-- **list** - Linked list data structure
-- **utilities** - String manipulation utilities
+- **snakeburger-core/cli/codegen** - Babylon code model reflection (requires Java 26)
+- **snakegrinder-core/cli/dist** - GraalPy polyglot context (requires GraalVM 25)
+- **warpforge-core** - Core IR and analysis
+- **warpforge-backend-cpu** - CPU reference backend
+- **warpforge-backend-nvidia** - NVIDIA GPU backend (cuBLAS/cuDNN via FFM)
+- **warpforge-backend-amd** - AMD GPU backend (hipBLAS/MIOpen via FFM)
+- **warpforge-codegen-api** - Kernel codegen interfaces
+- **warpforge-io** - I/O utilities
+- **warpforge-launch-core/cli** - Distributed launch infrastructure
 - **build-logic** - Gradle convention plugins
 - **holmes-lab/mark1/ci-scripts** - Hardware CI orchestration scripts
 

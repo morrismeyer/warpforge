@@ -1,6 +1,8 @@
 package io.surfworks.warpforge.backend.nvidia.ops;
 
 import io.surfworks.snakeburger.stablehlo.StableHloAst;
+import io.surfworks.warpforge.backend.nvidia.cuda.CudaContext;
+import io.surfworks.warpforge.backend.nvidia.cuda.CudaKernels;
 import io.surfworks.warpforge.core.tensor.Tensor;
 
 import java.util.List;
@@ -9,15 +11,43 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Dispatches StableHLO operations to CUDA kernel stubs.
- * All operations are registered but throw UnsupportedOperationException
- * until real CUDA implementations are provided.
+ * Dispatches StableHLO operations to CUDA kernel implementations.
+ *
+ * <p>Operations with real CUDA implementations use custom PTX kernels with
+ * salt-based instrumentation. Operations without implementations yet throw
+ * UnsupportedOperationException.
+ *
+ * @see CudaKernels for PTX generation with instrumentation
  */
 public final class CudaOpDispatcher {
 
     private final Map<Class<? extends StableHloAst.Operation>, CudaOpKernel> kernels = new ConcurrentHashMap<>();
+    private final CudaContext context;
+    private final int salt;
 
+    /**
+     * Create a dispatcher without CUDA context (stub-only mode for testing).
+     */
     public CudaOpDispatcher() {
+        this(null, CudaKernels.SALT_NONE);
+    }
+
+    /**
+     * Create a dispatcher with CUDA context and no instrumentation.
+     */
+    public CudaOpDispatcher(CudaContext context) {
+        this(context, CudaKernels.SALT_NONE);
+    }
+
+    /**
+     * Create a dispatcher with CUDA context and specified instrumentation level.
+     *
+     * @param context CUDA context for kernel execution (null for stub-only mode)
+     * @param salt Instrumentation level (SALT_NONE, SALT_TIMING, SALT_TRACE)
+     */
+    public CudaOpDispatcher(CudaContext context, int salt) {
+        this.context = context;
+        this.salt = salt;
         registerAllOperations();
     }
 
@@ -43,13 +73,23 @@ public final class CudaOpDispatcher {
     }
 
     /**
-     * Register all StableHLO operations as stubs.
-     * Each stub will throw UnsupportedOperationException until
-     * a real CUDA kernel implementation is provided.
+     * Register all StableHLO operations.
+     * Operations with real implementations get CUDA kernels.
+     * Others get stubs that throw UnsupportedOperationException.
      */
     private void registerAllOperations() {
-        // Binary elementwise operations
-        registerStub(StableHloAst.AddOp.class);
+        // ==================== Implemented Operations ====================
+
+        // Binary elementwise - Add (IMPLEMENTED)
+        if (context != null) {
+            kernels.put(StableHloAst.AddOp.class, new AddKernel(context, salt));
+        } else {
+            registerStub(StableHloAst.AddOp.class);
+        }
+
+        // ==================== Stub Operations ====================
+
+        // Binary elementwise operations (stubs)
         registerStub(StableHloAst.SubtractOp.class);
         registerStub(StableHloAst.MultiplyOp.class);
         registerStub(StableHloAst.DivideOp.class);

@@ -7,6 +7,9 @@ import io.surfworks.warpforge.core.backend.GpuBackendCapabilities;
 import io.surfworks.warpforge.core.tensor.Tensor;
 import io.surfworks.warpforge.core.tensor.TensorSpec;
 
+import io.surfworks.warpforge.backend.nvidia.cuda.CudaContext;
+import io.surfworks.warpforge.backend.nvidia.cuda.CudaKernels;
+import io.surfworks.warpforge.backend.nvidia.cuda.CudaRuntime;
 import io.surfworks.warpforge.backend.nvidia.ops.CudaOpDispatcher;
 
 import java.lang.foreign.Arena;
@@ -38,7 +41,9 @@ import java.util.concurrent.atomic.AtomicLong;
 public class NvidiaBackend implements GpuBackend {
 
     private final int deviceIndex;
+    private final int salt;
     private final GpuBackendCapabilities capabilities;
+    private final CudaContext cudaContext;
     private final CudaOpDispatcher dispatcher;
     private final ConcurrentHashMap<Long, StreamInfo> streams;
     private final AtomicLong allocatedBytes;
@@ -49,22 +54,47 @@ public class NvidiaBackend implements GpuBackend {
     private static final int MOCK_SM_COUNT = 82; // RTX 3090
 
     /**
-     * Create a backend for the default CUDA device (device 0).
+     * Create a backend for the default CUDA device (device 0) with no instrumentation.
      */
     public NvidiaBackend() {
-        this(0);
+        this(0, CudaKernels.SALT_NONE);
     }
 
     /**
-     * Create a backend for a specific CUDA device.
+     * Create a backend for a specific CUDA device with no instrumentation.
      *
      * @param deviceIndex The CUDA device index
      */
     public NvidiaBackend(int deviceIndex) {
+        this(deviceIndex, CudaKernels.SALT_NONE);
+    }
+
+    /**
+     * Create a backend for a specific CUDA device with specified instrumentation.
+     *
+     * @param deviceIndex The CUDA device index
+     * @param salt Instrumentation level (SALT_NONE, SALT_TIMING, SALT_TRACE)
+     */
+    public NvidiaBackend(int deviceIndex, int salt) {
         this.deviceIndex = deviceIndex;
-        this.dispatcher = new CudaOpDispatcher();
+        this.salt = salt;
         this.streams = new ConcurrentHashMap<>();
         this.allocatedBytes = new AtomicLong(0);
+
+        // Try to create CUDA context if CUDA is available
+        CudaContext ctx = null;
+        if (CudaRuntime.isAvailable()) {
+            try {
+                ctx = CudaContext.create(deviceIndex);
+            } catch (Exception e) {
+                // CUDA available but context creation failed - fall back to stub mode
+                System.err.println("Warning: CUDA context creation failed: " + e.getMessage());
+            }
+        }
+        this.cudaContext = ctx;
+
+        // Create dispatcher with context (or null for stub mode)
+        this.dispatcher = new CudaOpDispatcher(cudaContext, salt);
 
         // TODO: Query actual device capabilities via CUDA
         boolean gpuDirectSupported = checkGpuDirectSupport();
@@ -76,6 +106,20 @@ public class NvidiaBackend implements GpuBackend {
             gpuDirectSupported,
             hasTensorCores
         );
+    }
+
+    /**
+     * Check if this backend has a real CUDA context (vs stub mode).
+     */
+    public boolean hasCudaContext() {
+        return cudaContext != null;
+    }
+
+    /**
+     * Get the instrumentation salt level.
+     */
+    public int getSalt() {
+        return salt;
     }
 
     // ==================== Backend Interface ====================
@@ -270,7 +314,10 @@ public class NvidiaBackend implements GpuBackend {
         }
         streams.clear();
 
-        // TODO: Release all CUDA resources
+        // Close CUDA context
+        if (cudaContext != null) {
+            cudaContext.close();
+        }
     }
 
     // ==================== Helper Methods ====================

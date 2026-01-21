@@ -524,6 +524,100 @@ public final class CudaKernels {
     }
 
     /**
+     * Generate PTX for element-wise float32 tangent.
+     * tan(x) = sin(x) / cos(x)
+     */
+    public static String generateTanF32(int salt) {
+        String ptxOps = """
+                    // tan(x) = sin(x) / cos(x)
+                    sin.approx.f32  %f2, %f1;              // f2 = sin(x)
+                    cos.approx.f32  %f3, %f1;              // f3 = cos(x)
+                    div.approx.f32  %f2, %f2, %f3;         // f2 = sin(x) / cos(x)""";
+        return generateUnaryElementwiseF32("tan", ptxOps, "tan(x)", salt, 4);
+    }
+
+    /**
+     * Generate PTX for element-wise float32 logistic (sigmoid) function.
+     * logistic(x) = 1 / (1 + exp(-x))
+     */
+    public static String generateLogisticF32(int salt) {
+        // sigmoid(x) = 1 / (1 + exp(-x))
+        // Using base-2 exp: exp(x) = 2^(x * log2(e))
+        // log2(e) = 1.4426950408889634 = 0x3FB8AA3B in IEEE 754
+        String ptxOps = """
+                    // logistic(x) = 1 / (1 + exp(-x))
+                    neg.f32         %f2, %f1;              // f2 = -x
+                    mul.f32         %f2, %f2, 0f3FB8AA3B;  // f2 = -x * log2(e)
+                    ex2.approx.f32  %f2, %f2;              // f2 = exp(-x)
+                    add.f32         %f2, %f2, 0f3F800000;  // f2 = 1 + exp(-x)
+                    rcp.approx.f32  %f2, %f2;              // f2 = 1 / (1 + exp(-x))""";
+        return generateUnaryElementwiseF32("logistic", ptxOps, "sigmoid(x)", salt);
+    }
+
+    /**
+     * Generate PTX for element-wise float32 expm1.
+     * expm1(x) = exp(x) - 1 (more accurate than exp(x)-1 for small x)
+     */
+    public static String generateExpm1F32(int salt) {
+        // exp(x) - 1 using base-2 exp: exp(x) = 2^(x * log2(e))
+        // log2(e) = 1.4426950408889634 = 0x3FB8AA3B
+        String ptxOps = """
+                    // expm1(x) = exp(x) - 1
+                    mul.f32         %f2, %f1, 0f3FB8AA3B;  // f2 = x * log2(e)
+                    ex2.approx.f32  %f2, %f2;              // f2 = exp(x)
+                    sub.f32         %f2, %f2, 0f3F800000;  // f2 = exp(x) - 1""";
+        return generateUnaryElementwiseF32("expm1", ptxOps, "exp(x)-1", salt);
+    }
+
+    /**
+     * Generate PTX for element-wise float32 log1p.
+     * log1p(x) = log(1 + x) (more accurate than log(1+x) for small x)
+     */
+    public static String generateLog1pF32(int salt) {
+        // log(1+x) using base-2 log: log(x) = log2(x) / log2(e)
+        // 1/log2(e) = ln(2) = 0.6931471805599453 = 0x3F317218
+        String ptxOps = """
+                    // log1p(x) = log(1 + x)
+                    add.f32         %f2, %f1, 0f3F800000;  // f2 = 1 + x
+                    lg2.approx.f32  %f2, %f2;              // f2 = log2(1 + x)
+                    mul.f32         %f2, %f2, 0f3F317218;  // f2 = log(1 + x)""";
+        return generateUnaryElementwiseF32("log1p", ptxOps, "log(1+x)", salt);
+    }
+
+    /**
+     * Generate PTX for element-wise float32 cube root.
+     * cbrt(x) = x^(1/3), handling negative values correctly.
+     */
+    public static String generateCbrtF32(int salt) {
+        // cbrt(x) = sign(x) * |x|^(1/3)
+        // |x|^(1/3) = exp(log(|x|) / 3) = 2^(log2(|x|) / 3)
+        // 1/3 = 0.3333... = 0x3EAAAAAB
+        // Need to handle sign separately since log requires positive input
+        String ptxOps = """
+                    // cbrt(x) = sign(x) * |x|^(1/3)
+                    abs.f32         %f2, %f1;              // f2 = |x|
+                    lg2.approx.f32  %f2, %f2;              // f2 = log2(|x|)
+                    mul.f32         %f2, %f2, 0f3EAAAAAB;  // f2 = log2(|x|) / 3
+                    ex2.approx.f32  %f2, %f2;              // f2 = |x|^(1/3)
+                    copysign.f32    %f2, %f2, %f1;         // f2 = sign(x) * |x|^(1/3)""";
+        return generateUnaryElementwiseF32("cbrt", ptxOps, "cbrt(x)", salt);
+    }
+
+    /**
+     * Generate PTX for element-wise float32 is_finite check.
+     * Returns 1.0 if x is finite (not NaN or Inf), 0.0 otherwise.
+     */
+    public static String generateIsFiniteF32(int salt) {
+        // A value is finite if it's not NaN and not Inf
+        // Use testp.finite to check
+        String ptxOps = """
+                    // is_finite(x): 1.0 if finite, 0.0 if NaN or Inf
+                    testp.finite.f32 %p2, %f1;             // p2 = isfinite(x)
+                    selp.f32        %f2, 0f3F800000, 0f00000000, %p2;  // f2 = p2 ? 1.0 : 0.0""";
+        return generateUnaryElementwiseF32("is_finite", ptxOps, "isfinite(x)", salt, 3, 3);
+    }
+
+    /**
      * Generate PTX for a unary elementwise float32 operation.
      *
      * @param opName Operation name for comments and entry point

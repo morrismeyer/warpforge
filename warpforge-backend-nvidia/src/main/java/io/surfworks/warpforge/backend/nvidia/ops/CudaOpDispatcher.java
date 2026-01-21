@@ -208,6 +208,48 @@ public final class CudaOpDispatcher {
             registerStub(StableHloAst.SignOp.class);
         }
 
+        // Unary elementwise - Tan (IMPLEMENTED)
+        if (context != null) {
+            kernels.put(StableHloAst.TanOp.class, UnaryElementwiseKernel.tan(context, salt));
+        } else {
+            registerStub(StableHloAst.TanOp.class);
+        }
+
+        // Unary elementwise - Logistic (IMPLEMENTED)
+        if (context != null) {
+            kernels.put(StableHloAst.LogisticOp.class, UnaryElementwiseKernel.logistic(context, salt));
+        } else {
+            registerStub(StableHloAst.LogisticOp.class);
+        }
+
+        // Unary elementwise - Expm1 (IMPLEMENTED)
+        if (context != null) {
+            kernels.put(StableHloAst.Expm1Op.class, UnaryElementwiseKernel.expm1(context, salt));
+        } else {
+            registerStub(StableHloAst.Expm1Op.class);
+        }
+
+        // Unary elementwise - Log1p (IMPLEMENTED)
+        if (context != null) {
+            kernels.put(StableHloAst.Log1pOp.class, UnaryElementwiseKernel.log1p(context, salt));
+        } else {
+            registerStub(StableHloAst.Log1pOp.class);
+        }
+
+        // Unary elementwise - Cbrt (IMPLEMENTED)
+        if (context != null) {
+            kernels.put(StableHloAst.CbrtOp.class, UnaryElementwiseKernel.cbrt(context, salt));
+        } else {
+            registerStub(StableHloAst.CbrtOp.class);
+        }
+
+        // Unary elementwise - IsFinite (IMPLEMENTED)
+        if (context != null) {
+            kernels.put(StableHloAst.IsFiniteOp.class, UnaryElementwiseKernel.isFinite(context, salt));
+        } else {
+            registerStub(StableHloAst.IsFiniteOp.class);
+        }
+
         // ==================== Stub Operations ====================
 
         // Binary elementwise operations (stubs)
@@ -222,12 +264,6 @@ public final class CudaOpDispatcher {
         registerStub(StableHloAst.ShiftRightLogicalOp.class);
 
         // Unary elementwise operations (stubs - remaining ones)
-        registerStub(StableHloAst.TanOp.class);
-        registerStub(StableHloAst.LogisticOp.class);
-        registerStub(StableHloAst.Expm1Op.class);
-        registerStub(StableHloAst.Log1pOp.class);
-        registerStub(StableHloAst.CbrtOp.class);
-        registerStub(StableHloAst.IsFiniteOp.class);
         registerStub(StableHloAst.RoundNearestEvenOp.class);
         registerStub(StableHloAst.RoundNearestAfzOp.class);
         registerStub(StableHloAst.NotOp.class);

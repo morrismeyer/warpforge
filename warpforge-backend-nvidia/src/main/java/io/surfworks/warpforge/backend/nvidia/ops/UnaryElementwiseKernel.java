@@ -267,4 +267,64 @@ public final class UnaryElementwiseKernel implements CudaOpKernel {
             salt
         );
     }
+
+    public static UnaryElementwiseKernel tan(CudaContext context, int salt) {
+        return new UnaryElementwiseKernel(
+            "tan",
+            StableHloAst.TanOp.class,
+            CudaKernels::generateTanF32,
+            context,
+            salt
+        );
+    }
+
+    public static UnaryElementwiseKernel logistic(CudaContext context, int salt) {
+        return new UnaryElementwiseKernel(
+            "logistic",
+            StableHloAst.LogisticOp.class,
+            CudaKernels::generateLogisticF32,
+            context,
+            salt
+        );
+    }
+
+    public static UnaryElementwiseKernel expm1(CudaContext context, int salt) {
+        return new UnaryElementwiseKernel(
+            "expm1",
+            StableHloAst.Expm1Op.class,
+            CudaKernels::generateExpm1F32,
+            context,
+            salt
+        );
+    }
+
+    public static UnaryElementwiseKernel log1p(CudaContext context, int salt) {
+        return new UnaryElementwiseKernel(
+            "log1p",
+            StableHloAst.Log1pOp.class,
+            CudaKernels::generateLog1pF32,
+            context,
+            salt
+        );
+    }
+
+    public static UnaryElementwiseKernel cbrt(CudaContext context, int salt) {
+        return new UnaryElementwiseKernel(
+            "cbrt",
+            StableHloAst.CbrtOp.class,
+            CudaKernels::generateCbrtF32,
+            context,
+            salt
+        );
+    }
+
+    public static UnaryElementwiseKernel isFinite(CudaContext context, int salt) {
+        return new UnaryElementwiseKernel(
+            "is_finite",
+            StableHloAst.IsFiniteOp.class,
+            CudaKernels::generateIsFiniteF32,
+            context,
+            salt
+        );
+    }
 }

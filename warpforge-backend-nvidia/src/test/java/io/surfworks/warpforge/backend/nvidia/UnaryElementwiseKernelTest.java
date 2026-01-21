@@ -24,6 +24,7 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
  *
  * <p>Cluster 1: Negate, Abs, Exp, Log, Sqrt, Tanh
  * <p>Cluster 2: Rsqrt, Sin, Cos, Ceil, Floor, Sign
+ * <p>Cluster 3: Tan, Logistic, Expm1, Log1p, Cbrt, IsFinite
  *
  * <p>Each test prints [TEST] and [PASS] markers for visibility in CI logs.
  */
@@ -192,11 +193,92 @@ class UnaryElementwiseKernelTest {
     }
 
     @Test
+    @DisplayName("PTX: Tan generates valid output")
+    void testTanPtxGeneration() {
+        System.out.println("[TEST] PTX Generation: Tan");
+        String ptx = CudaKernels.generateTanF32(CudaKernels.SALT_NONE);
+
+        assertNotNull(ptx);
+        assertTrue(ptx.contains(".visible .entry tan_f32"));
+        assertTrue(ptx.contains("sin.approx.f32"));
+        assertTrue(ptx.contains("cos.approx.f32"));
+        assertTrue(ptx.contains("div.approx.f32"));
+        System.out.println("[PASS] Tan PTX generation OK");
+    }
+
+    @Test
+    @DisplayName("PTX: Logistic generates valid output")
+    void testLogisticPtxGeneration() {
+        System.out.println("[TEST] PTX Generation: Logistic");
+        String ptx = CudaKernels.generateLogisticF32(CudaKernels.SALT_NONE);
+
+        assertNotNull(ptx);
+        assertTrue(ptx.contains(".visible .entry logistic_f32"));
+        assertTrue(ptx.contains("ex2.approx.f32"));
+        assertTrue(ptx.contains("rcp.approx.f32"));
+        System.out.println("[PASS] Logistic PTX generation OK");
+    }
+
+    @Test
+    @DisplayName("PTX: Expm1 generates valid output")
+    void testExpm1PtxGeneration() {
+        System.out.println("[TEST] PTX Generation: Expm1");
+        String ptx = CudaKernels.generateExpm1F32(CudaKernels.SALT_NONE);
+
+        assertNotNull(ptx);
+        assertTrue(ptx.contains(".visible .entry expm1_f32"));
+        assertTrue(ptx.contains("ex2.approx.f32"));
+        assertTrue(ptx.contains("sub.f32"));
+        System.out.println("[PASS] Expm1 PTX generation OK");
+    }
+
+    @Test
+    @DisplayName("PTX: Log1p generates valid output")
+    void testLog1pPtxGeneration() {
+        System.out.println("[TEST] PTX Generation: Log1p");
+        String ptx = CudaKernels.generateLog1pF32(CudaKernels.SALT_NONE);
+
+        assertNotNull(ptx);
+        assertTrue(ptx.contains(".visible .entry log1p_f32"));
+        assertTrue(ptx.contains("lg2.approx.f32"));
+        assertTrue(ptx.contains("add.f32"));
+        System.out.println("[PASS] Log1p PTX generation OK");
+    }
+
+    @Test
+    @DisplayName("PTX: Cbrt generates valid output")
+    void testCbrtPtxGeneration() {
+        System.out.println("[TEST] PTX Generation: Cbrt");
+        String ptx = CudaKernels.generateCbrtF32(CudaKernels.SALT_NONE);
+
+        assertNotNull(ptx);
+        assertTrue(ptx.contains(".visible .entry cbrt_f32"));
+        assertTrue(ptx.contains("lg2.approx.f32"));
+        assertTrue(ptx.contains("ex2.approx.f32"));
+        assertTrue(ptx.contains("copysign.f32"));
+        System.out.println("[PASS] Cbrt PTX generation OK");
+    }
+
+    @Test
+    @DisplayName("PTX: IsFinite generates valid output")
+    void testIsFinitePtxGeneration() {
+        System.out.println("[TEST] PTX Generation: IsFinite");
+        String ptx = CudaKernels.generateIsFiniteF32(CudaKernels.SALT_NONE);
+
+        assertNotNull(ptx);
+        assertTrue(ptx.contains(".visible .entry is_finite_f32"));
+        assertTrue(ptx.contains("testp.finite.f32"));
+        assertTrue(ptx.contains("selp.f32"));
+        System.out.println("[PASS] IsFinite PTX generation OK");
+    }
+
+    @Test
     @DisplayName("PTX: All unary operations support SALT_TIMING")
     void testAllUnaryOperationsSupportTiming() {
         System.out.println("[TEST] PTX Generation: All unary operations with SALT_TIMING");
 
-        String[] ops = {"Negate", "Abs", "Exp", "Log", "Sqrt", "Tanh", "Rsqrt", "Sin", "Cos", "Ceil", "Floor", "Sign"};
+        String[] ops = {"Negate", "Abs", "Exp", "Log", "Sqrt", "Tanh", "Rsqrt", "Sin", "Cos", "Ceil", "Floor", "Sign",
+                        "Tan", "Logistic", "Expm1", "Log1p", "Cbrt", "IsFinite"};
         String[] ptxSources = {
             CudaKernels.generateNegateF32(CudaKernels.SALT_TIMING),
             CudaKernels.generateAbsF32(CudaKernels.SALT_TIMING),
@@ -209,7 +291,13 @@ class UnaryElementwiseKernelTest {
             CudaKernels.generateCosF32(CudaKernels.SALT_TIMING),
             CudaKernels.generateCeilF32(CudaKernels.SALT_TIMING),
             CudaKernels.generateFloorF32(CudaKernels.SALT_TIMING),
-            CudaKernels.generateSignF32(CudaKernels.SALT_TIMING)
+            CudaKernels.generateSignF32(CudaKernels.SALT_TIMING),
+            CudaKernels.generateTanF32(CudaKernels.SALT_TIMING),
+            CudaKernels.generateLogisticF32(CudaKernels.SALT_TIMING),
+            CudaKernels.generateExpm1F32(CudaKernels.SALT_TIMING),
+            CudaKernels.generateLog1pF32(CudaKernels.SALT_TIMING),
+            CudaKernels.generateCbrtF32(CudaKernels.SALT_TIMING),
+            CudaKernels.generateIsFiniteF32(CudaKernels.SALT_TIMING)
         };
 
         for (int i = 0; i < ops.length; i++) {
@@ -508,6 +596,153 @@ class UnaryElementwiseKernelTest {
         System.out.println("[PASS] Sign execution OK");
     }
 
+    // ==================== Cluster 3: Tan, Logistic, Expm1, Log1p, Cbrt, IsFinite ====================
+
+    @Test
+    @Tag("nvidia")
+    @DisplayName("CUDA: Tan executes correctly")
+    void testTanExecution() {
+        System.out.println("[TEST] CUDA Execution: Tan");
+        assumeTrue(CudaRuntime.isAvailable(), "CUDA not available");
+        assumeTrue(backend.hasCudaContext(), "CUDA context not available");
+
+        float pi = (float) Math.PI;
+        float[] input = {0.0f, pi / 6, pi / 4, -pi / 4, pi / 3};
+
+        float[] result = executeTan(input);
+
+        assertEquals(0.0f, result[0], 1e-3f, "tan(0)");
+        assertEquals((float) Math.tan(pi / 6), result[1], 1e-2f, "tan(pi/6)");
+        assertEquals(1.0f, result[2], 1e-2f, "tan(pi/4)");
+        assertEquals(-1.0f, result[3], 1e-2f, "tan(-pi/4)");
+        assertEquals((float) Math.tan(pi / 3), result[4], 1e-1f, "tan(pi/3)");
+
+        System.out.println("  Input:  " + Arrays.toString(input));
+        System.out.println("  Result: " + Arrays.toString(result));
+        System.out.println("[PASS] Tan execution OK");
+    }
+
+    @Test
+    @Tag("nvidia")
+    @DisplayName("CUDA: Logistic (sigmoid) executes correctly")
+    void testLogisticExecution() {
+        System.out.println("[TEST] CUDA Execution: Logistic");
+        assumeTrue(CudaRuntime.isAvailable(), "CUDA not available");
+        assumeTrue(backend.hasCudaContext(), "CUDA context not available");
+
+        float[] input = {0.0f, 1.0f, -1.0f, 2.0f, -2.0f, 10.0f, -10.0f};
+
+        float[] result = executeLogistic(input);
+
+        assertEquals(0.5f, result[0], 1e-3f, "sigmoid(0)");
+        assertEquals(1.0f / (1.0f + (float) Math.exp(-1)), result[1], 1e-2f, "sigmoid(1)");
+        assertEquals(1.0f / (1.0f + (float) Math.exp(1)), result[2], 1e-2f, "sigmoid(-1)");
+        assertEquals(1.0f / (1.0f + (float) Math.exp(-2)), result[3], 1e-2f, "sigmoid(2)");
+        assertEquals(1.0f / (1.0f + (float) Math.exp(2)), result[4], 1e-2f, "sigmoid(-2)");
+        assertTrue(result[5] > 0.99f, "sigmoid(10) should be close to 1");
+        assertTrue(result[6] < 0.01f, "sigmoid(-10) should be close to 0");
+
+        System.out.println("  Input:  " + Arrays.toString(input));
+        System.out.println("  Result: " + Arrays.toString(result));
+        System.out.println("[PASS] Logistic execution OK");
+    }
+
+    @Test
+    @Tag("nvidia")
+    @DisplayName("CUDA: Expm1 executes correctly")
+    void testExpm1Execution() {
+        System.out.println("[TEST] CUDA Execution: Expm1");
+        assumeTrue(CudaRuntime.isAvailable(), "CUDA not available");
+        assumeTrue(backend.hasCudaContext(), "CUDA context not available");
+
+        float[] input = {0.0f, 1.0f, -1.0f, 0.001f, -0.001f, 2.0f};
+
+        float[] result = executeExpm1(input);
+
+        assertEquals(0.0f, result[0], 1e-4f, "expm1(0)");
+        assertEquals((float) Math.expm1(1), result[1], 1e-2f, "expm1(1)");
+        assertEquals((float) Math.expm1(-1), result[2], 1e-2f, "expm1(-1)");
+        assertEquals((float) Math.expm1(0.001), result[3], 1e-4f, "expm1(0.001)");
+        assertEquals((float) Math.expm1(-0.001), result[4], 1e-4f, "expm1(-0.001)");
+        assertEquals((float) Math.expm1(2), result[5], 1e-1f, "expm1(2)");
+
+        System.out.println("  Input:  " + Arrays.toString(input));
+        System.out.println("  Result: " + Arrays.toString(result));
+        System.out.println("[PASS] Expm1 execution OK");
+    }
+
+    @Test
+    @Tag("nvidia")
+    @DisplayName("CUDA: Log1p executes correctly")
+    void testLog1pExecution() {
+        System.out.println("[TEST] CUDA Execution: Log1p");
+        assumeTrue(CudaRuntime.isAvailable(), "CUDA not available");
+        assumeTrue(backend.hasCudaContext(), "CUDA context not available");
+
+        float[] input = {0.0f, 1.0f, 0.001f, (float) (Math.E - 1), 9.0f};
+
+        float[] result = executeLog1p(input);
+
+        assertEquals(0.0f, result[0], 1e-4f, "log1p(0)");
+        assertEquals((float) Math.log(2), result[1], 1e-2f, "log1p(1)");
+        assertEquals((float) Math.log1p(0.001), result[2], 1e-4f, "log1p(0.001)");
+        assertEquals(1.0f, result[3], 1e-2f, "log1p(e-1)");
+        assertEquals((float) Math.log(10), result[4], 1e-2f, "log1p(9)");
+
+        System.out.println("  Input:  " + Arrays.toString(input));
+        System.out.println("  Result: " + Arrays.toString(result));
+        System.out.println("[PASS] Log1p execution OK");
+    }
+
+    @Test
+    @Tag("nvidia")
+    @DisplayName("CUDA: Cbrt executes correctly")
+    void testCbrtExecution() {
+        System.out.println("[TEST] CUDA Execution: Cbrt");
+        assumeTrue(CudaRuntime.isAvailable(), "CUDA not available");
+        assumeTrue(backend.hasCudaContext(), "CUDA context not available");
+
+        float[] input = {0.0f, 1.0f, 8.0f, 27.0f, -8.0f, -27.0f, 125.0f, 1000.0f};
+
+        float[] result = executeCbrt(input);
+
+        assertEquals(0.0f, result[0], 1e-4f, "cbrt(0)");
+        assertEquals(1.0f, result[1], 1e-3f, "cbrt(1)");
+        assertEquals(2.0f, result[2], 1e-2f, "cbrt(8)");
+        assertEquals(3.0f, result[3], 1e-2f, "cbrt(27)");
+        assertEquals(-2.0f, result[4], 1e-2f, "cbrt(-8)");
+        assertEquals(-3.0f, result[5], 1e-2f, "cbrt(-27)");
+        assertEquals(5.0f, result[6], 1e-2f, "cbrt(125)");
+        assertEquals(10.0f, result[7], 1e-1f, "cbrt(1000)");
+
+        System.out.println("  Input:  " + Arrays.toString(input));
+        System.out.println("  Result: " + Arrays.toString(result));
+        System.out.println("[PASS] Cbrt execution OK");
+    }
+
+    @Test
+    @Tag("nvidia")
+    @DisplayName("CUDA: IsFinite executes correctly")
+    void testIsFiniteExecution() {
+        System.out.println("[TEST] CUDA Execution: IsFinite");
+        assumeTrue(CudaRuntime.isAvailable(), "CUDA not available");
+        assumeTrue(backend.hasCudaContext(), "CUDA context not available");
+
+        float[] input = {1.0f, -1.0f, 0.0f, Float.MAX_VALUE, Float.MIN_VALUE,
+                         Float.POSITIVE_INFINITY, Float.NEGATIVE_INFINITY, Float.NaN};
+        float[] expected = {1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 0.0f, 0.0f, 0.0f};
+
+        float[] result = executeIsFinite(input);
+
+        for (int i = 0; i < expected.length; i++) {
+            assertEquals(expected[i], result[i], 1e-5f, "isFinite(" + input[i] + ")");
+        }
+
+        System.out.println("  Input:  " + Arrays.toString(input));
+        System.out.println("  Result: " + Arrays.toString(result));
+        System.out.println("[PASS] IsFinite execution OK");
+    }
+
     @Test
     @Tag("nvidia")
     @DisplayName("CUDA: All unary operations handle large tensors (1M elements)")
@@ -683,8 +918,60 @@ class UnaryElementwiseKernelTest {
         assertTrue(Math.abs(signResult[2]) < 1e-5f);
         System.out.println("[OK]");
 
+        // Cluster 3
+        System.out.println("--- Cluster 3 ---");
+
+        // Tan
+        System.out.print("  Tan: ");
+        float[] tanInput = {0.0f, (float) (Math.PI / 4)};
+        float[] tanResult = executeTan(tanInput);
+        assertTrue(Math.abs(tanResult[0]) < 1e-3f);
+        assertTrue(Math.abs(tanResult[1] - 1.0f) < 1e-2f);
+        System.out.println("[OK]");
+
+        // Logistic
+        System.out.print("  Logistic: ");
+        float[] logisticInput = {0.0f, 10.0f};
+        float[] logisticResult = executeLogistic(logisticInput);
+        assertTrue(Math.abs(logisticResult[0] - 0.5f) < 1e-3f);
+        assertTrue(logisticResult[1] > 0.99f);
+        System.out.println("[OK]");
+
+        // Expm1
+        System.out.print("  Expm1: ");
+        float[] expm1Input = {0.0f, 1.0f};
+        float[] expm1Result = executeExpm1(expm1Input);
+        assertTrue(Math.abs(expm1Result[0]) < 1e-4f);
+        assertTrue(Math.abs(expm1Result[1] - (float) Math.expm1(1)) < 1e-2f);
+        System.out.println("[OK]");
+
+        // Log1p
+        System.out.print("  Log1p: ");
+        float[] log1pInput = {0.0f, 1.0f};
+        float[] log1pResult = executeLog1p(log1pInput);
+        assertTrue(Math.abs(log1pResult[0]) < 1e-4f);
+        assertTrue(Math.abs(log1pResult[1] - (float) Math.log(2)) < 1e-2f);
+        System.out.println("[OK]");
+
+        // Cbrt
+        System.out.print("  Cbrt: ");
+        float[] cbrtInput = {8.0f, -27.0f};
+        float[] cbrtResult = executeCbrt(cbrtInput);
+        assertTrue(Math.abs(cbrtResult[0] - 2.0f) < 1e-2f);
+        assertTrue(Math.abs(cbrtResult[1] - (-3.0f)) < 1e-2f);
+        System.out.println("[OK]");
+
+        // IsFinite
+        System.out.print("  IsFinite: ");
+        float[] isFiniteInput = {1.0f, Float.POSITIVE_INFINITY, Float.NaN};
+        float[] isFiniteResult = executeIsFinite(isFiniteInput);
+        assertTrue(Math.abs(isFiniteResult[0] - 1.0f) < 1e-5f);
+        assertTrue(Math.abs(isFiniteResult[1]) < 1e-5f);
+        assertTrue(Math.abs(isFiniteResult[2]) < 1e-5f);
+        System.out.println("[OK]");
+
         System.out.println("----------------------------------------");
-        System.out.println("All 12 unary elementwise operations PASSED");
+        System.out.println("All 18 unary elementwise operations PASSED");
         System.out.println("========================================");
     }
 
@@ -738,6 +1025,30 @@ class UnaryElementwiseKernelTest {
         return executeUnaryOp(backend, input, StableHloAst.SignOp.class);
     }
 
+    private float[] executeTan(float[] input) {
+        return executeUnaryOp(backend, input, StableHloAst.TanOp.class);
+    }
+
+    private float[] executeLogistic(float[] input) {
+        return executeUnaryOp(backend, input, StableHloAst.LogisticOp.class);
+    }
+
+    private float[] executeExpm1(float[] input) {
+        return executeUnaryOp(backend, input, StableHloAst.Expm1Op.class);
+    }
+
+    private float[] executeLog1p(float[] input) {
+        return executeUnaryOp(backend, input, StableHloAst.Log1pOp.class);
+    }
+
+    private float[] executeCbrt(float[] input) {
+        return executeUnaryOp(backend, input, StableHloAst.CbrtOp.class);
+    }
+
+    private float[] executeIsFinite(float[] input) {
+        return executeUnaryOp(backend, input, StableHloAst.IsFiniteOp.class);
+    }
+
     private float[] executeUnaryOp(NvidiaBackend backend, float[] input,
                                     Class<? extends StableHloAst.Operation> opClass) {
         int n = input.length;
@@ -787,6 +1098,19 @@ class UnaryElementwiseKernelTest {
             return new StableHloAst.FloorOp(input, result, resultType);
         } else if (opClass == StableHloAst.SignOp.class) {
             return new StableHloAst.SignOp(input, result, resultType);
+        // Cluster 3
+        } else if (opClass == StableHloAst.TanOp.class) {
+            return new StableHloAst.TanOp(input, result, resultType);
+        } else if (opClass == StableHloAst.LogisticOp.class) {
+            return new StableHloAst.LogisticOp(input, result, resultType);
+        } else if (opClass == StableHloAst.Expm1Op.class) {
+            return new StableHloAst.Expm1Op(input, result, resultType);
+        } else if (opClass == StableHloAst.Log1pOp.class) {
+            return new StableHloAst.Log1pOp(input, result, resultType);
+        } else if (opClass == StableHloAst.CbrtOp.class) {
+            return new StableHloAst.CbrtOp(input, result, resultType);
+        } else if (opClass == StableHloAst.IsFiniteOp.class) {
+            return new StableHloAst.IsFiniteOp(input, result, resultType);
         } else {
             throw new IllegalArgumentException("Unknown unary operation class: " + opClass);
         }

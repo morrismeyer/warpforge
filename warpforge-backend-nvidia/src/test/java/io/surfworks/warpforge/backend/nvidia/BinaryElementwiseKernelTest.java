@@ -92,16 +92,44 @@ class BinaryElementwiseKernelTest {
     }
 
     @Test
+    @DisplayName("PTX: Power generates valid output")
+    void testPowerPtxGeneration() {
+        System.out.println("[TEST] PTX Generation: Power");
+        String ptx = CudaKernels.generatePowerF32(CudaKernels.SALT_NONE);
+
+        assertNotNull(ptx);
+        assertTrue(ptx.contains(".visible .entry power_f32"));
+        assertTrue(ptx.contains("lg2.approx.f32"));
+        assertTrue(ptx.contains("ex2.approx.f32"));
+        System.out.println("[PASS] Power PTX generation OK");
+    }
+
+    @Test
+    @DisplayName("PTX: Remainder generates valid output")
+    void testRemainderPtxGeneration() {
+        System.out.println("[TEST] PTX Generation: Remainder");
+        String ptx = CudaKernels.generateRemainderF32(CudaKernels.SALT_NONE);
+
+        assertNotNull(ptx);
+        assertTrue(ptx.contains(".visible .entry remainder_f32"));
+        assertTrue(ptx.contains("div.approx.f32"));
+        assertTrue(ptx.contains("cvt.rzi.f32.f32")); // truncate
+        System.out.println("[PASS] Remainder PTX generation OK");
+    }
+
+    @Test
     @DisplayName("PTX: All operations support SALT_TIMING")
     void testAllOperationsSupportTiming() {
         System.out.println("[TEST] PTX Generation: All operations with SALT_TIMING");
 
-        String[] ops = {"Subtract", "Divide", "Maximum", "Minimum"};
+        String[] ops = {"Subtract", "Divide", "Maximum", "Minimum", "Power", "Remainder"};
         String[] ptxSources = {
             CudaKernels.generateSubtractF32(CudaKernels.SALT_TIMING),
             CudaKernels.generateDivideF32(CudaKernels.SALT_TIMING),
             CudaKernels.generateMaximumF32(CudaKernels.SALT_TIMING),
-            CudaKernels.generateMinimumF32(CudaKernels.SALT_TIMING)
+            CudaKernels.generateMinimumF32(CudaKernels.SALT_TIMING),
+            CudaKernels.generatePowerF32(CudaKernels.SALT_TIMING),
+            CudaKernels.generateRemainderF32(CudaKernels.SALT_TIMING)
         };
 
         for (int i = 0; i < ops.length; i++) {
@@ -198,6 +226,64 @@ class BinaryElementwiseKernelTest {
         System.out.println("  Input B:   " + Arrays.toString(b));
         System.out.println("  Result:    " + Arrays.toString(result));
         System.out.println("[PASS] Minimum execution OK");
+    }
+
+    @Test
+    @Tag("nvidia")
+    @DisplayName("CUDA: Power executes correctly")
+    void testPowerExecution() {
+        System.out.println("[TEST] CUDA Execution: Power");
+        assumeTrue(CudaRuntime.isAvailable(), "CUDA not available");
+        assumeTrue(backend.hasCudaContext(), "CUDA context not available");
+
+        float[] a = {2.0f, 3.0f, 4.0f, 10.0f, 2.0f, 5.0f, 1.0f, 16.0f};
+        float[] b = {3.0f, 2.0f, 0.5f, 2.0f, 10.0f, 0.0f, 100.0f, 0.25f};
+        // Expected: 8, 9, 2, 100, 1024, 1, 1, 2
+
+        float[] result = executePower(a, b);
+
+        assertEquals(8.0f, result[0], 1e-2f, "2^3");
+        assertEquals(9.0f, result[1], 1e-2f, "3^2");
+        assertEquals(2.0f, result[2], 1e-2f, "4^0.5");
+        assertEquals(100.0f, result[3], 1e-1f, "10^2");
+        assertEquals(1024.0f, result[4], 1e-0f, "2^10");
+        assertEquals(1.0f, result[5], 1e-3f, "5^0");
+        assertEquals(1.0f, result[6], 1e-3f, "1^100");
+        assertEquals(2.0f, result[7], 1e-2f, "16^0.25");
+
+        System.out.println("  Input A:   " + Arrays.toString(a));
+        System.out.println("  Input B:   " + Arrays.toString(b));
+        System.out.println("  Result:    " + Arrays.toString(result));
+        System.out.println("[PASS] Power execution OK");
+    }
+
+    @Test
+    @Tag("nvidia")
+    @DisplayName("CUDA: Remainder executes correctly")
+    void testRemainderExecution() {
+        System.out.println("[TEST] CUDA Execution: Remainder");
+        assumeTrue(CudaRuntime.isAvailable(), "CUDA not available");
+        assumeTrue(backend.hasCudaContext(), "CUDA context not available");
+
+        float[] a = {10.0f, 10.0f, 7.5f, 5.0f, -10.0f, 10.0f, 3.0f, 100.0f};
+        float[] b = {3.0f, 4.0f, 2.0f, 3.0f, 3.0f, -3.0f, 5.0f, 7.0f};
+        // Expected: 1, 2, 1.5, 2, -1, 1, 3, 2
+
+        float[] result = executeRemainder(a, b);
+
+        assertEquals(1.0f, result[0], 1e-3f, "10 % 3");
+        assertEquals(2.0f, result[1], 1e-3f, "10 % 4");
+        assertEquals(1.5f, result[2], 1e-3f, "7.5 % 2");
+        assertEquals(2.0f, result[3], 1e-3f, "5 % 3");
+        assertEquals(-1.0f, result[4], 1e-3f, "-10 % 3");
+        assertEquals(1.0f, result[5], 1e-3f, "10 % -3");
+        assertEquals(3.0f, result[6], 1e-3f, "3 % 5");
+        assertEquals(2.0f, result[7], 1e-3f, "100 % 7");
+
+        System.out.println("  Input A:   " + Arrays.toString(a));
+        System.out.println("  Input B:   " + Arrays.toString(b));
+        System.out.println("  Result:    " + Arrays.toString(result));
+        System.out.println("[PASS] Remainder execution OK");
     }
 
     @Test
@@ -336,6 +422,14 @@ class BinaryElementwiseKernelTest {
         return executeBinaryOp(backend, a, b, StableHloAst.MinimumOp.class);
     }
 
+    private float[] executePower(float[] a, float[] b) {
+        return executeBinaryOp(backend, a, b, StableHloAst.PowerOp.class);
+    }
+
+    private float[] executeRemainder(float[] a, float[] b) {
+        return executeBinaryOp(backend, a, b, StableHloAst.RemainderOp.class);
+    }
+
     private float[] executeBinaryOp(NvidiaBackend backend, float[] a, float[] b,
                                      Class<? extends StableHloAst.Operation> opClass) {
         int n = a.length;
@@ -369,6 +463,10 @@ class BinaryElementwiseKernelTest {
             return new StableHloAst.MaximumOp(lhs, rhs, result, resultType);
         } else if (opClass == StableHloAst.MinimumOp.class) {
             return new StableHloAst.MinimumOp(lhs, rhs, result, resultType);
+        } else if (opClass == StableHloAst.PowerOp.class) {
+            return new StableHloAst.PowerOp(lhs, rhs, result, resultType);
+        } else if (opClass == StableHloAst.RemainderOp.class) {
+            return new StableHloAst.RemainderOp(lhs, rhs, result, resultType);
         } else {
             throw new IllegalArgumentException("Unknown operation class: " + opClass);
         }

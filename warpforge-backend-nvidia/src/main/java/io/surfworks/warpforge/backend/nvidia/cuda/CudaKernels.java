@@ -399,6 +399,94 @@ public final class CudaKernels {
         return ptx.toString();
     }
 
+    /**
+     * Generate PTX for a binary elementwise float32 operation with multi-line instructions.
+     *
+     * @param opName Operation name for comments and entry point
+     * @param ptxInstructions The PTX instructions (inputs in %f1 and %f2, output in %f3)
+     * @param comment Description of the operation
+     * @param salt Instrumentation level
+     * @param floatRegs Number of float registers needed
+     * @return PTX source code
+     */
+    private static String generateBinaryElementwiseF32(String opName, String ptxInstructions,
+                                                        String comment, int salt, int floatRegs) {
+        StringBuilder ptx = new StringBuilder();
+
+        ptx.append("//\n");
+        ptx.append("// ").append(opName).append("_f32: Element-wise ").append(comment).append(" of float32 arrays\n");
+        ptx.append("// Salt level: ").append(salt).append("\n");
+        ptx.append("//\n");
+        ptx.append(".version 7.0\n");
+        ptx.append(".target sm_50\n");
+        ptx.append(".address_size 64\n\n");
+
+        ptx.append(".visible .entry ").append(opName).append("_f32(\n");
+        ptx.append("    .param .u64 a_ptr,\n");
+        ptx.append("    .param .u64 b_ptr,\n");
+        ptx.append("    .param .u64 out_ptr,\n");
+        ptx.append("    .param .u32 n\n");
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("    ,.param .u64 timing_ptr\n");
+        }
+
+        ptx.append(")\n{\n");
+        ptx.append("    .reg .pred  %p<2>;\n");
+        ptx.append("    .reg .f32   %f<").append(floatRegs).append(">;\n");
+        ptx.append("    .reg .b32   %r<6>;\n");
+        ptx.append("    .reg .b64   %rd<10>;\n");
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("    .reg .b64   %rd_t0, %rd_t1, %rd_delta;\n");
+        }
+
+        ptx.append("\n");
+        ptx.append("    mov.u32         %r1, %ctaid.x;\n");
+        ptx.append("    mov.u32         %r2, %ntid.x;\n");
+        ptx.append("    mov.u32         %r3, %tid.x;\n");
+        ptx.append("    mad.lo.s32      %r4, %r1, %r2, %r3;\n\n");
+
+        ptx.append("    ld.param.u32    %r5, [n];\n");
+        ptx.append("    setp.ge.s32     %p1, %r4, %r5;\n");
+        ptx.append("    @%p1 bra        EXIT;\n\n");
+
+        ptx.append("    ld.param.u64    %rd1, [a_ptr];\n");
+        ptx.append("    ld.param.u64    %rd2, [b_ptr];\n");
+        ptx.append("    ld.param.u64    %rd3, [out_ptr];\n\n");
+
+        ptx.append("    cvt.s64.s32     %rd4, %r4;\n");
+        ptx.append("    shl.b64         %rd5, %rd4, 2;\n\n");
+
+        ptx.append("    add.s64         %rd6, %rd1, %rd5;\n");
+        ptx.append("    add.s64         %rd7, %rd2, %rd5;\n");
+        ptx.append("    add.s64         %rd8, %rd3, %rd5;\n\n");
+
+        ptx.append("    ld.global.f32   %f1, [%rd6];\n");
+        ptx.append("    ld.global.f32   %f2, [%rd7];\n\n");
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("    mov.u64         %rd_t0, %globaltimer;\n\n");
+        }
+
+        // Core operation(s)
+        ptx.append("    ").append(ptxInstructions).append("\n\n");
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("    mov.u64         %rd_t1, %globaltimer;\n");
+            ptx.append("    sub.u64         %rd_delta, %rd_t1, %rd_t0;\n");
+            ptx.append("    ld.param.u64    %rd9, [timing_ptr];\n");
+            ptx.append("    atom.global.add.u64 [%rd9], %rd_delta;\n\n");
+        }
+
+        ptx.append("    st.global.f32   [%rd8], %f3;\n\n");
+        ptx.append("EXIT:\n");
+        ptx.append("    ret;\n");
+        ptx.append("}\n");
+
+        return ptx.toString();
+    }
+
     // ==================== Unary Elementwise PTX Generation ====================
 
     /**
@@ -615,6 +703,62 @@ public final class CudaKernels {
                     testp.finite.f32 %p2, %f1;             // p2 = isfinite(x)
                     selp.f32        %f2, 0f3F800000, 0f00000000, %p2;  // f2 = p2 ? 1.0 : 0.0""";
         return generateUnaryElementwiseF32("is_finite", ptxOps, "isfinite(x)", salt, 3, 3);
+    }
+
+    /**
+     * Generate PTX for element-wise float32 round to nearest even.
+     * Rounds to nearest integer, with ties going to even (banker's rounding).
+     */
+    public static String generateRoundNearestEvenF32(int salt) {
+        // cvt.rni rounds to nearest integer, ties to even
+        return generateUnaryElementwiseF32("round_nearest_even", "cvt.rni.f32.f32 %f2, %f1;",
+            "round_nearest_even(x)", salt);
+    }
+
+    /**
+     * Generate PTX for element-wise float32 round to nearest, ties away from zero.
+     * Rounds to nearest integer, with ties going away from zero.
+     * E.g., 0.5 -> 1.0, -0.5 -> -1.0
+     */
+    public static String generateRoundNearestAfzF32(int salt) {
+        // Round away from zero: add 0.5 with same sign as input, then truncate
+        // sign(x) * floor(|x| + 0.5)
+        // 0.5 = 0x3F000000
+        String ptxOps = """
+                    // round_afz(x) = sign(x) * floor(|x| + 0.5)
+                    abs.f32         %f2, %f1;              // f2 = |x|
+                    add.f32         %f2, %f2, 0f3F000000;  // f2 = |x| + 0.5
+                    cvt.rmi.f32.f32 %f2, %f2;              // f2 = floor(|x| + 0.5)
+                    copysign.f32    %f2, %f2, %f1;         // f2 = sign(x) * floor(|x| + 0.5)""";
+        return generateUnaryElementwiseF32("round_nearest_afz", ptxOps, "round_afz(x)", salt);
+    }
+
+    /**
+     * Generate PTX for element-wise float32 power.
+     * power(a, b) = a^b = 2^(b * log2(a))
+     * Note: Only works correctly for positive base values.
+     */
+    public static String generatePowerF32(int salt) {
+        // a^b = 2^(b * log2(a))
+        // For negative bases with integer exponents, we'd need special handling
+        // This implementation works for positive bases
+        String ptxOps = "lg2.approx.f32  %f3, %f1;\n" +           // f3 = log2(a)
+                        "            mul.f32         %f3, %f3, %f2;\n" +  // f3 = b * log2(a)
+                        "            ex2.approx.f32  %f3, %f3;";          // f3 = 2^(b * log2(a)) = a^b
+        return generateBinaryElementwiseF32("power", ptxOps, "a^b", salt, 4);
+    }
+
+    /**
+     * Generate PTX for element-wise float32 remainder.
+     * remainder(a, b) = a - b * trunc(a / b)
+     */
+    public static String generateRemainderF32(int salt) {
+        // a % b = a - b * trunc(a / b)
+        String ptxOps = "div.approx.f32  %f3, %f1, %f2;\n" +      // f3 = a / b
+                        "            cvt.rzi.f32.f32 %f3, %f3;\n" +       // f3 = trunc(a / b)
+                        "            mul.f32         %f3, %f3, %f2;\n" +  // f3 = b * trunc(a / b)
+                        "            sub.f32         %f3, %f1, %f3;";     // f3 = a - b * trunc(a / b)
+        return generateBinaryElementwiseF32("remainder", ptxOps, "a%b", salt, 4);
     }
 
     /**

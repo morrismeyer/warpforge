@@ -198,4 +198,24 @@ public final class BinaryElementwiseKernel implements CudaOpKernel {
             salt
         );
     }
+
+    public static BinaryElementwiseKernel power(CudaContext context, int salt) {
+        return new BinaryElementwiseKernel(
+            "power",
+            StableHloAst.PowerOp.class,
+            CudaKernels::generatePowerF32,
+            context,
+            salt
+        );
+    }
+
+    public static BinaryElementwiseKernel remainder(CudaContext context, int salt) {
+        return new BinaryElementwiseKernel(
+            "remainder",
+            StableHloAst.RemainderOp.class,
+            CudaKernels::generateRemainderF32,
+            context,
+            salt
+        );
+    }
 }

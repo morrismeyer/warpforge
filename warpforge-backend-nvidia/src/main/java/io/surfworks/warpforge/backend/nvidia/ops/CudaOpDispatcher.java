@@ -250,11 +250,37 @@ public final class CudaOpDispatcher {
             registerStub(StableHloAst.IsFiniteOp.class);
         }
 
+        // Unary elementwise - RoundNearestEven (IMPLEMENTED)
+        if (context != null) {
+            kernels.put(StableHloAst.RoundNearestEvenOp.class, UnaryElementwiseKernel.roundNearestEven(context, salt));
+        } else {
+            registerStub(StableHloAst.RoundNearestEvenOp.class);
+        }
+
+        // Unary elementwise - RoundNearestAfz (IMPLEMENTED)
+        if (context != null) {
+            kernels.put(StableHloAst.RoundNearestAfzOp.class, UnaryElementwiseKernel.roundNearestAfz(context, salt));
+        } else {
+            registerStub(StableHloAst.RoundNearestAfzOp.class);
+        }
+
+        // Binary elementwise - Power (IMPLEMENTED)
+        if (context != null) {
+            kernels.put(StableHloAst.PowerOp.class, BinaryElementwiseKernel.power(context, salt));
+        } else {
+            registerStub(StableHloAst.PowerOp.class);
+        }
+
+        // Binary elementwise - Remainder (IMPLEMENTED)
+        if (context != null) {
+            kernels.put(StableHloAst.RemainderOp.class, BinaryElementwiseKernel.remainder(context, salt));
+        } else {
+            registerStub(StableHloAst.RemainderOp.class);
+        }
+
         // ==================== Stub Operations ====================
 
         // Binary elementwise operations (stubs)
-        registerStub(StableHloAst.PowerOp.class);
-        registerStub(StableHloAst.RemainderOp.class);
         registerStub(StableHloAst.Atan2Op.class);
         registerStub(StableHloAst.AndOp.class);
         registerStub(StableHloAst.OrOp.class);
@@ -264,8 +290,6 @@ public final class CudaOpDispatcher {
         registerStub(StableHloAst.ShiftRightLogicalOp.class);
 
         // Unary elementwise operations (stubs - remaining ones)
-        registerStub(StableHloAst.RoundNearestEvenOp.class);
-        registerStub(StableHloAst.RoundNearestAfzOp.class);
         registerStub(StableHloAst.NotOp.class);
         registerStub(StableHloAst.PopcntOp.class);
         registerStub(StableHloAst.ClzOp.class);

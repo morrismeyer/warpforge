@@ -327,4 +327,24 @@ public final class UnaryElementwiseKernel implements CudaOpKernel {
             salt
         );
     }
+
+    public static UnaryElementwiseKernel roundNearestEven(CudaContext context, int salt) {
+        return new UnaryElementwiseKernel(
+            "round_nearest_even",
+            StableHloAst.RoundNearestEvenOp.class,
+            CudaKernels::generateRoundNearestEvenF32,
+            context,
+            salt
+        );
+    }
+
+    public static UnaryElementwiseKernel roundNearestAfz(CudaContext context, int salt) {
+        return new UnaryElementwiseKernel(
+            "round_nearest_afz",
+            StableHloAst.RoundNearestAfzOp.class,
+            CudaKernels::generateRoundNearestAfzF32,
+            context,
+            salt
+        );
+    }
 }

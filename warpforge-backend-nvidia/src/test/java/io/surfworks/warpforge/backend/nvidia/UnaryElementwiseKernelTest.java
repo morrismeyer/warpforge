@@ -25,6 +25,7 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
  * <p>Cluster 1: Negate, Abs, Exp, Log, Sqrt, Tanh
  * <p>Cluster 2: Rsqrt, Sin, Cos, Ceil, Floor, Sign
  * <p>Cluster 3: Tan, Logistic, Expm1, Log1p, Cbrt, IsFinite
+ * <p>Cluster 4: RoundNearestEven, RoundNearestAfz
  *
  * <p>Each test prints [TEST] and [PASS] markers for visibility in CI logs.
  */
@@ -273,12 +274,38 @@ class UnaryElementwiseKernelTest {
     }
 
     @Test
+    @DisplayName("PTX: RoundNearestEven generates valid output")
+    void testRoundNearestEvenPtxGeneration() {
+        System.out.println("[TEST] PTX Generation: RoundNearestEven");
+        String ptx = CudaKernels.generateRoundNearestEvenF32(CudaKernels.SALT_NONE);
+
+        assertNotNull(ptx);
+        assertTrue(ptx.contains(".visible .entry round_nearest_even_f32"));
+        assertTrue(ptx.contains("cvt.rni.f32.f32"));
+        System.out.println("[PASS] RoundNearestEven PTX generation OK");
+    }
+
+    @Test
+    @DisplayName("PTX: RoundNearestAfz generates valid output")
+    void testRoundNearestAfzPtxGeneration() {
+        System.out.println("[TEST] PTX Generation: RoundNearestAfz");
+        String ptx = CudaKernels.generateRoundNearestAfzF32(CudaKernels.SALT_NONE);
+
+        assertNotNull(ptx);
+        assertTrue(ptx.contains(".visible .entry round_nearest_afz_f32"));
+        assertTrue(ptx.contains("abs.f32"));
+        assertTrue(ptx.contains("cvt.rmi.f32.f32")); // floor
+        assertTrue(ptx.contains("copysign.f32"));
+        System.out.println("[PASS] RoundNearestAfz PTX generation OK");
+    }
+
+    @Test
     @DisplayName("PTX: All unary operations support SALT_TIMING")
     void testAllUnaryOperationsSupportTiming() {
         System.out.println("[TEST] PTX Generation: All unary operations with SALT_TIMING");
 
         String[] ops = {"Negate", "Abs", "Exp", "Log", "Sqrt", "Tanh", "Rsqrt", "Sin", "Cos", "Ceil", "Floor", "Sign",
-                        "Tan", "Logistic", "Expm1", "Log1p", "Cbrt", "IsFinite"};
+                        "Tan", "Logistic", "Expm1", "Log1p", "Cbrt", "IsFinite", "RoundNearestEven", "RoundNearestAfz"};
         String[] ptxSources = {
             CudaKernels.generateNegateF32(CudaKernels.SALT_TIMING),
             CudaKernels.generateAbsF32(CudaKernels.SALT_TIMING),
@@ -297,7 +324,9 @@ class UnaryElementwiseKernelTest {
             CudaKernels.generateExpm1F32(CudaKernels.SALT_TIMING),
             CudaKernels.generateLog1pF32(CudaKernels.SALT_TIMING),
             CudaKernels.generateCbrtF32(CudaKernels.SALT_TIMING),
-            CudaKernels.generateIsFiniteF32(CudaKernels.SALT_TIMING)
+            CudaKernels.generateIsFiniteF32(CudaKernels.SALT_TIMING),
+            CudaKernels.generateRoundNearestEvenF32(CudaKernels.SALT_TIMING),
+            CudaKernels.generateRoundNearestAfzF32(CudaKernels.SALT_TIMING)
         };
 
         for (int i = 0; i < ops.length; i++) {
@@ -743,6 +772,56 @@ class UnaryElementwiseKernelTest {
         System.out.println("[PASS] IsFinite execution OK");
     }
 
+    // ==================== Cluster 4: RoundNearestEven, RoundNearestAfz ====================
+
+    @Test
+    @Tag("nvidia")
+    @DisplayName("CUDA: RoundNearestEven executes correctly")
+    void testRoundNearestEvenExecution() {
+        System.out.println("[TEST] CUDA Execution: RoundNearestEven");
+        assumeTrue(CudaRuntime.isAvailable(), "CUDA not available");
+        assumeTrue(backend.hasCudaContext(), "CUDA context not available");
+
+        // Round nearest even (banker's rounding): 0.5 rounds to even, 1.5 rounds to 2, 2.5 rounds to 2
+        float[] input = {1.5f, 2.5f, 3.5f, 4.5f, -1.5f, -2.5f, 1.4f, 1.6f};
+        // Expected: 2, 2, 4, 4, -2, -2, 1, 2 (ties round to nearest even)
+        float[] expected = {2.0f, 2.0f, 4.0f, 4.0f, -2.0f, -2.0f, 1.0f, 2.0f};
+
+        float[] result = executeRoundNearestEven(input);
+
+        for (int i = 0; i < expected.length; i++) {
+            assertEquals(expected[i], result[i], 1e-5f, "roundNearestEven(" + input[i] + ")");
+        }
+
+        System.out.println("  Input:  " + Arrays.toString(input));
+        System.out.println("  Result: " + Arrays.toString(result));
+        System.out.println("[PASS] RoundNearestEven execution OK");
+    }
+
+    @Test
+    @Tag("nvidia")
+    @DisplayName("CUDA: RoundNearestAfz executes correctly")
+    void testRoundNearestAfzExecution() {
+        System.out.println("[TEST] CUDA Execution: RoundNearestAfz");
+        assumeTrue(CudaRuntime.isAvailable(), "CUDA not available");
+        assumeTrue(backend.hasCudaContext(), "CUDA context not available");
+
+        // Round nearest away from zero: 0.5 rounds away from zero
+        float[] input = {1.5f, 2.5f, 3.5f, 4.5f, -1.5f, -2.5f, 1.4f, 1.6f};
+        // Expected: 2, 3, 4, 5, -2, -3, 1, 2 (ties round away from zero)
+        float[] expected = {2.0f, 3.0f, 4.0f, 5.0f, -2.0f, -3.0f, 1.0f, 2.0f};
+
+        float[] result = executeRoundNearestAfz(input);
+
+        for (int i = 0; i < expected.length; i++) {
+            assertEquals(expected[i], result[i], 1e-5f, "roundNearestAfz(" + input[i] + ")");
+        }
+
+        System.out.println("  Input:  " + Arrays.toString(input));
+        System.out.println("  Result: " + Arrays.toString(result));
+        System.out.println("[PASS] RoundNearestAfz execution OK");
+    }
+
     @Test
     @Tag("nvidia")
     @DisplayName("CUDA: All unary operations handle large tensors (1M elements)")
@@ -970,8 +1049,29 @@ class UnaryElementwiseKernelTest {
         assertTrue(Math.abs(isFiniteResult[2]) < 1e-5f);
         System.out.println("[OK]");
 
+        // Cluster 4
+        System.out.println("--- Cluster 4 ---");
+
+        // RoundNearestEven
+        System.out.print("  RoundNearestEven: ");
+        float[] rneInput = {1.5f, 2.5f, 1.4f};
+        float[] rneResult = executeRoundNearestEven(rneInput);
+        assertTrue(Math.abs(rneResult[0] - 2.0f) < 1e-5f);
+        assertTrue(Math.abs(rneResult[1] - 2.0f) < 1e-5f); // ties to even
+        assertTrue(Math.abs(rneResult[2] - 1.0f) < 1e-5f);
+        System.out.println("[OK]");
+
+        // RoundNearestAfz
+        System.out.print("  RoundNearestAfz: ");
+        float[] rafzInput = {1.5f, 2.5f, -1.5f};
+        float[] rafzResult = executeRoundNearestAfz(rafzInput);
+        assertTrue(Math.abs(rafzResult[0] - 2.0f) < 1e-5f);
+        assertTrue(Math.abs(rafzResult[1] - 3.0f) < 1e-5f); // ties away from zero
+        assertTrue(Math.abs(rafzResult[2] - (-2.0f)) < 1e-5f);
+        System.out.println("[OK]");
+
         System.out.println("----------------------------------------");
-        System.out.println("All 18 unary elementwise operations PASSED");
+        System.out.println("All 20 unary elementwise operations PASSED");
         System.out.println("========================================");
     }
 
@@ -1049,6 +1149,14 @@ class UnaryElementwiseKernelTest {
         return executeUnaryOp(backend, input, StableHloAst.IsFiniteOp.class);
     }
 
+    private float[] executeRoundNearestEven(float[] input) {
+        return executeUnaryOp(backend, input, StableHloAst.RoundNearestEvenOp.class);
+    }
+
+    private float[] executeRoundNearestAfz(float[] input) {
+        return executeUnaryOp(backend, input, StableHloAst.RoundNearestAfzOp.class);
+    }
+
     private float[] executeUnaryOp(NvidiaBackend backend, float[] input,
                                     Class<? extends StableHloAst.Operation> opClass) {
         int n = input.length;
@@ -1111,6 +1219,11 @@ class UnaryElementwiseKernelTest {
             return new StableHloAst.CbrtOp(input, result, resultType);
         } else if (opClass == StableHloAst.IsFiniteOp.class) {
             return new StableHloAst.IsFiniteOp(input, result, resultType);
+        // Cluster 4
+        } else if (opClass == StableHloAst.RoundNearestEvenOp.class) {
+            return new StableHloAst.RoundNearestEvenOp(input, result, resultType);
+        } else if (opClass == StableHloAst.RoundNearestAfzOp.class) {
+            return new StableHloAst.RoundNearestAfzOp(input, result, resultType);
         } else {
             throw new IllegalArgumentException("Unknown unary operation class: " + opClass);
         }

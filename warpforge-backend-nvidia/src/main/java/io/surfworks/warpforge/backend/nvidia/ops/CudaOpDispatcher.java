@@ -301,10 +301,25 @@ public final class CudaOpDispatcher {
             registerStub(StableHloAst.ClampOp.class);
         }
 
+        // ==================== Additional Elementwise Operations (IMPLEMENTED) ====================
+
+        // Binary elementwise - Atan2 (IMPLEMENTED)
+        if (context != null) {
+            kernels.put(StableHloAst.Atan2Op.class, BinaryElementwiseKernel.atan2(context, salt));
+        } else {
+            registerStub(StableHloAst.Atan2Op.class);
+        }
+
+        // Unary elementwise - Not (IMPLEMENTED)
+        if (context != null) {
+            kernels.put(StableHloAst.NotOp.class, UnaryElementwiseKernel.not(context, salt));
+        } else {
+            registerStub(StableHloAst.NotOp.class);
+        }
+
         // ==================== Stub Operations ====================
 
-        // Binary elementwise operations (stubs)
-        registerStub(StableHloAst.Atan2Op.class);
+        // Binary elementwise operations (stubs - integer/bitwise)
         registerStub(StableHloAst.AndOp.class);
         registerStub(StableHloAst.OrOp.class);
         registerStub(StableHloAst.XorOp.class);
@@ -312,8 +327,7 @@ public final class CudaOpDispatcher {
         registerStub(StableHloAst.ShiftRightArithmeticOp.class);
         registerStub(StableHloAst.ShiftRightLogicalOp.class);
 
-        // Unary elementwise operations (stubs - remaining ones)
-        registerStub(StableHloAst.NotOp.class);
+        // Unary elementwise operations (stubs - integer-specific)
         registerStub(StableHloAst.PopcntOp.class);
         registerStub(StableHloAst.ClzOp.class);
 

@@ -347,4 +347,14 @@ public final class UnaryElementwiseKernel implements CudaOpKernel {
             salt
         );
     }
+
+    public static UnaryElementwiseKernel not(CudaContext context, int salt) {
+        return new UnaryElementwiseKernel(
+            "not",
+            StableHloAst.NotOp.class,
+            CudaKernels::generateNotF32,
+            context,
+            salt
+        );
+    }
 }

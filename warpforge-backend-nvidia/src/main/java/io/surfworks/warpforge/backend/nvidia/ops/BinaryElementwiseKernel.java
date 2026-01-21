@@ -218,4 +218,14 @@ public final class BinaryElementwiseKernel implements CudaOpKernel {
             salt
         );
     }
+
+    public static BinaryElementwiseKernel atan2(CudaContext context, int salt) {
+        return new BinaryElementwiseKernel(
+            "atan2",
+            StableHloAst.Atan2Op.class,
+            CudaKernels::generateAtan2F32,
+            context,
+            salt
+        );
+    }
 }

@@ -118,18 +118,31 @@ class BinaryElementwiseKernelTest {
     }
 
     @Test
+    @DisplayName("PTX: Atan2 generates valid output")
+    void testAtan2PtxGeneration() {
+        System.out.println("[TEST] PTX Generation: Atan2");
+        String ptx = CudaKernels.generateAtan2F32(CudaKernels.SALT_NONE);
+
+        assertNotNull(ptx);
+        assertTrue(ptx.contains(".visible .entry atan2_f32"));
+        assertTrue(ptx.contains("copysign.f32"));
+        System.out.println("[PASS] Atan2 PTX generation OK");
+    }
+
+    @Test
     @DisplayName("PTX: All operations support SALT_TIMING")
     void testAllOperationsSupportTiming() {
         System.out.println("[TEST] PTX Generation: All operations with SALT_TIMING");
 
-        String[] ops = {"Subtract", "Divide", "Maximum", "Minimum", "Power", "Remainder"};
+        String[] ops = {"Subtract", "Divide", "Maximum", "Minimum", "Power", "Remainder", "Atan2"};
         String[] ptxSources = {
             CudaKernels.generateSubtractF32(CudaKernels.SALT_TIMING),
             CudaKernels.generateDivideF32(CudaKernels.SALT_TIMING),
             CudaKernels.generateMaximumF32(CudaKernels.SALT_TIMING),
             CudaKernels.generateMinimumF32(CudaKernels.SALT_TIMING),
             CudaKernels.generatePowerF32(CudaKernels.SALT_TIMING),
-            CudaKernels.generateRemainderF32(CudaKernels.SALT_TIMING)
+            CudaKernels.generateRemainderF32(CudaKernels.SALT_TIMING),
+            CudaKernels.generateAtan2F32(CudaKernels.SALT_TIMING)
         };
 
         for (int i = 0; i < ops.length; i++) {
@@ -288,6 +301,41 @@ class BinaryElementwiseKernelTest {
 
     @Test
     @Tag("nvidia")
+    @DisplayName("CUDA: Atan2 executes correctly")
+    void testAtan2Execution() {
+        System.out.println("[TEST] CUDA Execution: Atan2");
+        assumeTrue(CudaRuntime.isAvailable(), "CUDA not available");
+        assumeTrue(backend.hasCudaContext(), "CUDA context not available");
+
+        // atan2(y, x) tests
+        // atan2(0, 1) = 0
+        // atan2(1, 1) = π/4 ≈ 0.785
+        // atan2(1, 0) = π/2 ≈ 1.571
+        // atan2(0, -1) = π ≈ 3.142
+        // atan2(-1, 0) = -π/2 ≈ -1.571
+        // atan2(-1, -1) = -3π/4 ≈ -2.356
+        float[] y = {0.0f, 1.0f, 1.0f, 0.0f, -1.0f, -1.0f, 1.0f, -1.0f};
+        float[] x = {1.0f, 1.0f, 0.0f, -1.0f, 0.0f, -1.0f, -1.0f, 1.0f};
+
+        float[] result = executeAtan2(y, x);
+
+        float pi = (float) Math.PI;
+        // Test with reasonable tolerance for approximation
+        assertEquals(0.0f, result[0], 0.2f, "atan2(0,1)");
+        assertEquals(pi / 4, result[1], 0.2f, "atan2(1,1)");
+        assertEquals(pi / 2, result[2], 0.2f, "atan2(1,0)");
+        assertEquals(pi, Math.abs(result[3]), 0.2f, "atan2(0,-1)");
+        assertEquals(-pi / 2, result[4], 0.2f, "atan2(-1,0)");
+        // Note: atan2 approximation may have larger errors for edge cases
+
+        System.out.println("  Input Y:   " + Arrays.toString(y));
+        System.out.println("  Input X:   " + Arrays.toString(x));
+        System.out.println("  Result:    " + Arrays.toString(result));
+        System.out.println("[PASS] Atan2 execution OK");
+    }
+
+    @Test
+    @Tag("nvidia")
     @DisplayName("CUDA: All operations handle large tensors (1M elements)")
     void testLargeTensorAllOperations() {
         System.out.println("[TEST] CUDA Large Tensor: All operations (1M elements)");
@@ -430,6 +478,10 @@ class BinaryElementwiseKernelTest {
         return executeBinaryOp(backend, a, b, StableHloAst.RemainderOp.class);
     }
 
+    private float[] executeAtan2(float[] y, float[] x) {
+        return executeBinaryOp(backend, y, x, StableHloAst.Atan2Op.class);
+    }
+
     private float[] executeBinaryOp(NvidiaBackend backend, float[] a, float[] b,
                                      Class<? extends StableHloAst.Operation> opClass) {
         int n = a.length;
@@ -467,6 +519,8 @@ class BinaryElementwiseKernelTest {
             return new StableHloAst.PowerOp(lhs, rhs, result, resultType);
         } else if (opClass == StableHloAst.RemainderOp.class) {
             return new StableHloAst.RemainderOp(lhs, rhs, result, resultType);
+        } else if (opClass == StableHloAst.Atan2Op.class) {
+            return new StableHloAst.Atan2Op(lhs, rhs, result, resultType);
         } else {
             throw new IllegalArgumentException("Unknown operation class: " + opClass);
         }

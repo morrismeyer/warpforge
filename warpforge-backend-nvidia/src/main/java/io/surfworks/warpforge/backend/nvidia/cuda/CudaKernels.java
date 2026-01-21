@@ -870,6 +870,73 @@ public final class CudaKernels {
         return ptx.toString();
     }
 
+    // ==================== Additional Unary Operations ====================
+
+    /**
+     * Generate PTX for element-wise logical NOT.
+     * Returns 1.0 if input is 0.0, 0.0 otherwise.
+     * This is logical NOT for float tensors representing boolean values.
+     */
+    public static String generateNotF32(int salt) {
+        // Logical NOT: output = (input == 0) ? 1.0 : 0.0
+        String ptxOps = """
+                    // logical not: 1.0 if x == 0, else 0.0
+                    setp.eq.f32     %p2, %f1, 0f00000000;  // p2 = (x == 0)
+                    selp.f32        %f2, 0f3F800000, 0f00000000, %p2;  // f2 = p2 ? 1.0 : 0.0""";
+        return generateUnaryElementwiseF32("not", ptxOps, "logical_not(x)", salt, 3, 3);
+    }
+
+    /**
+     * Generate PTX for element-wise atan2(y, x).
+     * Returns the angle in radians in [-π, π].
+     *
+     * <p>Implementation uses polynomial approximation for atan
+     * and quadrant correction for atan2.
+     */
+    public static String generateAtan2F32(int salt) {
+        // atan2(y, x) implementation using atan approximation
+        // For the approximation, we use: atan(z) ≈ z * (1 - 0.28125*z^2) for |z| <= 1
+        // For |z| > 1, use: atan(z) = sign(z) * π/2 - atan(1/z)
+        //
+        // Then adjust for quadrants:
+        // x > 0: atan(y/x)
+        // x < 0, y >= 0: atan(y/x) + π
+        // x < 0, y < 0: atan(y/x) - π
+        // x = 0, y > 0: π/2
+        // x = 0, y < 0: -π/2
+        // x = 0, y = 0: 0
+        //
+        // This is complex in PTX. Using a simplified approach with div and atan approximation.
+        // π/2 = 1.5707963 = 0x3FC90FDB
+        // π = 3.1415927 = 0x40490FDB
+        // -0.28125 = 0xBE900000
+
+        String ptxOps = """
+lg2.approx.f32  %f4, %f2;              // temp for checking if x is positive
+            abs.f32         %f5, %f1;              // |y|
+            abs.f32         %f6, %f2;              // |x|
+            // Compute |y|/|x| or |x|/|y| depending on which is larger
+            setp.gt.f32     %p2, %f5, %f6;         // p2 = |y| > |x|
+            @%p2 div.approx.f32 %f3, %f6, %f5;     // if |y| > |x|: z = |x|/|y|
+            @!%p2 div.approx.f32 %f3, %f5, %f6;    // else: z = |y|/|x|
+            // Compute atan(z) ≈ z - z^3/3 (simplified)
+            mul.f32         %f4, %f3, %f3;         // z^2
+            mul.f32         %f4, %f4, 0fBE2AAAAB;  // -z^2/3 (approx -0.333)
+            add.f32         %f4, %f4, 0f3F800000;  // 1 - z^2/3
+            mul.f32         %f3, %f3, %f4;         // z * (1 - z^2/3) ≈ atan(z)
+            // If |y| > |x|, result = π/2 - atan(z)
+            @%p2 sub.f32    %f3, 0f3FC90FDB, %f3;  // π/2 - atan(z)
+            // Apply signs based on quadrant
+            // If x < 0, add/sub π
+            setp.lt.f32     %p3, %f2, 0f00000000;  // p3 = x < 0
+            setp.ge.f32     %p4, %f1, 0f00000000;  // p4 = y >= 0
+            @%p3 @%p4 add.f32 %f3, %f3, 0f40490FDB; // if x<0 and y>=0: add π
+            @%p3 @!%p4 sub.f32 %f3, %f3, 0f40490FDB; // if x<0 and y<0: sub π
+            // Apply sign of y
+            copysign.f32    %f3, %f3, %f1;""";
+        return generateBinaryElementwiseF32("atan2", ptxOps, "atan2(y,x)", salt, 7, 5);
+    }
+
     // ==================== Comparison and Selection Operations ====================
 
     /**

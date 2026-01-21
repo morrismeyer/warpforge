@@ -340,16 +340,46 @@ public final class CudaOpDispatcher {
             registerStub(StableHloAst.XorOp.class);
         }
 
+        // ==================== Integer Shift Operations (IMPLEMENTED) ====================
+
+        // Integer shift - ShiftLeft (IMPLEMENTED)
+        if (context != null) {
+            kernels.put(StableHloAst.ShiftLeftOp.class, IntegerBitwiseKernel.shiftLeft(context, salt));
+        } else {
+            registerStub(StableHloAst.ShiftLeftOp.class);
+        }
+
+        // Integer shift - ShiftRightArithmetic (IMPLEMENTED)
+        if (context != null) {
+            kernels.put(StableHloAst.ShiftRightArithmeticOp.class, IntegerBitwiseKernel.shiftRightArithmetic(context, salt));
+        } else {
+            registerStub(StableHloAst.ShiftRightArithmeticOp.class);
+        }
+
+        // Integer shift - ShiftRightLogical (IMPLEMENTED)
+        if (context != null) {
+            kernels.put(StableHloAst.ShiftRightLogicalOp.class, IntegerBitwiseKernel.shiftRightLogical(context, salt));
+        } else {
+            registerStub(StableHloAst.ShiftRightLogicalOp.class);
+        }
+
+        // ==================== Integer Unary Operations (IMPLEMENTED) ====================
+
+        // Integer unary - Popcnt (IMPLEMENTED)
+        if (context != null) {
+            kernels.put(StableHloAst.PopcntOp.class, IntegerUnaryKernel.popcnt(context, salt));
+        } else {
+            registerStub(StableHloAst.PopcntOp.class);
+        }
+
+        // Integer unary - Clz (IMPLEMENTED)
+        if (context != null) {
+            kernels.put(StableHloAst.ClzOp.class, IntegerUnaryKernel.clz(context, salt));
+        } else {
+            registerStub(StableHloAst.ClzOp.class);
+        }
+
         // ==================== Stub Operations ====================
-
-        // Binary elementwise operations (stubs - shifts, not yet implemented)
-        registerStub(StableHloAst.ShiftLeftOp.class);
-        registerStub(StableHloAst.ShiftRightArithmeticOp.class);
-        registerStub(StableHloAst.ShiftRightLogicalOp.class);
-
-        // Unary elementwise operations (stubs - integer-specific)
-        registerStub(StableHloAst.PopcntOp.class);
-        registerStub(StableHloAst.ClzOp.class);
 
         // Constants
         registerStub(StableHloAst.ConstantOp.class);

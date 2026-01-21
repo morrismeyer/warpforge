@@ -21,11 +21,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 /**
- * Tests for integer bitwise CUDA kernels (And, Or, Xor).
+ * Tests for integer bitwise CUDA kernels (And, Or, Xor) and shift operations
+ * (ShiftLeft, ShiftRightArithmetic, ShiftRightLogical).
  *
  * <p>Each test prints [TEST] and [PASS] markers for visibility in CI logs.
  */
-@DisplayName("Integer Bitwise CUDA Kernels")
+@DisplayName("Integer Bitwise and Shift CUDA Kernels")
 class IntegerBitwiseKernelTest {
 
     private NvidiaBackend backend;
@@ -87,15 +88,60 @@ class IntegerBitwiseKernelTest {
     }
 
     @Test
+    @DisplayName("PTX: ShiftLeft generates valid output")
+    void testShiftLeftPtxGeneration() {
+        System.out.println("[TEST] PTX Generation: ShiftLeft");
+        String ptx = CudaKernels.generateShiftLeftI32(CudaKernels.SALT_NONE);
+
+        assertNotNull(ptx);
+        assertTrue(ptx.contains(".visible .entry shift_left_i32"));
+        assertTrue(ptx.contains("shl.b32"));
+        assertTrue(ptx.contains("ld.global.s32"));
+        assertTrue(ptx.contains("st.global.s32"));
+        System.out.println("[PASS] ShiftLeft PTX generation OK");
+    }
+
+    @Test
+    @DisplayName("PTX: ShiftRightArithmetic generates valid output")
+    void testShiftRightArithmeticPtxGeneration() {
+        System.out.println("[TEST] PTX Generation: ShiftRightArithmetic");
+        String ptx = CudaKernels.generateShiftRightArithmeticI32(CudaKernels.SALT_NONE);
+
+        assertNotNull(ptx);
+        assertTrue(ptx.contains(".visible .entry shift_right_arithmetic_i32"));
+        assertTrue(ptx.contains("shr.s32"));
+        assertTrue(ptx.contains("ld.global.s32"));
+        assertTrue(ptx.contains("st.global.s32"));
+        System.out.println("[PASS] ShiftRightArithmetic PTX generation OK");
+    }
+
+    @Test
+    @DisplayName("PTX: ShiftRightLogical generates valid output")
+    void testShiftRightLogicalPtxGeneration() {
+        System.out.println("[TEST] PTX Generation: ShiftRightLogical");
+        String ptx = CudaKernels.generateShiftRightLogicalI32(CudaKernels.SALT_NONE);
+
+        assertNotNull(ptx);
+        assertTrue(ptx.contains(".visible .entry shift_right_logical_i32"));
+        assertTrue(ptx.contains("shr.u32"));
+        assertTrue(ptx.contains("ld.global.s32"));
+        assertTrue(ptx.contains("st.global.s32"));
+        System.out.println("[PASS] ShiftRightLogical PTX generation OK");
+    }
+
+    @Test
     @DisplayName("PTX: All integer bitwise operations support SALT_TIMING")
     void testAllBitwiseOperationsSupportTiming() {
-        System.out.println("[TEST] PTX Generation: All integer bitwise operations with SALT_TIMING");
+        System.out.println("[TEST] PTX Generation: All integer bitwise/shift operations with SALT_TIMING");
 
-        String[] ops = {"And", "Or", "Xor"};
+        String[] ops = {"And", "Or", "Xor", "ShiftLeft", "ShiftRightArithmetic", "ShiftRightLogical"};
         String[] ptxSources = {
             CudaKernels.generateAndI32(CudaKernels.SALT_TIMING),
             CudaKernels.generateOrI32(CudaKernels.SALT_TIMING),
-            CudaKernels.generateXorI32(CudaKernels.SALT_TIMING)
+            CudaKernels.generateXorI32(CudaKernels.SALT_TIMING),
+            CudaKernels.generateShiftLeftI32(CudaKernels.SALT_TIMING),
+            CudaKernels.generateShiftRightArithmeticI32(CudaKernels.SALT_TIMING),
+            CudaKernels.generateShiftRightLogicalI32(CudaKernels.SALT_TIMING)
         };
 
         for (int i = 0; i < ops.length; i++) {
@@ -105,7 +151,7 @@ class IntegerBitwiseKernelTest {
                 ops[i] + " should use globaltimer");
             System.out.println("  [OK] " + ops[i] + " supports SALT_TIMING");
         }
-        System.out.println("[PASS] All integer bitwise operations support SALT_TIMING");
+        System.out.println("[PASS] All integer bitwise/shift operations support SALT_TIMING");
     }
 
     // ==================== CUDA Hardware Tests ====================
@@ -183,6 +229,81 @@ class IntegerBitwiseKernelTest {
         System.out.println("  Input B:   " + Arrays.toString(b));
         System.out.println("  Result:    " + Arrays.toString(result));
         System.out.println("[PASS] Xor execution OK");
+    }
+
+    @Test
+    @Tag("nvidia")
+    @DisplayName("CUDA: ShiftLeft executes correctly")
+    void testShiftLeftExecution() {
+        System.out.println("[TEST] CUDA Execution: ShiftLeft");
+        assumeTrue(CudaRuntime.isAvailable(), "CUDA not available");
+        assumeTrue(backend.hasCudaContext(), "CUDA context not available");
+
+        // Test left shift
+        int[] a = {1, 2, 4, 8, 0xFF, 0x12345678, -1, -128};
+        int[] b = {1, 2, 3, 4, 8, 4, 1, 2};
+        int[] expected = new int[a.length];
+        for (int i = 0; i < a.length; i++) {
+            expected[i] = a[i] << b[i];
+        }
+
+        int[] result = executeShiftLeft(a, b);
+        assertArrayEquals(expected, result);
+
+        System.out.println("  Input A:   " + Arrays.toString(a));
+        System.out.println("  Input B:   " + Arrays.toString(b));
+        System.out.println("  Result:    " + Arrays.toString(result));
+        System.out.println("[PASS] ShiftLeft execution OK");
+    }
+
+    @Test
+    @Tag("nvidia")
+    @DisplayName("CUDA: ShiftRightArithmetic executes correctly")
+    void testShiftRightArithmeticExecution() {
+        System.out.println("[TEST] CUDA Execution: ShiftRightArithmetic");
+        assumeTrue(CudaRuntime.isAvailable(), "CUDA not available");
+        assumeTrue(backend.hasCudaContext(), "CUDA context not available");
+
+        // Test arithmetic right shift (sign-extending)
+        int[] a = {16, 32, 64, 128, -1, -128, -256, 0x80000000};
+        int[] b = {1, 2, 3, 4, 1, 2, 4, 1};
+        int[] expected = new int[a.length];
+        for (int i = 0; i < a.length; i++) {
+            expected[i] = a[i] >> b[i]; // Java >> is arithmetic shift
+        }
+
+        int[] result = executeShiftRightArithmetic(a, b);
+        assertArrayEquals(expected, result);
+
+        System.out.println("  Input A:   " + Arrays.toString(a));
+        System.out.println("  Input B:   " + Arrays.toString(b));
+        System.out.println("  Result:    " + Arrays.toString(result));
+        System.out.println("[PASS] ShiftRightArithmetic execution OK");
+    }
+
+    @Test
+    @Tag("nvidia")
+    @DisplayName("CUDA: ShiftRightLogical executes correctly")
+    void testShiftRightLogicalExecution() {
+        System.out.println("[TEST] CUDA Execution: ShiftRightLogical");
+        assumeTrue(CudaRuntime.isAvailable(), "CUDA not available");
+        assumeTrue(backend.hasCudaContext(), "CUDA context not available");
+
+        // Test logical right shift (zero-extending)
+        int[] a = {16, 32, 64, 128, -1, -128, -256, 0x80000000};
+        int[] b = {1, 2, 3, 4, 1, 2, 4, 1};
+        int[] expected = new int[a.length];
+        for (int i = 0; i < a.length; i++) {
+            expected[i] = a[i] >>> b[i]; // Java >>> is logical shift
+        }
+
+        int[] result = executeShiftRightLogical(a, b);
+        assertArrayEquals(expected, result);
+
+        System.out.println("  Input A:   " + Arrays.toString(a));
+        System.out.println("  Input B:   " + Arrays.toString(b));
+        System.out.println("  Result:    " + Arrays.toString(result));
+        System.out.println("[PASS] ShiftRightLogical execution OK");
     }
 
     @Test
@@ -343,6 +464,18 @@ class IntegerBitwiseKernelTest {
         return executeBinaryOp(backend, a, b, StableHloAst.XorOp.class);
     }
 
+    private int[] executeShiftLeft(int[] a, int[] b) {
+        return executeBinaryOp(backend, a, b, StableHloAst.ShiftLeftOp.class);
+    }
+
+    private int[] executeShiftRightArithmetic(int[] a, int[] b) {
+        return executeBinaryOp(backend, a, b, StableHloAst.ShiftRightArithmeticOp.class);
+    }
+
+    private int[] executeShiftRightLogical(int[] a, int[] b) {
+        return executeBinaryOp(backend, a, b, StableHloAst.ShiftRightLogicalOp.class);
+    }
+
     private int[] executeBinaryOp(NvidiaBackend backend, int[] a, int[] b,
                                    Class<? extends StableHloAst.Operation> opClass) {
         int n = a.length;
@@ -374,6 +507,12 @@ class IntegerBitwiseKernelTest {
             return new StableHloAst.OrOp(result, lhs, rhs, resultType);
         } else if (opClass == StableHloAst.XorOp.class) {
             return new StableHloAst.XorOp(result, lhs, rhs, resultType);
+        } else if (opClass == StableHloAst.ShiftLeftOp.class) {
+            return new StableHloAst.ShiftLeftOp(result, lhs, rhs, resultType);
+        } else if (opClass == StableHloAst.ShiftRightArithmeticOp.class) {
+            return new StableHloAst.ShiftRightArithmeticOp(result, lhs, rhs, resultType);
+        } else if (opClass == StableHloAst.ShiftRightLogicalOp.class) {
+            return new StableHloAst.ShiftRightLogicalOp(result, lhs, rhs, resultType);
         } else {
             throw new IllegalArgumentException("Unknown operation class: " + opClass);
         }

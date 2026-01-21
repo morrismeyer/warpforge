@@ -3,7 +3,6 @@ package io.surfworks.warpforge.backend.nvidia.ops;
 import io.surfworks.snakeburger.stablehlo.StableHloAst;
 import io.surfworks.warpforge.backend.nvidia.cuda.CudaContext;
 import io.surfworks.warpforge.backend.nvidia.cuda.CudaKernels;
-import io.surfworks.warpforge.core.tensor.ScalarType;
 import io.surfworks.warpforge.core.tensor.Tensor;
 import io.surfworks.warpforge.core.tensor.TensorSpec;
 
@@ -11,14 +10,14 @@ import java.util.List;
 import java.util.function.IntFunction;
 
 /**
- * CUDA kernel for integer bitwise operations.
+ * CUDA kernel for unary integer operations.
  *
- * <p>This kernel handles element-wise bitwise operations on two int32 tensors.
- * Supported operations: And, Or, Xor.
+ * <p>This kernel handles element-wise unary operations on int32 tensors.
+ * Supported operations: Popcnt (population count), Clz (count leading zeros).
  *
  * @see CudaKernels
  */
-public final class IntegerBitwiseKernel implements CudaOpKernel {
+public final class IntegerUnaryKernel implements CudaOpKernel {
 
     private final String opName;
     private final Class<? extends StableHloAst.Operation> opClass;
@@ -30,19 +29,19 @@ public final class IntegerBitwiseKernel implements CudaOpKernel {
     private boolean initialized;
 
     /**
-     * Create an integer bitwise kernel.
+     * Create an integer unary kernel.
      *
-     * @param opName Operation name (e.g., "and")
+     * @param opName Operation name (e.g., "popcnt")
      * @param opClass The StableHLO operation class this kernel handles
      * @param ptxGenerator Function to generate PTX for a given salt level
      * @param context CUDA context for execution
      * @param salt Instrumentation level
      */
-    public IntegerBitwiseKernel(String opName,
-                                 Class<? extends StableHloAst.Operation> opClass,
-                                 IntFunction<String> ptxGenerator,
-                                 CudaContext context,
-                                 int salt) {
+    public IntegerUnaryKernel(String opName,
+                               Class<? extends StableHloAst.Operation> opClass,
+                               IntFunction<String> ptxGenerator,
+                               CudaContext context,
+                               int salt) {
         this.opName = opName;
         this.opClass = opClass;
         this.ptxGenerator = ptxGenerator;
@@ -72,36 +71,25 @@ public final class IntegerBitwiseKernel implements CudaOpKernel {
                 "Expected " + opClass.getSimpleName() + ", got: " + op.getClass().getSimpleName());
         }
 
-        if (inputs.size() != 2) {
+        if (inputs.size() != 1) {
             throw new IllegalArgumentException(
-                opName + " requires exactly 2 inputs, got: " + inputs.size());
+                opName + " requires exactly 1 input, got: " + inputs.size());
         }
 
         ensureInitialized();
 
-        Tensor lhs = inputs.get(0);
-        Tensor rhs = inputs.get(1);
-
-        if (lhs.elementCount() != rhs.elementCount()) {
-            throw new IllegalArgumentException(
-                "Input tensors must have same element count: " +
-                lhs.elementCount() + " vs " + rhs.elementCount());
-        }
-
-        int n = (int) lhs.elementCount();
+        Tensor input = inputs.get(0);
+        int n = (int) input.elementCount();
         long byteSize = n * 4L; // 4 bytes per int32
 
-        // Output spec from AST, but ensure it's I32
         TensorSpec outputSpec = TensorSpec.fromAst(op.tensorResultType());
 
-        long dA = context.allocate(byteSize);
-        long dB = context.allocate(byteSize);
+        long dIn = context.allocate(byteSize);
         long dOut = context.allocate(byteSize);
         long dTiming = 0;
 
         try {
-            context.copyToDevice(dA, lhs.data());
-            context.copyToDevice(dB, rhs.data());
+            context.copyToDevice(dIn, input.data());
 
             if (salt >= CudaKernels.SALT_TIMING) {
                 dTiming = context.allocate(8);
@@ -115,7 +103,7 @@ public final class IntegerBitwiseKernel implements CudaOpKernel {
                     function,
                     new int[]{gridSize}, new int[]{blockSize},
                     0,
-                    new long[]{dA, dB, dOut, dTiming},
+                    new long[]{dIn, dOut, dTiming},
                     n
                 );
             } else {
@@ -123,7 +111,7 @@ public final class IntegerBitwiseKernel implements CudaOpKernel {
                     function,
                     new int[]{gridSize}, new int[]{blockSize},
                     0,
-                    new long[]{dA, dB, dOut},
+                    new long[]{dIn, dOut},
                     n
                 );
             }
@@ -136,8 +124,7 @@ public final class IntegerBitwiseKernel implements CudaOpKernel {
             return List.of(output);
 
         } finally {
-            context.free(dA);
-            context.free(dB);
+            context.free(dIn);
             context.free(dOut);
             if (dTiming != 0) {
                 context.free(dTiming);
@@ -160,61 +147,21 @@ public final class IntegerBitwiseKernel implements CudaOpKernel {
 
     // ==================== Factory Methods ====================
 
-    public static IntegerBitwiseKernel and(CudaContext context, int salt) {
-        return new IntegerBitwiseKernel(
-            "and",
-            StableHloAst.AndOp.class,
-            CudaKernels::generateAndI32,
+    public static IntegerUnaryKernel popcnt(CudaContext context, int salt) {
+        return new IntegerUnaryKernel(
+            "popcnt",
+            StableHloAst.PopcntOp.class,
+            CudaKernels::generatePopcntI32,
             context,
             salt
         );
     }
 
-    public static IntegerBitwiseKernel or(CudaContext context, int salt) {
-        return new IntegerBitwiseKernel(
-            "or",
-            StableHloAst.OrOp.class,
-            CudaKernels::generateOrI32,
-            context,
-            salt
-        );
-    }
-
-    public static IntegerBitwiseKernel xor(CudaContext context, int salt) {
-        return new IntegerBitwiseKernel(
-            "xor",
-            StableHloAst.XorOp.class,
-            CudaKernels::generateXorI32,
-            context,
-            salt
-        );
-    }
-
-    public static IntegerBitwiseKernel shiftLeft(CudaContext context, int salt) {
-        return new IntegerBitwiseKernel(
-            "shift_left",
-            StableHloAst.ShiftLeftOp.class,
-            CudaKernels::generateShiftLeftI32,
-            context,
-            salt
-        );
-    }
-
-    public static IntegerBitwiseKernel shiftRightArithmetic(CudaContext context, int salt) {
-        return new IntegerBitwiseKernel(
-            "shift_right_arithmetic",
-            StableHloAst.ShiftRightArithmeticOp.class,
-            CudaKernels::generateShiftRightArithmeticI32,
-            context,
-            salt
-        );
-    }
-
-    public static IntegerBitwiseKernel shiftRightLogical(CudaContext context, int salt) {
-        return new IntegerBitwiseKernel(
-            "shift_right_logical",
-            StableHloAst.ShiftRightLogicalOp.class,
-            CudaKernels::generateShiftRightLogicalI32,
+    public static IntegerUnaryKernel clz(CudaContext context, int salt) {
+        return new IntegerUnaryKernel(
+            "clz",
+            StableHloAst.ClzOp.class,
+            CudaKernels::generateClzI32,
             context,
             salt
         );

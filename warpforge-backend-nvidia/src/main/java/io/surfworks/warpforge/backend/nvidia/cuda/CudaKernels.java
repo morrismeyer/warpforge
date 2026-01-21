@@ -1351,6 +1351,157 @@ lg2.approx.f32  %f4, %f2;              // temp for checking if x is positive
         return ptx.toString();
     }
 
+    // ==================== Integer Shift Operations ====================
+
+    /**
+     * Generate PTX for element-wise int32 left shift.
+     *
+     * @param salt Instrumentation level
+     * @return PTX source code
+     */
+    public static String generateShiftLeftI32(int salt) {
+        return generateBinaryElementwiseI32("shift_left", "shl.b32", "a[i] << b[i]", salt);
+    }
+
+    /**
+     * Generate PTX for element-wise int32 arithmetic right shift (sign-extending).
+     *
+     * @param salt Instrumentation level
+     * @return PTX source code
+     */
+    public static String generateShiftRightArithmeticI32(int salt) {
+        return generateBinaryElementwiseI32("shift_right_arithmetic", "shr.s32", "a[i] >> b[i] (arithmetic)", salt);
+    }
+
+    /**
+     * Generate PTX for element-wise int32 logical right shift (zero-extending).
+     *
+     * @param salt Instrumentation level
+     * @return PTX source code
+     */
+    public static String generateShiftRightLogicalI32(int salt) {
+        return generateBinaryElementwiseI32("shift_right_logical", "shr.u32", "a[i] >>> b[i] (logical)", salt);
+    }
+
+    // ==================== Integer Unary Operations ====================
+
+    /**
+     * Generate PTX for element-wise int32 population count (count set bits).
+     *
+     * @param salt Instrumentation level
+     * @return PTX source code
+     */
+    public static String generatePopcntI32(int salt) {
+        return generateUnaryElementwiseI32("popcnt", "popc.b32", "popcount(a[i])", salt);
+    }
+
+    /**
+     * Generate PTX for element-wise int32 count leading zeros.
+     *
+     * @param salt Instrumentation level
+     * @return PTX source code
+     */
+    public static String generateClzI32(int salt) {
+        return generateUnaryElementwiseI32("clz", "clz.b32", "clz(a[i])", salt);
+    }
+
+    /**
+     * Generate PTX for a unary elementwise int32 operation.
+     *
+     * @param opName Operation name for comments and entry point
+     * @param ptxInstruction The PTX instruction to use
+     * @param comment Description of the operation
+     * @param salt Instrumentation level
+     * @return PTX source code
+     */
+    private static String generateUnaryElementwiseI32(String opName, String ptxInstruction,
+                                                       String comment, int salt) {
+        StringBuilder ptx = new StringBuilder();
+
+        ptx.append("""
+            //
+            // %s_i32: Element-wise %s of int32 array
+            // Salt level: %d
+            //
+            .version 7.0
+            .target sm_50
+            .address_size 64
+
+            .visible .entry %s_i32(
+                .param .u64 in_ptr,
+                .param .u64 out_ptr,
+                .param .u32 n
+            """.formatted(opName, comment, salt, opName));
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("    ,.param .u64 timing_ptr\n");
+        }
+
+        ptx.append("""
+            )
+            {
+                .reg .pred  %p<2>;
+                .reg .s32   %i<3>;
+                .reg .b32   %r<6>;
+                .reg .b64   %rd<8>;
+            """);
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("    .reg .b64   %rd_t0, %rd_t1, %rd_delta;\n");
+        }
+
+        ptx.append("""
+
+                mov.u32         %r1, %ctaid.x;
+                mov.u32         %r2, %ntid.x;
+                mov.u32         %r3, %tid.x;
+                mad.lo.s32      %r4, %r1, %r2, %r3;
+
+                ld.param.u32    %r5, [n];
+                setp.ge.s32     %p1, %r4, %r5;
+                @%p1 bra        EXIT;
+
+                ld.param.u64    %rd1, [in_ptr];
+                ld.param.u64    %rd2, [out_ptr];
+
+                cvt.s64.s32     %rd3, %r4;
+                shl.b64         %rd4, %rd3, 2;
+
+                add.s64         %rd5, %rd1, %rd4;
+                add.s64         %rd6, %rd2, %rd4;
+
+                ld.global.s32   %i1, [%rd5];
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("    mov.u64         %rd_t0, %globaltimer;\n\n");
+        }
+
+        // Core operation
+        ptx.append("    ").append(ptxInstruction).append("         %i2, %i1;\n\n");
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("""
+                    mov.u64         %rd_t1, %globaltimer;
+                    sub.u64         %rd_delta, %rd_t1, %rd_t0;
+                    ld.param.u64    %rd7, [timing_ptr];
+                    atom.global.add.u64 [%rd7], %rd_delta;
+
+            """);
+        }
+
+        ptx.append("""
+                st.global.s32   [%rd6], %i2;
+
+            EXIT:
+                ret;
+            }
+            """);
+
+        return ptx.toString();
+    }
+
     // ==================== Utility Methods ====================
 
     /**

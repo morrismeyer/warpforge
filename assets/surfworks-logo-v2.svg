@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <title>Surfworks Logo</title>
+  
+  <defs>
+    <style>
+      .blade { fill: none; stroke: #1976B8; stroke-width: 3; stroke-linejoin: round; }
+      .blue { fill: #1976B8; }
+      .dark { fill: #0B1826; }
+    </style>
+  </defs>
+
+  <!-- Saw blade border -->
+  <path class="blade" d="M188.0,100.0 L169.3,110.0 L184.4,124.8 L163.7,129.1 L174.0,147.6 L152.9,145.8 L157.6,166.5 L137.8,158.9 L136.6,180.0 L119.7,167.2 L112.5,187.1 L100.0,170.0 L87.5,187.1 L80.3,167.2 L63.4,180.0 L62.2,158.9 L42.4,166.5 L47.1,145.8 L26.0,147.6 L36.3,129.1 L15.6,124.8 L30.7,110.0 L12.0,100.0 L30.7,90.0 L15.6,75.2 L36.3,70.9 L26.0,52.4 L47.1,54.2 L42.4,33.5 L62.2,41.1 L63.4,20.0 L80.3,32.8 L87.5,12.9 L100.0,30.0 L112.5,12.9 L119.7,32.8 L136.6,20.0 L137.8,41.1 L157.6,33.5 L152.9,54.2 L174.0,52.4 L163.7,70.9 L184.4,75.2 L169.3,90.0 Z"/>
+
+  <!-- Crescent/eyelid - thick arc from left curving over top to right -->
+  <path class="blue" d="
+    M 32,115
+    C 32,58 62,35 105,35
+    C 150,35 170,60 170,115
+    C 160,68 135,50 105,50
+    C 72,50 48,70 38,115
+    Z"/>
+
+  <!-- Eye white - horizontal almond shape -->
+  <path fill="white" d="
+    M 38,112
+    C 50,72 75,55 108,55
+    C 142,55 162,75 168,112
+    C 158,152 135,168 105,168
+    C 72,168 48,148 38,112
+    Z"/>
+
+  <!-- Inner crescent creating eyelid effect inside eye -->
+  <path class="blue" d="
+    M 40,112
+    C 52,75 78,58 108,58
+    C 78,70 58,92 55,115
+    C 62,150 82,165 108,168
+    C 72,165 50,145 40,112
+    Z"/>
+
+  <!-- Pupil -->
+  <ellipse class="dark" cx="115" cy="115" rx="32" ry="40"/>
+
+  <!-- Highlight -->
+  <circle cx="100" cy="98" r="8" fill="white"/>
+</svg>

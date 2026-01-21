@@ -870,6 +870,287 @@ public final class CudaKernels {
         return ptx.toString();
     }
 
+    // ==================== Comparison and Selection Operations ====================
+
+    /**
+     * Generate PTX for element-wise float32 comparison.
+     * Returns 1.0f for true, 0.0f for false.
+     *
+     * @param direction Comparison direction (EQ, NE, LT, LE, GT, GE)
+     * @param salt Instrumentation level
+     * @return PTX source code
+     */
+    public static String generateCompareF32(String direction, int salt) {
+        String setpOp = switch (direction) {
+            case "EQ" -> "setp.eq.f32";
+            case "NE" -> "setp.ne.f32";
+            case "LT" -> "setp.lt.f32";
+            case "LE" -> "setp.le.f32";
+            case "GT" -> "setp.gt.f32";
+            case "GE" -> "setp.ge.f32";
+            default -> throw new IllegalArgumentException("Unknown comparison direction: " + direction);
+        };
+
+        String ptxOps = setpOp + "    %p2, %f1, %f2;\n" +
+                        "            selp.f32        %f3, 0f3F800000, 0f00000000, %p2;";
+        return generateBinaryElementwiseF32("compare_" + direction.toLowerCase(), ptxOps,
+            direction.toLowerCase() + " comparison", salt, 4, 3);
+    }
+
+    /**
+     * Generate PTX for element-wise select operation.
+     * result = pred ? onTrue : onFalse (where pred is 1.0 for true, 0.0 for false)
+     */
+    public static String generateSelectF32(int salt) {
+        StringBuilder ptx = new StringBuilder();
+
+        ptx.append("//\n");
+        ptx.append("// select_f32: Element-wise ternary selection\n");
+        ptx.append("// Salt level: ").append(salt).append("\n");
+        ptx.append("//\n");
+        ptx.append(".version 7.0\n");
+        ptx.append(".target sm_50\n");
+        ptx.append(".address_size 64\n\n");
+
+        ptx.append(".visible .entry select_f32(\n");
+        ptx.append("    .param .u64 pred_ptr,\n");
+        ptx.append("    .param .u64 on_true_ptr,\n");
+        ptx.append("    .param .u64 on_false_ptr,\n");
+        ptx.append("    .param .u64 out_ptr,\n");
+        ptx.append("    .param .u32 n\n");
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("    ,.param .u64 timing_ptr\n");
+        }
+
+        ptx.append(")\n{\n");
+        ptx.append("    .reg .pred  %p<3>;\n");
+        ptx.append("    .reg .f32   %f<5>;\n");
+        ptx.append("    .reg .b32   %r<6>;\n");
+        ptx.append("    .reg .b64   %rd<12>;\n");
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("    .reg .b64   %rd_t0, %rd_t1, %rd_delta;\n");
+        }
+
+        ptx.append("\n");
+        ptx.append("    mov.u32         %r1, %ctaid.x;\n");
+        ptx.append("    mov.u32         %r2, %ntid.x;\n");
+        ptx.append("    mov.u32         %r3, %tid.x;\n");
+        ptx.append("    mad.lo.s32      %r4, %r1, %r2, %r3;\n\n");
+
+        ptx.append("    ld.param.u32    %r5, [n];\n");
+        ptx.append("    setp.ge.s32     %p1, %r4, %r5;\n");
+        ptx.append("    @%p1 bra        EXIT;\n\n");
+
+        ptx.append("    ld.param.u64    %rd1, [pred_ptr];\n");
+        ptx.append("    ld.param.u64    %rd2, [on_true_ptr];\n");
+        ptx.append("    ld.param.u64    %rd3, [on_false_ptr];\n");
+        ptx.append("    ld.param.u64    %rd4, [out_ptr];\n\n");
+
+        ptx.append("    cvt.s64.s32     %rd5, %r4;\n");
+        ptx.append("    shl.b64         %rd6, %rd5, 2;\n\n");
+
+        ptx.append("    add.s64         %rd7, %rd1, %rd6;\n");
+        ptx.append("    add.s64         %rd8, %rd2, %rd6;\n");
+        ptx.append("    add.s64         %rd9, %rd3, %rd6;\n");
+        ptx.append("    add.s64         %rd10, %rd4, %rd6;\n\n");
+
+        ptx.append("    ld.global.f32   %f1, [%rd7];   // pred\n");
+        ptx.append("    ld.global.f32   %f2, [%rd8];   // on_true\n");
+        ptx.append("    ld.global.f32   %f3, [%rd9];   // on_false\n\n");
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("    mov.u64         %rd_t0, %globaltimer;\n\n");
+        }
+
+        // Convert pred float to predicate (pred != 0.0)
+        ptx.append("    setp.ne.f32     %p2, %f1, 0f00000000;  // pred != 0\n");
+        ptx.append("    selp.f32        %f4, %f2, %f3, %p2;    // result = pred ? on_true : on_false\n\n");
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("    mov.u64         %rd_t1, %globaltimer;\n");
+            ptx.append("    sub.u64         %rd_delta, %rd_t1, %rd_t0;\n");
+            ptx.append("    ld.param.u64    %rd11, [timing_ptr];\n");
+            ptx.append("    atom.global.add.u64 [%rd11], %rd_delta;\n\n");
+        }
+
+        ptx.append("    st.global.f32   [%rd10], %f4;\n\n");
+        ptx.append("EXIT:\n");
+        ptx.append("    ret;\n");
+        ptx.append("}\n");
+
+        return ptx.toString();
+    }
+
+    /**
+     * Generate PTX for element-wise clamp operation.
+     * result = max(min_val, min(operand, max_val))
+     */
+    public static String generateClampF32(int salt) {
+        StringBuilder ptx = new StringBuilder();
+
+        ptx.append("//\n");
+        ptx.append("// clamp_f32: Element-wise clamp\n");
+        ptx.append("// Salt level: ").append(salt).append("\n");
+        ptx.append("//\n");
+        ptx.append(".version 7.0\n");
+        ptx.append(".target sm_50\n");
+        ptx.append(".address_size 64\n\n");
+
+        ptx.append(".visible .entry clamp_f32(\n");
+        ptx.append("    .param .u64 min_ptr,\n");
+        ptx.append("    .param .u64 operand_ptr,\n");
+        ptx.append("    .param .u64 max_ptr,\n");
+        ptx.append("    .param .u64 out_ptr,\n");
+        ptx.append("    .param .u32 n\n");
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("    ,.param .u64 timing_ptr\n");
+        }
+
+        ptx.append(")\n{\n");
+        ptx.append("    .reg .pred  %p<2>;\n");
+        ptx.append("    .reg .f32   %f<5>;\n");
+        ptx.append("    .reg .b32   %r<6>;\n");
+        ptx.append("    .reg .b64   %rd<12>;\n");
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("    .reg .b64   %rd_t0, %rd_t1, %rd_delta;\n");
+        }
+
+        ptx.append("\n");
+        ptx.append("    mov.u32         %r1, %ctaid.x;\n");
+        ptx.append("    mov.u32         %r2, %ntid.x;\n");
+        ptx.append("    mov.u32         %r3, %tid.x;\n");
+        ptx.append("    mad.lo.s32      %r4, %r1, %r2, %r3;\n\n");
+
+        ptx.append("    ld.param.u32    %r5, [n];\n");
+        ptx.append("    setp.ge.s32     %p1, %r4, %r5;\n");
+        ptx.append("    @%p1 bra        EXIT;\n\n");
+
+        ptx.append("    ld.param.u64    %rd1, [min_ptr];\n");
+        ptx.append("    ld.param.u64    %rd2, [operand_ptr];\n");
+        ptx.append("    ld.param.u64    %rd3, [max_ptr];\n");
+        ptx.append("    ld.param.u64    %rd4, [out_ptr];\n\n");
+
+        ptx.append("    cvt.s64.s32     %rd5, %r4;\n");
+        ptx.append("    shl.b64         %rd6, %rd5, 2;\n\n");
+
+        ptx.append("    add.s64         %rd7, %rd1, %rd6;\n");
+        ptx.append("    add.s64         %rd8, %rd2, %rd6;\n");
+        ptx.append("    add.s64         %rd9, %rd3, %rd6;\n");
+        ptx.append("    add.s64         %rd10, %rd4, %rd6;\n\n");
+
+        ptx.append("    ld.global.f32   %f1, [%rd7];   // min\n");
+        ptx.append("    ld.global.f32   %f2, [%rd8];   // operand\n");
+        ptx.append("    ld.global.f32   %f3, [%rd9];   // max\n\n");
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("    mov.u64         %rd_t0, %globaltimer;\n\n");
+        }
+
+        // clamp = max(min_val, min(operand, max_val))
+        ptx.append("    min.f32         %f4, %f2, %f3;  // f4 = min(operand, max)\n");
+        ptx.append("    max.f32         %f4, %f4, %f1;  // f4 = max(f4, min)\n\n");
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("    mov.u64         %rd_t1, %globaltimer;\n");
+            ptx.append("    sub.u64         %rd_delta, %rd_t1, %rd_t0;\n");
+            ptx.append("    ld.param.u64    %rd11, [timing_ptr];\n");
+            ptx.append("    atom.global.add.u64 [%rd11], %rd_delta;\n\n");
+        }
+
+        ptx.append("    st.global.f32   [%rd10], %f4;\n\n");
+        ptx.append("EXIT:\n");
+        ptx.append("    ret;\n");
+        ptx.append("}\n");
+
+        return ptx.toString();
+    }
+
+    /**
+     * Generate PTX for a binary elementwise float32 operation with custom predicate count.
+     */
+    private static String generateBinaryElementwiseF32(String opName, String ptxInstructions,
+                                                        String comment, int salt, int floatRegs,
+                                                        int predicateRegs) {
+        StringBuilder ptx = new StringBuilder();
+
+        ptx.append("//\n");
+        ptx.append("// ").append(opName).append("_f32: Element-wise ").append(comment).append(" of float32 arrays\n");
+        ptx.append("// Salt level: ").append(salt).append("\n");
+        ptx.append("//\n");
+        ptx.append(".version 7.0\n");
+        ptx.append(".target sm_50\n");
+        ptx.append(".address_size 64\n\n");
+
+        ptx.append(".visible .entry ").append(opName).append("_f32(\n");
+        ptx.append("    .param .u64 a_ptr,\n");
+        ptx.append("    .param .u64 b_ptr,\n");
+        ptx.append("    .param .u64 out_ptr,\n");
+        ptx.append("    .param .u32 n\n");
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("    ,.param .u64 timing_ptr\n");
+        }
+
+        ptx.append(")\n{\n");
+        ptx.append("    .reg .pred  %p<").append(predicateRegs).append(">;\n");
+        ptx.append("    .reg .f32   %f<").append(floatRegs).append(">;\n");
+        ptx.append("    .reg .b32   %r<6>;\n");
+        ptx.append("    .reg .b64   %rd<10>;\n");
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("    .reg .b64   %rd_t0, %rd_t1, %rd_delta;\n");
+        }
+
+        ptx.append("\n");
+        ptx.append("    mov.u32         %r1, %ctaid.x;\n");
+        ptx.append("    mov.u32         %r2, %ntid.x;\n");
+        ptx.append("    mov.u32         %r3, %tid.x;\n");
+        ptx.append("    mad.lo.s32      %r4, %r1, %r2, %r3;\n\n");
+
+        ptx.append("    ld.param.u32    %r5, [n];\n");
+        ptx.append("    setp.ge.s32     %p1, %r4, %r5;\n");
+        ptx.append("    @%p1 bra        EXIT;\n\n");
+
+        ptx.append("    ld.param.u64    %rd1, [a_ptr];\n");
+        ptx.append("    ld.param.u64    %rd2, [b_ptr];\n");
+        ptx.append("    ld.param.u64    %rd3, [out_ptr];\n\n");
+
+        ptx.append("    cvt.s64.s32     %rd4, %r4;\n");
+        ptx.append("    shl.b64         %rd5, %rd4, 2;\n\n");
+
+        ptx.append("    add.s64         %rd6, %rd1, %rd5;\n");
+        ptx.append("    add.s64         %rd7, %rd2, %rd5;\n");
+        ptx.append("    add.s64         %rd8, %rd3, %rd5;\n\n");
+
+        ptx.append("    ld.global.f32   %f1, [%rd6];\n");
+        ptx.append("    ld.global.f32   %f2, [%rd7];\n\n");
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("    mov.u64         %rd_t0, %globaltimer;\n\n");
+        }
+
+        // Core operation(s)
+        ptx.append("    ").append(ptxInstructions).append("\n\n");
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("    mov.u64         %rd_t1, %globaltimer;\n");
+            ptx.append("    sub.u64         %rd_delta, %rd_t1, %rd_t0;\n");
+            ptx.append("    ld.param.u64    %rd9, [timing_ptr];\n");
+            ptx.append("    atom.global.add.u64 [%rd9], %rd_delta;\n\n");
+        }
+
+        ptx.append("    st.global.f32   [%rd8], %f3;\n\n");
+        ptx.append("EXIT:\n");
+        ptx.append("    ret;\n");
+        ptx.append("}\n");
+
+        return ptx.toString();
+    }
+
     // ==================== Utility Methods ====================
 
     /**

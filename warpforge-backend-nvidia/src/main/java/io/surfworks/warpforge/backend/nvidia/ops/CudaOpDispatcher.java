@@ -278,6 +278,29 @@ public final class CudaOpDispatcher {
             registerStub(StableHloAst.RemainderOp.class);
         }
 
+        // ==================== Comparison and Selection Operations (IMPLEMENTED) ====================
+
+        // Compare (IMPLEMENTED)
+        if (context != null) {
+            kernels.put(StableHloAst.CompareOp.class, new CompareKernel(context, salt));
+        } else {
+            registerStub(StableHloAst.CompareOp.class);
+        }
+
+        // Select (IMPLEMENTED)
+        if (context != null) {
+            kernels.put(StableHloAst.SelectOp.class, new SelectKernel(context, salt));
+        } else {
+            registerStub(StableHloAst.SelectOp.class);
+        }
+
+        // Clamp (IMPLEMENTED)
+        if (context != null) {
+            kernels.put(StableHloAst.ClampOp.class, new ClampKernel(context, salt));
+        } else {
+            registerStub(StableHloAst.ClampOp.class);
+        }
+
         // ==================== Stub Operations ====================
 
         // Binary elementwise operations (stubs)
@@ -293,11 +316,6 @@ public final class CudaOpDispatcher {
         registerStub(StableHloAst.NotOp.class);
         registerStub(StableHloAst.PopcntOp.class);
         registerStub(StableHloAst.ClzOp.class);
-
-        // Comparison and selection
-        registerStub(StableHloAst.CompareOp.class);
-        registerStub(StableHloAst.SelectOp.class);
-        registerStub(StableHloAst.ClampOp.class);
 
         // Constants
         registerStub(StableHloAst.ConstantOp.class);

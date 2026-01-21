@@ -87,11 +87,17 @@ public final class CudaOpDispatcher {
             registerStub(StableHloAst.AddOp.class);
         }
 
+        // Binary elementwise - Multiply (IMPLEMENTED)
+        if (context != null) {
+            kernels.put(StableHloAst.MultiplyOp.class, new MultiplyKernel(context, salt));
+        } else {
+            registerStub(StableHloAst.MultiplyOp.class);
+        }
+
         // ==================== Stub Operations ====================
 
         // Binary elementwise operations (stubs)
         registerStub(StableHloAst.SubtractOp.class);
-        registerStub(StableHloAst.MultiplyOp.class);
         registerStub(StableHloAst.DivideOp.class);
         registerStub(StableHloAst.MaximumOp.class);
         registerStub(StableHloAst.MinimumOp.class);

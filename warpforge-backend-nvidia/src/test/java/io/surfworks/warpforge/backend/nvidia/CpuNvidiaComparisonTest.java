@@ -259,6 +259,235 @@ class CpuNvidiaComparisonTest {
         }
     }
 
+    // ==================== Multiply Operation Tests ====================
+
+    @Test
+    @DisplayName("Multiply: Small tensor - exact match")
+    void testMultiplySmallTensor() {
+        float[] aData = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f, 8.0f};
+        float[] bData = {0.1f, 0.2f, 0.3f, 0.4f, 0.5f, 0.6f, 0.7f, 0.8f};
+
+        compareMultiplyResults(aData, bData, 8);
+    }
+
+    @Test
+    @DisplayName("Multiply: Medium tensor (10K elements)")
+    void testMultiplyMediumTensor() {
+        int n = 10_000;
+        float[] aData = generateRandomFloats(n, SEED);
+        float[] bData = generateRandomFloats(n, SEED + 1);
+
+        compareMultiplyResults(aData, bData, n);
+    }
+
+    @Test
+    @DisplayName("Multiply: Large tensor (1M elements)")
+    void testMultiplyLargeTensor() {
+        int n = 1_000_000;
+        float[] aData = generateRandomFloats(n, SEED);
+        float[] bData = generateRandomFloats(n, SEED + 1);
+
+        compareMultiplyResults(aData, bData, n);
+    }
+
+    @Test
+    @DisplayName("Multiply: 2D tensor shape preserved")
+    void testMultiply2DShape() {
+        float[] aData = generateRandomFloats(256, SEED);
+        float[] bData = generateRandomFloats(256, SEED + 1);
+
+        try (Tensor a = Tensor.fromFloatArray(aData, 16, 16);
+             Tensor b = Tensor.fromFloatArray(bData, 16, 16)) {
+
+            StableHloAst.MultiplyOp multiplyOp = createMultiplyOp(16, 16);
+
+            List<Tensor> cpuResult = cpuBackend.execute(multiplyOp, List.of(a, b));
+            List<Tensor> nvidiaResult = nvidiaBackend.execute(multiplyOp, List.of(a, b));
+
+            assertArrayEquals(new int[]{16, 16}, cpuResult.get(0).shape());
+            assertArrayEquals(new int[]{16, 16}, nvidiaResult.get(0).shape());
+            assertArrayEquals(
+                cpuResult.get(0).toFloatArray(),
+                nvidiaResult.get(0).toFloatArray(),
+                TOLERANCE
+            );
+        }
+    }
+
+    @Test
+    @DisplayName("Multiply: 3D tensor shape preserved")
+    void testMultiply3DShape() {
+        float[] aData = generateRandomFloats(8 * 16 * 32, SEED);
+        float[] bData = generateRandomFloats(8 * 16 * 32, SEED + 1);
+
+        try (Tensor a = Tensor.fromFloatArray(aData, 8, 16, 32);
+             Tensor b = Tensor.fromFloatArray(bData, 8, 16, 32)) {
+
+            StableHloAst.MultiplyOp multiplyOp = createMultiplyOp(8, 16, 32);
+
+            List<Tensor> cpuResult = cpuBackend.execute(multiplyOp, List.of(a, b));
+            List<Tensor> nvidiaResult = nvidiaBackend.execute(multiplyOp, List.of(a, b));
+
+            assertArrayEquals(new int[]{8, 16, 32}, cpuResult.get(0).shape());
+            assertArrayEquals(new int[]{8, 16, 32}, nvidiaResult.get(0).shape());
+            assertArrayEquals(
+                cpuResult.get(0).toFloatArray(),
+                nvidiaResult.get(0).toFloatArray(),
+                TOLERANCE
+            );
+        }
+    }
+
+    @Test
+    @DisplayName("Multiply: Edge case - zeros")
+    void testMultiplyZeros() {
+        float[] aData = new float[1024]; // All zeros
+        float[] bData = generateRandomFloats(1024, SEED);
+
+        compareMultiplyResults(aData, bData, 1024);
+    }
+
+    @Test
+    @DisplayName("Multiply: Edge case - ones (identity)")
+    void testMultiplyOnes() {
+        int n = 1024;
+        float[] aData = generateRandomFloats(n, SEED);
+        float[] bData = new float[n];
+        for (int i = 0; i < n; i++) {
+            bData[i] = 1.0f;
+        }
+
+        try (Tensor a = Tensor.fromFloatArray(aData, n);
+             Tensor b = Tensor.fromFloatArray(bData, n)) {
+
+            StableHloAst.MultiplyOp multiplyOp = createMultiplyOp(n);
+
+            List<Tensor> cpuResult = cpuBackend.execute(multiplyOp, List.of(a, b));
+            List<Tensor> nvidiaResult = nvidiaBackend.execute(multiplyOp, List.of(a, b));
+
+            float[] cpuData = cpuResult.get(0).toFloatArray();
+            float[] nvidiaData = nvidiaResult.get(0).toFloatArray();
+
+            // Multiplying by 1 should return the original values
+            assertArrayEquals(aData, cpuData, TOLERANCE);
+            assertArrayEquals(aData, nvidiaData, TOLERANCE);
+        }
+    }
+
+    @Test
+    @DisplayName("Multiply: Edge case - negative numbers")
+    void testMultiplyNegatives() {
+        int n = 1024;
+        float[] aData = generateRandomFloats(n, SEED);
+        float[] bData = new float[n];
+        for (int i = 0; i < n; i++) {
+            bData[i] = -1.0f; // Negate all values
+        }
+
+        try (Tensor a = Tensor.fromFloatArray(aData, n);
+             Tensor b = Tensor.fromFloatArray(bData, n)) {
+
+            StableHloAst.MultiplyOp multiplyOp = createMultiplyOp(n);
+
+            List<Tensor> cpuResult = cpuBackend.execute(multiplyOp, List.of(a, b));
+            List<Tensor> nvidiaResult = nvidiaBackend.execute(multiplyOp, List.of(a, b));
+
+            float[] cpuData = cpuResult.get(0).toFloatArray();
+            float[] nvidiaData = nvidiaResult.get(0).toFloatArray();
+
+            for (int i = 0; i < n; i++) {
+                assertEquals(cpuData[i], nvidiaData[i], TOLERANCE,
+                    "Mismatch at index " + i);
+                // Result should be negated original
+                assertEquals(-aData[i], cpuData[i], TOLERANCE,
+                    "CPU result at index " + i + " should be negated");
+            }
+        }
+    }
+
+    @Test
+    @DisplayName("Multiply: Edge case - very small numbers")
+    void testMultiplySmallNumbers() {
+        int n = 1024;
+        float[] aData = new float[n];
+        float[] bData = new float[n];
+        for (int i = 0; i < n; i++) {
+            aData[i] = 1e-15f * (i + 1);
+            bData[i] = 1e-15f * (i + 1);
+        }
+
+        compareMultiplyResults(aData, bData, n);
+    }
+
+    @Test
+    @DisplayName("Multiply: Edge case - mixed small and large")
+    void testMultiplyMixedMagnitudes() {
+        int n = 1024;
+        float[] aData = new float[n];
+        float[] bData = new float[n];
+        for (int i = 0; i < n; i++) {
+            aData[i] = 1e10f + i;
+            bData[i] = 1e-10f;
+        }
+
+        try (Tensor a = Tensor.fromFloatArray(aData, n);
+             Tensor b = Tensor.fromFloatArray(bData, n)) {
+
+            StableHloAst.MultiplyOp multiplyOp = createMultiplyOp(n);
+
+            List<Tensor> cpuResult = cpuBackend.execute(multiplyOp, List.of(a, b));
+            List<Tensor> nvidiaResult = nvidiaBackend.execute(multiplyOp, List.of(a, b));
+
+            float[] cpuData = cpuResult.get(0).toFloatArray();
+            float[] nvidiaData = nvidiaResult.get(0).toFloatArray();
+
+            for (int i = 0; i < n; i++) {
+                float relError = Math.abs(cpuData[i] - nvidiaData[i]) / Math.max(Math.abs(cpuData[i]), 1e-10f);
+                assertEquals(0.0f, relError, 1e-5f,
+                    "Relative error too large at index " + i);
+            }
+        }
+    }
+
+    @Test
+    @DisplayName("Multiply with SALT_TIMING produces same results as SALT_NONE")
+    void testMultiplyTimingInstrumentationPreservesResults() {
+        try (NvidiaBackend timedBackend = new NvidiaBackend(0, CudaKernels.SALT_TIMING)) {
+            assumeTrue(timedBackend.hasCudaContext(), "CUDA context not available");
+
+            int n = 10_000;
+            float[] aData = generateRandomFloats(n, SEED);
+            float[] bData = generateRandomFloats(n, SEED + 1);
+
+            try (Tensor a = Tensor.fromFloatArray(aData, n);
+                 Tensor b = Tensor.fromFloatArray(bData, n)) {
+
+                StableHloAst.MultiplyOp multiplyOp = createMultiplyOp(n);
+
+                // Execute on CPU (reference)
+                List<Tensor> cpuResult = cpuBackend.execute(multiplyOp, List.of(a, b));
+
+                // Execute on NVIDIA without timing
+                List<Tensor> nvidiaNoTiming = nvidiaBackend.execute(multiplyOp, List.of(a, b));
+
+                // Execute on NVIDIA with timing
+                List<Tensor> nvidiaWithTiming = timedBackend.execute(multiplyOp, List.of(a, b));
+
+                // All three should match
+                float[] cpuData = cpuResult.get(0).toFloatArray();
+                float[] nvidiaNoTimingData = nvidiaNoTiming.get(0).toFloatArray();
+                float[] nvidiaWithTimingData = nvidiaWithTiming.get(0).toFloatArray();
+
+                assertArrayEquals(cpuData, nvidiaNoTimingData, TOLERANCE,
+                    "NVIDIA (no timing) doesn't match CPU");
+                assertArrayEquals(cpuData, nvidiaWithTimingData, TOLERANCE,
+                    "NVIDIA (with timing) doesn't match CPU");
+                assertArrayEquals(nvidiaNoTimingData, nvidiaWithTimingData, 0.0f,
+                    "NVIDIA timing variant doesn't match non-timing variant exactly");
+            }
+        }
+    }
+
     // ==================== Helper Methods ====================
 
     private void compareAddResults(float[] aData, float[] bData, int... shape) {
@@ -284,6 +513,29 @@ class CpuNvidiaComparisonTest {
         }
     }
 
+    private void compareMultiplyResults(float[] aData, float[] bData, int... shape) {
+        int n = aData.length;
+
+        try (Tensor a = Tensor.fromFloatArray(aData, shape);
+             Tensor b = Tensor.fromFloatArray(bData, shape)) {
+
+            StableHloAst.MultiplyOp multiplyOp = createMultiplyOp(shape);
+
+            List<Tensor> cpuResult = cpuBackend.execute(multiplyOp, List.of(a, b));
+            List<Tensor> nvidiaResult = nvidiaBackend.execute(multiplyOp, List.of(a, b));
+
+            assertEquals(1, cpuResult.size());
+            assertEquals(1, nvidiaResult.size());
+
+            float[] cpuData = cpuResult.get(0).toFloatArray();
+            float[] nvidiaData = nvidiaResult.get(0).toFloatArray();
+
+            assertEquals(cpuData.length, nvidiaData.length, "Output sizes don't match");
+            assertArrayEquals(cpuData, nvidiaData, TOLERANCE,
+                "NVIDIA output doesn't match CPU reference");
+        }
+    }
+
     private StableHloAst.AddOp createAddOp(int... shape) {
         List<Integer> shapeList = new java.util.ArrayList<>();
         for (int dim : shape) {
@@ -296,6 +548,25 @@ class CpuNvidiaComparisonTest {
         );
 
         return new StableHloAst.AddOp(
+            new StableHloAst.Value("0", resultType),
+            new StableHloAst.Value("1", resultType),
+            new StableHloAst.Value("2", resultType),
+            resultType
+        );
+    }
+
+    private StableHloAst.MultiplyOp createMultiplyOp(int... shape) {
+        List<Integer> shapeList = new java.util.ArrayList<>();
+        for (int dim : shape) {
+            shapeList.add(dim);
+        }
+
+        StableHloAst.TensorType resultType = new StableHloAst.TensorType(
+            shapeList,
+            StableHloAst.ScalarType.F32
+        );
+
+        return new StableHloAst.MultiplyOp(
             new StableHloAst.Value("0", resultType),
             new StableHloAst.Value("1", resultType),
             new StableHloAst.Value("2", resultType),

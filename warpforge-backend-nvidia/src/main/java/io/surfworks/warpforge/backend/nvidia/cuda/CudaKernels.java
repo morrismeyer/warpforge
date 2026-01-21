@@ -399,6 +399,165 @@ public final class CudaKernels {
         return ptx.toString();
     }
 
+    // ==================== Unary Elementwise PTX Generation ====================
+
+    /**
+     * Generate PTX for element-wise float32 negation.
+     */
+    public static String generateNegateF32(int salt) {
+        return generateUnaryElementwiseF32("negate", "neg.f32         %f2, %f1;", "-x", salt);
+    }
+
+    /**
+     * Generate PTX for element-wise float32 absolute value.
+     */
+    public static String generateAbsF32(int salt) {
+        return generateUnaryElementwiseF32("abs", "abs.f32         %f2, %f1;", "|x|", salt);
+    }
+
+    /**
+     * Generate PTX for element-wise float32 exponential (e^x).
+     * Uses: e^x = 2^(x * log2(e)) where log2(e) ≈ 1.4426950408889634
+     */
+    public static String generateExpF32(int salt) {
+        String ptxOps = """
+                    // e^x = 2^(x * log2(e))
+                    mul.f32         %f2, %f1, 0f3FB8AA3B;  // log2(e) = 1.4426950408889634
+                    ex2.approx.f32  %f2, %f2;""";
+        return generateUnaryElementwiseF32("exp", ptxOps, "e^x", salt);
+    }
+
+    /**
+     * Generate PTX for element-wise float32 natural logarithm (ln(x)).
+     * Uses: ln(x) = log2(x) * ln(2) where ln(2) ≈ 0.6931471805599453
+     */
+    public static String generateLogF32(int salt) {
+        String ptxOps = """
+                    // ln(x) = log2(x) * ln(2)
+                    lg2.approx.f32  %f2, %f1;
+                    mul.f32         %f2, %f2, 0f3F317218;  // ln(2) = 0.6931471805599453""";
+        return generateUnaryElementwiseF32("log", ptxOps, "ln(x)", salt);
+    }
+
+    /**
+     * Generate PTX for element-wise float32 square root.
+     */
+    public static String generateSqrtF32(int salt) {
+        return generateUnaryElementwiseF32("sqrt", "sqrt.approx.f32 %f2, %f1;", "sqrt(x)", salt);
+    }
+
+    /**
+     * Generate PTX for element-wise float32 hyperbolic tangent.
+     * Uses: tanh(x) = (e^(2x) - 1) / (e^(2x) + 1)
+     */
+    public static String generateTanhF32(int salt) {
+        String ptxOps = """
+                    // tanh(x) = (e^(2x) - 1) / (e^(2x) + 1)
+                    // First compute 2x
+                    add.f32         %f2, %f1, %f1;
+                    // Compute e^(2x) using 2^(2x * log2(e))
+                    mul.f32         %f2, %f2, 0f3FB8AA3B;  // log2(e)
+                    ex2.approx.f32  %f2, %f2;
+                    // Now %f2 = e^(2x), compute (e^(2x) - 1) and (e^(2x) + 1)
+                    add.f32         %f3, %f2, 0f3F800000;  // e^(2x) + 1 (1.0f)
+                    add.f32         %f2, %f2, 0fBF800000;  // e^(2x) - 1 (-1.0f, so adding it)
+                    // Divide: (e^(2x) - 1) / (e^(2x) + 1)
+                    div.approx.f32  %f2, %f2, %f3;""";
+        return generateUnaryElementwiseF32("tanh", ptxOps, "tanh(x)", salt, 4);
+    }
+
+    /**
+     * Generate PTX for a unary elementwise float32 operation.
+     *
+     * @param opName Operation name for comments and entry point
+     * @param ptxInstructions The PTX instruction(s) (input in %f1, output in %f2)
+     * @param comment Description of the operation
+     * @param salt Instrumentation level
+     * @return PTX source code
+     */
+    private static String generateUnaryElementwiseF32(String opName, String ptxInstructions,
+                                                       String comment, int salt) {
+        return generateUnaryElementwiseF32(opName, ptxInstructions, comment, salt, 3);
+    }
+
+    /**
+     * Generate PTX for a unary elementwise float32 operation with custom register count.
+     */
+    private static String generateUnaryElementwiseF32(String opName, String ptxInstructions,
+                                                       String comment, int salt, int floatRegs) {
+        StringBuilder ptx = new StringBuilder();
+
+        // Header with operation name and salt level
+        ptx.append("//\n");
+        ptx.append("// ").append(opName).append("_f32: Element-wise ").append(comment).append(" of float32 arrays\n");
+        ptx.append("// Salt level: ").append(salt).append("\n");
+        ptx.append("//\n");
+        ptx.append(".version 7.0\n");
+        ptx.append(".target sm_50\n");
+        ptx.append(".address_size 64\n\n");
+
+        ptx.append(".visible .entry ").append(opName).append("_f32(\n");
+        ptx.append("    .param .u64 in_ptr,\n");
+        ptx.append("    .param .u64 out_ptr,\n");
+        ptx.append("    .param .u32 n\n");
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("    ,.param .u64 timing_ptr\n");
+        }
+
+        ptx.append(")\n{\n");
+        ptx.append("    .reg .pred  %p<2>;\n");
+        ptx.append("    .reg .f32   %f<").append(floatRegs).append(">;\n");
+        ptx.append("    .reg .b32   %r<6>;\n");
+        ptx.append("    .reg .b64   %rd<8>;\n");
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("    .reg .b64   %rd_t0, %rd_t1, %rd_delta;\n");
+        }
+
+        ptx.append("\n");
+        ptx.append("    mov.u32         %r1, %ctaid.x;\n");
+        ptx.append("    mov.u32         %r2, %ntid.x;\n");
+        ptx.append("    mov.u32         %r3, %tid.x;\n");
+        ptx.append("    mad.lo.s32      %r4, %r1, %r2, %r3;\n\n");
+
+        ptx.append("    ld.param.u32    %r5, [n];\n");
+        ptx.append("    setp.ge.s32     %p1, %r4, %r5;\n");
+        ptx.append("    @%p1 bra        EXIT;\n\n");
+
+        ptx.append("    ld.param.u64    %rd1, [in_ptr];\n");
+        ptx.append("    ld.param.u64    %rd2, [out_ptr];\n\n");
+
+        ptx.append("    cvt.s64.s32     %rd3, %r4;\n");
+        ptx.append("    shl.b64         %rd4, %rd3, 2;\n\n");
+
+        ptx.append("    add.s64         %rd5, %rd1, %rd4;\n");
+        ptx.append("    add.s64         %rd6, %rd2, %rd4;\n\n");
+
+        ptx.append("    ld.global.f32   %f1, [%rd5];\n\n");
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("    mov.u64         %rd_t0, %globaltimer;\n\n");
+        }
+
+        // Core operation(s)
+        ptx.append(ptxInstructions).append("\n\n");
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("    mov.u64         %rd_t1, %globaltimer;\n");
+            ptx.append("    sub.u64         %rd_delta, %rd_t1, %rd_t0;\n");
+            ptx.append("    ld.param.u64    %rd7, [timing_ptr];\n");
+            ptx.append("    atom.global.add.u64 [%rd7], %rd_delta;\n\n");
+        }
+
+        ptx.append("    st.global.f32   [%rd6], %f2;\n\n");
+        ptx.append("EXIT:\n");
+        ptx.append("    ret;\n");
+        ptx.append("}\n");
+
+        return ptx.toString();
+    }
+
     // ==================== Utility Methods ====================
 
     /**
@@ -426,6 +585,12 @@ public final class CudaKernels {
             case "divide" -> "divide_f32";
             case "maximum" -> "maximum_f32";
             case "minimum" -> "minimum_f32";
+            case "negate" -> "negate_f32";
+            case "abs" -> "abs_f32";
+            case "exp" -> "exp_f32";
+            case "log" -> "log_f32";
+            case "sqrt" -> "sqrt_f32";
+            case "tanh" -> "tanh_f32";
             default -> throw new IllegalArgumentException("Unknown operation: " + opName);
         };
     }

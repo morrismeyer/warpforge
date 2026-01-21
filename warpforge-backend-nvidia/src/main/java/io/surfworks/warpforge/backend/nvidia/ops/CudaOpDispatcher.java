@@ -122,6 +122,50 @@ public final class CudaOpDispatcher {
             registerStub(StableHloAst.MinimumOp.class);
         }
 
+        // ==================== Unary Elementwise Operations (IMPLEMENTED) ====================
+
+        // Unary elementwise - Negate (IMPLEMENTED)
+        if (context != null) {
+            kernels.put(StableHloAst.NegateOp.class, UnaryElementwiseKernel.negate(context, salt));
+        } else {
+            registerStub(StableHloAst.NegateOp.class);
+        }
+
+        // Unary elementwise - Abs (IMPLEMENTED)
+        if (context != null) {
+            kernels.put(StableHloAst.AbsOp.class, UnaryElementwiseKernel.abs(context, salt));
+        } else {
+            registerStub(StableHloAst.AbsOp.class);
+        }
+
+        // Unary elementwise - Exp (IMPLEMENTED)
+        if (context != null) {
+            kernels.put(StableHloAst.ExpOp.class, UnaryElementwiseKernel.exp(context, salt));
+        } else {
+            registerStub(StableHloAst.ExpOp.class);
+        }
+
+        // Unary elementwise - Log (IMPLEMENTED)
+        if (context != null) {
+            kernels.put(StableHloAst.LogOp.class, UnaryElementwiseKernel.log(context, salt));
+        } else {
+            registerStub(StableHloAst.LogOp.class);
+        }
+
+        // Unary elementwise - Sqrt (IMPLEMENTED)
+        if (context != null) {
+            kernels.put(StableHloAst.SqrtOp.class, UnaryElementwiseKernel.sqrt(context, salt));
+        } else {
+            registerStub(StableHloAst.SqrtOp.class);
+        }
+
+        // Unary elementwise - Tanh (IMPLEMENTED)
+        if (context != null) {
+            kernels.put(StableHloAst.TanhOp.class, UnaryElementwiseKernel.tanh(context, salt));
+        } else {
+            registerStub(StableHloAst.TanhOp.class);
+        }
+
         // ==================== Stub Operations ====================
 
         // Binary elementwise operations (stubs)
@@ -135,13 +179,7 @@ public final class CudaOpDispatcher {
         registerStub(StableHloAst.ShiftRightArithmeticOp.class);
         registerStub(StableHloAst.ShiftRightLogicalOp.class);
 
-        // Unary elementwise operations
-        registerStub(StableHloAst.NegateOp.class);
-        registerStub(StableHloAst.AbsOp.class);
-        registerStub(StableHloAst.ExpOp.class);
-        registerStub(StableHloAst.LogOp.class);
-        registerStub(StableHloAst.TanhOp.class);
-        registerStub(StableHloAst.SqrtOp.class);
+        // Unary elementwise operations (stubs - remaining ones)
         registerStub(StableHloAst.RsqrtOp.class);
         registerStub(StableHloAst.SinOp.class);
         registerStub(StableHloAst.CosOp.class);

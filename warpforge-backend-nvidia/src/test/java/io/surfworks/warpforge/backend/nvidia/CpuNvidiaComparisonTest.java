@@ -690,7 +690,201 @@ class CpuNvidiaComparisonTest {
         System.out.println("========================================\n");
     }
 
+    // ==================== Unary Elementwise Operation Tests ====================
+
+    @Test
+    @DisplayName("Negate: CPU vs NVIDIA - 1M elements")
+    void testNegateLargeTensor() {
+        System.out.println("[TEST] CPU vs NVIDIA: Negate (1M elements)");
+        int n = 1_000_000;
+        float[] data = generateRandomFloats(n, SEED);
+
+        compareUnaryOpResults(data, n, StableHloAst.NegateOp.class, "Negate");
+        System.out.println("[PASS] Negate: CPU vs NVIDIA match");
+    }
+
+    @Test
+    @DisplayName("Abs: CPU vs NVIDIA - 1M elements")
+    void testAbsLargeTensor() {
+        System.out.println("[TEST] CPU vs NVIDIA: Abs (1M elements)");
+        int n = 1_000_000;
+        float[] data = generateRandomFloats(n, SEED);
+
+        compareUnaryOpResults(data, n, StableHloAst.AbsOp.class, "Abs");
+        System.out.println("[PASS] Abs: CPU vs NVIDIA match");
+    }
+
+    @Test
+    @DisplayName("Exp: CPU vs NVIDIA - 1M elements")
+    void testExpLargeTensor() {
+        System.out.println("[TEST] CPU vs NVIDIA: Exp (1M elements)");
+        int n = 1_000_000;
+        // Use smaller range to avoid overflow in exp
+        float[] data = generateBoundedRandomFloats(n, SEED, -5.0f, 5.0f);
+
+        // Exp uses approximation, so higher tolerance
+        compareUnaryOpResultsWithTolerance(data, n, StableHloAst.ExpOp.class, "Exp", 1e-3f);
+        System.out.println("[PASS] Exp: CPU vs NVIDIA match");
+    }
+
+    @Test
+    @DisplayName("Log: CPU vs NVIDIA - 1M elements")
+    void testLogLargeTensor() {
+        System.out.println("[TEST] CPU vs NVIDIA: Log (1M elements)");
+        int n = 1_000_000;
+        // Use positive values only for log
+        float[] data = generateBoundedRandomFloats(n, SEED, 0.01f, 100.0f);
+
+        // Log uses approximation, so higher tolerance
+        compareUnaryOpResultsWithTolerance(data, n, StableHloAst.LogOp.class, "Log", 1e-3f);
+        System.out.println("[PASS] Log: CPU vs NVIDIA match");
+    }
+
+    @Test
+    @DisplayName("Sqrt: CPU vs NVIDIA - 1M elements")
+    void testSqrtLargeTensor() {
+        System.out.println("[TEST] CPU vs NVIDIA: Sqrt (1M elements)");
+        int n = 1_000_000;
+        // Use positive values only for sqrt
+        float[] data = generateBoundedRandomFloats(n, SEED, 0.0f, 100.0f);
+
+        // Sqrt uses approximation, so slightly higher tolerance
+        compareUnaryOpResultsWithTolerance(data, n, StableHloAst.SqrtOp.class, "Sqrt", 1e-4f);
+        System.out.println("[PASS] Sqrt: CPU vs NVIDIA match");
+    }
+
+    @Test
+    @DisplayName("Tanh: CPU vs NVIDIA - 1M elements")
+    void testTanhLargeTensor() {
+        System.out.println("[TEST] CPU vs NVIDIA: Tanh (1M elements)");
+        int n = 1_000_000;
+        float[] data = generateRandomFloats(n, SEED);
+
+        // Tanh uses approximation, so higher tolerance
+        compareUnaryOpResultsWithTolerance(data, n, StableHloAst.TanhOp.class, "Tanh", 1e-3f);
+        System.out.println("[PASS] Tanh: CPU vs NVIDIA match");
+    }
+
+    @Test
+    @DisplayName("All Unary Elementwise: Summary test")
+    void testAllUnaryElementwiseSummary() {
+        System.out.println("\n========================================");
+        System.out.println("Unary Elementwise Operations Summary");
+        System.out.println("========================================");
+
+        int n = 10_000;
+
+        // Test Negate
+        System.out.print("  Negate: ");
+        float[] negData = generateRandomFloats(n, SEED);
+        compareUnaryOpResults(negData, n, StableHloAst.NegateOp.class, "Negate");
+        System.out.println("[OK]");
+
+        // Test Abs
+        System.out.print("  Abs: ");
+        float[] absData = generateRandomFloats(n, SEED);
+        compareUnaryOpResults(absData, n, StableHloAst.AbsOp.class, "Abs");
+        System.out.println("[OK]");
+
+        // Test Exp (bounded to avoid overflow)
+        System.out.print("  Exp: ");
+        float[] expData = generateBoundedRandomFloats(n, SEED, -5.0f, 5.0f);
+        compareUnaryOpResultsWithTolerance(expData, n, StableHloAst.ExpOp.class, "Exp", 1e-3f);
+        System.out.println("[OK]");
+
+        // Test Log (positive values only)
+        System.out.print("  Log: ");
+        float[] logData = generateBoundedRandomFloats(n, SEED, 0.01f, 100.0f);
+        compareUnaryOpResultsWithTolerance(logData, n, StableHloAst.LogOp.class, "Log", 1e-3f);
+        System.out.println("[OK]");
+
+        // Test Sqrt (positive values only)
+        System.out.print("  Sqrt: ");
+        float[] sqrtData = generateBoundedRandomFloats(n, SEED, 0.0f, 100.0f);
+        compareUnaryOpResultsWithTolerance(sqrtData, n, StableHloAst.SqrtOp.class, "Sqrt", 1e-4f);
+        System.out.println("[OK]");
+
+        // Test Tanh
+        System.out.print("  Tanh: ");
+        float[] tanhData = generateRandomFloats(n, SEED);
+        compareUnaryOpResultsWithTolerance(tanhData, n, StableHloAst.TanhOp.class, "Tanh", 1e-3f);
+        System.out.println("[OK]");
+
+        System.out.println("========================================");
+        System.out.println("All 6 unary elementwise operations PASSED");
+        System.out.println("========================================\n");
+    }
+
     // ==================== Helper Methods ====================
+
+    private void compareUnaryOpResults(float[] data, int n,
+                                        Class<? extends StableHloAst.Operation> opClass,
+                                        String opName) {
+        compareUnaryOpResultsWithTolerance(data, n, opClass, opName, TOLERANCE);
+    }
+
+    private void compareUnaryOpResultsWithTolerance(float[] data, int n,
+                                                     Class<? extends StableHloAst.Operation> opClass,
+                                                     String opName, float tolerance) {
+        try (Tensor input = Tensor.fromFloatArray(data, n)) {
+
+            StableHloAst.Operation op = createUnaryOp(opClass, n);
+
+            List<Tensor> cpuResult = cpuBackend.execute(op, List.of(input));
+            List<Tensor> nvidiaResult = nvidiaBackend.execute(op, List.of(input));
+
+            assertEquals(1, cpuResult.size(), opName + ": CPU should return 1 tensor");
+            assertEquals(1, nvidiaResult.size(), opName + ": NVIDIA should return 1 tensor");
+
+            float[] cpuData = cpuResult.get(0).toFloatArray();
+            float[] nvidiaData = nvidiaResult.get(0).toFloatArray();
+
+            assertEquals(cpuData.length, nvidiaData.length, opName + ": Output sizes don't match");
+            assertArrayEquals(cpuData, nvidiaData, tolerance,
+                opName + ": NVIDIA output doesn't match CPU reference");
+        }
+    }
+
+    private StableHloAst.Operation createUnaryOp(Class<? extends StableHloAst.Operation> opClass, int... shape) {
+        List<Integer> shapeList = new java.util.ArrayList<>();
+        for (int dim : shape) {
+            shapeList.add(dim);
+        }
+
+        StableHloAst.TensorType resultType = new StableHloAst.TensorType(
+            shapeList,
+            StableHloAst.ScalarType.F32
+        );
+
+        StableHloAst.Value input = new StableHloAst.Value("0", resultType);
+        StableHloAst.Value result = new StableHloAst.Value("1", resultType);
+
+        if (opClass == StableHloAst.NegateOp.class) {
+            return new StableHloAst.NegateOp(input, result, resultType);
+        } else if (opClass == StableHloAst.AbsOp.class) {
+            return new StableHloAst.AbsOp(input, result, resultType);
+        } else if (opClass == StableHloAst.ExpOp.class) {
+            return new StableHloAst.ExpOp(input, result, resultType);
+        } else if (opClass == StableHloAst.LogOp.class) {
+            return new StableHloAst.LogOp(input, result, resultType);
+        } else if (opClass == StableHloAst.SqrtOp.class) {
+            return new StableHloAst.SqrtOp(input, result, resultType);
+        } else if (opClass == StableHloAst.TanhOp.class) {
+            return new StableHloAst.TanhOp(input, result, resultType);
+        } else {
+            throw new IllegalArgumentException("Unknown unary operation class: " + opClass);
+        }
+    }
+
+    private float[] generateBoundedRandomFloats(int n, long seed, float min, float max) {
+        Random rng = new Random(seed);
+        float[] data = new float[n];
+        float range = max - min;
+        for (int i = 0; i < n; i++) {
+            data[i] = min + rng.nextFloat() * range;
+        }
+        return data;
+    }
 
     private void compareBinaryOpResults(float[] aData, float[] bData, int n,
                                          Class<? extends StableHloAst.Operation> opClass,

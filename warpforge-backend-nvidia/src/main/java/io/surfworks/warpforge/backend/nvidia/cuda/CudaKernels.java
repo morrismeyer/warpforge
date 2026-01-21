@@ -467,6 +467,63 @@ public final class CudaKernels {
     }
 
     /**
+     * Generate PTX for element-wise float32 reciprocal square root.
+     * rsqrt(x) = 1/sqrt(x)
+     */
+    public static String generateRsqrtF32(int salt) {
+        return generateUnaryElementwiseF32("rsqrt", "rsqrt.approx.f32 %f2, %f1;", "1/sqrt(x)", salt);
+    }
+
+    /**
+     * Generate PTX for element-wise float32 sine.
+     */
+    public static String generateSinF32(int salt) {
+        return generateUnaryElementwiseF32("sin", "sin.approx.f32 %f2, %f1;", "sin(x)", salt);
+    }
+
+    /**
+     * Generate PTX for element-wise float32 cosine.
+     */
+    public static String generateCosF32(int salt) {
+        return generateUnaryElementwiseF32("cos", "cos.approx.f32 %f2, %f1;", "cos(x)", salt);
+    }
+
+    /**
+     * Generate PTX for element-wise float32 ceiling.
+     * Uses cvt with round-to-positive-infinity mode.
+     */
+    public static String generateCeilF32(int salt) {
+        return generateUnaryElementwiseF32("ceil", "cvt.rpi.f32.f32 %f2, %f1;", "ceil(x)", salt);
+    }
+
+    /**
+     * Generate PTX for element-wise float32 floor.
+     * Uses cvt with round-to-negative-infinity mode.
+     */
+    public static String generateFloorF32(int salt) {
+        return generateUnaryElementwiseF32("floor", "cvt.rmi.f32.f32 %f2, %f1;", "floor(x)", salt);
+    }
+
+    /**
+     * Generate PTX for element-wise float32 sign function.
+     * Returns -1.0 if x < 0, 0.0 if x == 0, 1.0 if x > 0.
+     */
+    public static String generateSignF32(int salt) {
+        // Use copysign to get the sign, but need special handling for zero
+        // Approach: set %f2 = 1.0 if x > 0, -1.0 if x < 0, 0.0 if x == 0
+        // Note: %p1 is used for bounds check, so we use %p2 and %p3 here
+        String ptxOps = """
+                    // sign(x): -1 if x<0, 0 if x==0, 1 if x>0
+                    // Use predicate comparison and selection
+                    setp.gt.f32     %p2, %f1, 0f00000000;  // p2 = (x > 0)
+                    setp.lt.f32     %p3, %f1, 0f00000000;  // p3 = (x < 0)
+                    mov.f32         %f2, 0f00000000;       // default: 0.0
+                    @%p2 mov.f32    %f2, 0f3F800000;       // if x > 0: 1.0
+                    @%p3 mov.f32    %f2, 0fBF800000;       // if x < 0: -1.0""";
+        return generateUnaryElementwiseF32("sign", ptxOps, "sign(x)", salt, 3, 4);
+    }
+
+    /**
      * Generate PTX for a unary elementwise float32 operation.
      *
      * @param opName Operation name for comments and entry point
@@ -485,6 +542,23 @@ public final class CudaKernels {
      */
     private static String generateUnaryElementwiseF32(String opName, String ptxInstructions,
                                                        String comment, int salt, int floatRegs) {
+        return generateUnaryElementwiseF32(opName, ptxInstructions, comment, salt, floatRegs, 2);
+    }
+
+    /**
+     * Generate PTX for a unary elementwise float32 operation with custom register counts.
+     *
+     * @param opName The operation name
+     * @param ptxInstructions The PTX instruction(s) (input in %f1, output in %f2)
+     * @param comment Description of the operation
+     * @param salt Instrumentation level
+     * @param floatRegs Number of float registers needed
+     * @param predicateRegs Number of predicate registers needed (must include %p1 for bounds check)
+     * @return PTX source code
+     */
+    private static String generateUnaryElementwiseF32(String opName, String ptxInstructions,
+                                                       String comment, int salt, int floatRegs,
+                                                       int predicateRegs) {
         StringBuilder ptx = new StringBuilder();
 
         // Header with operation name and salt level
@@ -506,7 +580,7 @@ public final class CudaKernels {
         }
 
         ptx.append(")\n{\n");
-        ptx.append("    .reg .pred  %p<2>;\n");
+        ptx.append("    .reg .pred  %p<").append(predicateRegs).append(">;\n");
         ptx.append("    .reg .f32   %f<").append(floatRegs).append(">;\n");
         ptx.append("    .reg .b32   %r<6>;\n");
         ptx.append("    .reg .b64   %rd<8>;\n");

@@ -207,4 +207,64 @@ public final class UnaryElementwiseKernel implements CudaOpKernel {
             salt
         );
     }
+
+    public static UnaryElementwiseKernel rsqrt(CudaContext context, int salt) {
+        return new UnaryElementwiseKernel(
+            "rsqrt",
+            StableHloAst.RsqrtOp.class,
+            CudaKernels::generateRsqrtF32,
+            context,
+            salt
+        );
+    }
+
+    public static UnaryElementwiseKernel sin(CudaContext context, int salt) {
+        return new UnaryElementwiseKernel(
+            "sin",
+            StableHloAst.SinOp.class,
+            CudaKernels::generateSinF32,
+            context,
+            salt
+        );
+    }
+
+    public static UnaryElementwiseKernel cos(CudaContext context, int salt) {
+        return new UnaryElementwiseKernel(
+            "cos",
+            StableHloAst.CosOp.class,
+            CudaKernels::generateCosF32,
+            context,
+            salt
+        );
+    }
+
+    public static UnaryElementwiseKernel ceil(CudaContext context, int salt) {
+        return new UnaryElementwiseKernel(
+            "ceil",
+            StableHloAst.CeilOp.class,
+            CudaKernels::generateCeilF32,
+            context,
+            salt
+        );
+    }
+
+    public static UnaryElementwiseKernel floor(CudaContext context, int salt) {
+        return new UnaryElementwiseKernel(
+            "floor",
+            StableHloAst.FloorOp.class,
+            CudaKernels::generateFloorF32,
+            context,
+            salt
+        );
+    }
+
+    public static UnaryElementwiseKernel sign(CudaContext context, int salt) {
+        return new UnaryElementwiseKernel(
+            "sign",
+            StableHloAst.SignOp.class,
+            CudaKernels::generateSignF32,
+            context,
+            salt
+        );
+    }
 }

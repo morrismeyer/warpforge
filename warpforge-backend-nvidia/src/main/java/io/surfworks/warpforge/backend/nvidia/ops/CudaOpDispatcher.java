@@ -166,6 +166,48 @@ public final class CudaOpDispatcher {
             registerStub(StableHloAst.TanhOp.class);
         }
 
+        // Unary elementwise - Rsqrt (IMPLEMENTED)
+        if (context != null) {
+            kernels.put(StableHloAst.RsqrtOp.class, UnaryElementwiseKernel.rsqrt(context, salt));
+        } else {
+            registerStub(StableHloAst.RsqrtOp.class);
+        }
+
+        // Unary elementwise - Sin (IMPLEMENTED)
+        if (context != null) {
+            kernels.put(StableHloAst.SinOp.class, UnaryElementwiseKernel.sin(context, salt));
+        } else {
+            registerStub(StableHloAst.SinOp.class);
+        }
+
+        // Unary elementwise - Cos (IMPLEMENTED)
+        if (context != null) {
+            kernels.put(StableHloAst.CosOp.class, UnaryElementwiseKernel.cos(context, salt));
+        } else {
+            registerStub(StableHloAst.CosOp.class);
+        }
+
+        // Unary elementwise - Ceil (IMPLEMENTED)
+        if (context != null) {
+            kernels.put(StableHloAst.CeilOp.class, UnaryElementwiseKernel.ceil(context, salt));
+        } else {
+            registerStub(StableHloAst.CeilOp.class);
+        }
+
+        // Unary elementwise - Floor (IMPLEMENTED)
+        if (context != null) {
+            kernels.put(StableHloAst.FloorOp.class, UnaryElementwiseKernel.floor(context, salt));
+        } else {
+            registerStub(StableHloAst.FloorOp.class);
+        }
+
+        // Unary elementwise - Sign (IMPLEMENTED)
+        if (context != null) {
+            kernels.put(StableHloAst.SignOp.class, UnaryElementwiseKernel.sign(context, salt));
+        } else {
+            registerStub(StableHloAst.SignOp.class);
+        }
+
         // ==================== Stub Operations ====================
 
         // Binary elementwise operations (stubs)
@@ -180,14 +222,8 @@ public final class CudaOpDispatcher {
         registerStub(StableHloAst.ShiftRightLogicalOp.class);
 
         // Unary elementwise operations (stubs - remaining ones)
-        registerStub(StableHloAst.RsqrtOp.class);
-        registerStub(StableHloAst.SinOp.class);
-        registerStub(StableHloAst.CosOp.class);
         registerStub(StableHloAst.TanOp.class);
         registerStub(StableHloAst.LogisticOp.class);
-        registerStub(StableHloAst.CeilOp.class);
-        registerStub(StableHloAst.FloorOp.class);
-        registerStub(StableHloAst.SignOp.class);
         registerStub(StableHloAst.Expm1Op.class);
         registerStub(StableHloAst.Log1pOp.class);
         registerStub(StableHloAst.CbrtOp.class);

@@ -20,7 +20,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 /**
- * Tests for unary elementwise CUDA kernels (Negate, Abs, Exp, Log, Sqrt, Tanh).
+ * Tests for unary elementwise CUDA kernels.
+ *
+ * <p>Cluster 1: Negate, Abs, Exp, Log, Sqrt, Tanh
+ * <p>Cluster 2: Rsqrt, Sin, Cos, Ceil, Floor, Sign
  *
  * <p>Each test prints [TEST] and [PASS] markers for visibility in CI logs.
  */
@@ -116,18 +119,97 @@ class UnaryElementwiseKernelTest {
     }
 
     @Test
+    @DisplayName("PTX: Rsqrt generates valid output")
+    void testRsqrtPtxGeneration() {
+        System.out.println("[TEST] PTX Generation: Rsqrt");
+        String ptx = CudaKernels.generateRsqrtF32(CudaKernels.SALT_NONE);
+
+        assertNotNull(ptx);
+        assertTrue(ptx.contains(".visible .entry rsqrt_f32"));
+        assertTrue(ptx.contains("rsqrt.approx.f32"));
+        System.out.println("[PASS] Rsqrt PTX generation OK");
+    }
+
+    @Test
+    @DisplayName("PTX: Sin generates valid output")
+    void testSinPtxGeneration() {
+        System.out.println("[TEST] PTX Generation: Sin");
+        String ptx = CudaKernels.generateSinF32(CudaKernels.SALT_NONE);
+
+        assertNotNull(ptx);
+        assertTrue(ptx.contains(".visible .entry sin_f32"));
+        assertTrue(ptx.contains("sin.approx.f32"));
+        System.out.println("[PASS] Sin PTX generation OK");
+    }
+
+    @Test
+    @DisplayName("PTX: Cos generates valid output")
+    void testCosPtxGeneration() {
+        System.out.println("[TEST] PTX Generation: Cos");
+        String ptx = CudaKernels.generateCosF32(CudaKernels.SALT_NONE);
+
+        assertNotNull(ptx);
+        assertTrue(ptx.contains(".visible .entry cos_f32"));
+        assertTrue(ptx.contains("cos.approx.f32"));
+        System.out.println("[PASS] Cos PTX generation OK");
+    }
+
+    @Test
+    @DisplayName("PTX: Ceil generates valid output")
+    void testCeilPtxGeneration() {
+        System.out.println("[TEST] PTX Generation: Ceil");
+        String ptx = CudaKernels.generateCeilF32(CudaKernels.SALT_NONE);
+
+        assertNotNull(ptx);
+        assertTrue(ptx.contains(".visible .entry ceil_f32"));
+        assertTrue(ptx.contains("cvt.rpi.f32.f32"));
+        System.out.println("[PASS] Ceil PTX generation OK");
+    }
+
+    @Test
+    @DisplayName("PTX: Floor generates valid output")
+    void testFloorPtxGeneration() {
+        System.out.println("[TEST] PTX Generation: Floor");
+        String ptx = CudaKernels.generateFloorF32(CudaKernels.SALT_NONE);
+
+        assertNotNull(ptx);
+        assertTrue(ptx.contains(".visible .entry floor_f32"));
+        assertTrue(ptx.contains("cvt.rmi.f32.f32"));
+        System.out.println("[PASS] Floor PTX generation OK");
+    }
+
+    @Test
+    @DisplayName("PTX: Sign generates valid output")
+    void testSignPtxGeneration() {
+        System.out.println("[TEST] PTX Generation: Sign");
+        String ptx = CudaKernels.generateSignF32(CudaKernels.SALT_NONE);
+
+        assertNotNull(ptx);
+        assertTrue(ptx.contains(".visible .entry sign_f32"));
+        assertTrue(ptx.contains("setp.gt.f32"));
+        assertTrue(ptx.contains("setp.lt.f32"));
+        System.out.println("[PASS] Sign PTX generation OK");
+    }
+
+    @Test
     @DisplayName("PTX: All unary operations support SALT_TIMING")
     void testAllUnaryOperationsSupportTiming() {
         System.out.println("[TEST] PTX Generation: All unary operations with SALT_TIMING");
 
-        String[] ops = {"Negate", "Abs", "Exp", "Log", "Sqrt", "Tanh"};
+        String[] ops = {"Negate", "Abs", "Exp", "Log", "Sqrt", "Tanh", "Rsqrt", "Sin", "Cos", "Ceil", "Floor", "Sign"};
         String[] ptxSources = {
             CudaKernels.generateNegateF32(CudaKernels.SALT_TIMING),
             CudaKernels.generateAbsF32(CudaKernels.SALT_TIMING),
             CudaKernels.generateExpF32(CudaKernels.SALT_TIMING),
             CudaKernels.generateLogF32(CudaKernels.SALT_TIMING),
             CudaKernels.generateSqrtF32(CudaKernels.SALT_TIMING),
-            CudaKernels.generateTanhF32(CudaKernels.SALT_TIMING)
+            CudaKernels.generateTanhF32(CudaKernels.SALT_TIMING),
+            CudaKernels.generateRsqrtF32(CudaKernels.SALT_TIMING),
+            CudaKernels.generateSinF32(CudaKernels.SALT_TIMING),
+            CudaKernels.generateCosF32(CudaKernels.SALT_TIMING),
+            CudaKernels.generateCeilF32(CudaKernels.SALT_TIMING),
+            CudaKernels.generateFloorF32(CudaKernels.SALT_TIMING),
+            CudaKernels.generateSignF32(CudaKernels.SALT_TIMING)
         };
 
         for (int i = 0; i < ops.length; i++) {
@@ -280,6 +362,152 @@ class UnaryElementwiseKernelTest {
         System.out.println("[PASS] Tanh execution OK");
     }
 
+    // ==================== Cluster 2: Rsqrt, Sin, Cos, Ceil, Floor, Sign ====================
+
+    @Test
+    @Tag("nvidia")
+    @DisplayName("CUDA: Rsqrt executes correctly")
+    void testRsqrtExecution() {
+        System.out.println("[TEST] CUDA Execution: Rsqrt");
+        assumeTrue(CudaRuntime.isAvailable(), "CUDA not available");
+        assumeTrue(backend.hasCudaContext(), "CUDA context not available");
+
+        float[] input = {1.0f, 4.0f, 9.0f, 16.0f, 25.0f, 100.0f, 0.25f, 2.0f};
+
+        float[] result = executeRsqrt(input);
+
+        assertEquals(1.0f, result[0], 1e-3f, "rsqrt(1)");
+        assertEquals(0.5f, result[1], 1e-3f, "rsqrt(4)");
+        assertEquals(1.0f / 3.0f, result[2], 1e-3f, "rsqrt(9)");
+        assertEquals(0.25f, result[3], 1e-3f, "rsqrt(16)");
+        assertEquals(0.2f, result[4], 1e-3f, "rsqrt(25)");
+        assertEquals(0.1f, result[5], 1e-3f, "rsqrt(100)");
+        assertEquals(2.0f, result[6], 1e-3f, "rsqrt(0.25)");
+        assertEquals((float) (1.0 / Math.sqrt(2)), result[7], 1e-3f, "rsqrt(2)");
+
+        System.out.println("  Input:  " + Arrays.toString(input));
+        System.out.println("  Result: " + Arrays.toString(result));
+        System.out.println("[PASS] Rsqrt execution OK");
+    }
+
+    @Test
+    @Tag("nvidia")
+    @DisplayName("CUDA: Sin executes correctly")
+    void testSinExecution() {
+        System.out.println("[TEST] CUDA Execution: Sin");
+        assumeTrue(CudaRuntime.isAvailable(), "CUDA not available");
+        assumeTrue(backend.hasCudaContext(), "CUDA context not available");
+
+        float pi = (float) Math.PI;
+        float[] input = {0.0f, pi / 6, pi / 4, pi / 3, pi / 2, pi, -pi / 2};
+
+        float[] result = executeSin(input);
+
+        assertEquals(0.0f, result[0], 1e-3f, "sin(0)");
+        assertEquals(0.5f, result[1], 1e-3f, "sin(pi/6)");
+        assertEquals((float) Math.sin(pi / 4), result[2], 1e-3f, "sin(pi/4)");
+        assertEquals((float) Math.sin(pi / 3), result[3], 1e-3f, "sin(pi/3)");
+        assertEquals(1.0f, result[4], 1e-3f, "sin(pi/2)");
+        assertEquals(0.0f, result[5], 1e-3f, "sin(pi)");
+        assertEquals(-1.0f, result[6], 1e-3f, "sin(-pi/2)");
+
+        System.out.println("  Input:  " + Arrays.toString(input));
+        System.out.println("  Result: " + Arrays.toString(result));
+        System.out.println("[PASS] Sin execution OK");
+    }
+
+    @Test
+    @Tag("nvidia")
+    @DisplayName("CUDA: Cos executes correctly")
+    void testCosExecution() {
+        System.out.println("[TEST] CUDA Execution: Cos");
+        assumeTrue(CudaRuntime.isAvailable(), "CUDA not available");
+        assumeTrue(backend.hasCudaContext(), "CUDA context not available");
+
+        float pi = (float) Math.PI;
+        float[] input = {0.0f, pi / 6, pi / 4, pi / 3, pi / 2, pi, -pi};
+
+        float[] result = executeCos(input);
+
+        assertEquals(1.0f, result[0], 1e-3f, "cos(0)");
+        assertEquals((float) Math.cos(pi / 6), result[1], 1e-3f, "cos(pi/6)");
+        assertEquals((float) Math.cos(pi / 4), result[2], 1e-3f, "cos(pi/4)");
+        assertEquals(0.5f, result[3], 1e-3f, "cos(pi/3)");
+        assertEquals(0.0f, result[4], 1e-3f, "cos(pi/2)");
+        assertEquals(-1.0f, result[5], 1e-3f, "cos(pi)");
+        assertEquals(-1.0f, result[6], 1e-3f, "cos(-pi)");
+
+        System.out.println("  Input:  " + Arrays.toString(input));
+        System.out.println("  Result: " + Arrays.toString(result));
+        System.out.println("[PASS] Cos execution OK");
+    }
+
+    @Test
+    @Tag("nvidia")
+    @DisplayName("CUDA: Ceil executes correctly")
+    void testCeilExecution() {
+        System.out.println("[TEST] CUDA Execution: Ceil");
+        assumeTrue(CudaRuntime.isAvailable(), "CUDA not available");
+        assumeTrue(backend.hasCudaContext(), "CUDA context not available");
+
+        float[] input = {1.1f, 1.9f, -1.1f, -1.9f, 0.0f, 2.0f, 0.5f, -0.5f};
+        float[] expected = {2.0f, 2.0f, -1.0f, -1.0f, 0.0f, 2.0f, 1.0f, 0.0f};
+
+        float[] result = executeCeil(input);
+
+        for (int i = 0; i < expected.length; i++) {
+            assertEquals(expected[i], result[i], 1e-5f, "ceil(" + input[i] + ")");
+        }
+
+        System.out.println("  Input:  " + Arrays.toString(input));
+        System.out.println("  Result: " + Arrays.toString(result));
+        System.out.println("[PASS] Ceil execution OK");
+    }
+
+    @Test
+    @Tag("nvidia")
+    @DisplayName("CUDA: Floor executes correctly")
+    void testFloorExecution() {
+        System.out.println("[TEST] CUDA Execution: Floor");
+        assumeTrue(CudaRuntime.isAvailable(), "CUDA not available");
+        assumeTrue(backend.hasCudaContext(), "CUDA context not available");
+
+        float[] input = {1.1f, 1.9f, -1.1f, -1.9f, 0.0f, 2.0f, 0.5f, -0.5f};
+        float[] expected = {1.0f, 1.0f, -2.0f, -2.0f, 0.0f, 2.0f, 0.0f, -1.0f};
+
+        float[] result = executeFloor(input);
+
+        for (int i = 0; i < expected.length; i++) {
+            assertEquals(expected[i], result[i], 1e-5f, "floor(" + input[i] + ")");
+        }
+
+        System.out.println("  Input:  " + Arrays.toString(input));
+        System.out.println("  Result: " + Arrays.toString(result));
+        System.out.println("[PASS] Floor execution OK");
+    }
+
+    @Test
+    @Tag("nvidia")
+    @DisplayName("CUDA: Sign executes correctly")
+    void testSignExecution() {
+        System.out.println("[TEST] CUDA Execution: Sign");
+        assumeTrue(CudaRuntime.isAvailable(), "CUDA not available");
+        assumeTrue(backend.hasCudaContext(), "CUDA context not available");
+
+        float[] input = {5.0f, -3.0f, 0.0f, 100.0f, -0.001f, 0.001f, Float.MAX_VALUE, -Float.MAX_VALUE};
+        float[] expected = {1.0f, -1.0f, 0.0f, 1.0f, -1.0f, 1.0f, 1.0f, -1.0f};
+
+        float[] result = executeSign(input);
+
+        for (int i = 0; i < expected.length; i++) {
+            assertEquals(expected[i], result[i], 1e-5f, "sign(" + input[i] + ")");
+        }
+
+        System.out.println("  Input:  " + Arrays.toString(input));
+        System.out.println("  Result: " + Arrays.toString(result));
+        System.out.println("[PASS] Sign execution OK");
+    }
+
     @Test
     @Tag("nvidia")
     @DisplayName("CUDA: All unary operations handle large tensors (1M elements)")
@@ -352,6 +580,9 @@ class UnaryElementwiseKernelTest {
         assumeTrue(CudaRuntime.isAvailable(), "CUDA not available");
         assumeTrue(backend.hasCudaContext(), "CUDA context not available");
 
+        // Cluster 1
+        System.out.println("--- Cluster 1 ---");
+
         // Negate
         System.out.print("  Negate: ");
         float[] negInput = {5.0f, -3.0f};
@@ -400,8 +631,60 @@ class UnaryElementwiseKernelTest {
         assertTrue(Math.abs(tanhResult[1] - (float) Math.tanh(1)) < 1e-3f);
         System.out.println("[OK]");
 
+        // Cluster 2
+        System.out.println("--- Cluster 2 ---");
+
+        // Rsqrt
+        System.out.print("  Rsqrt: ");
+        float[] rsqrtInput = {4.0f, 16.0f};
+        float[] rsqrtResult = executeRsqrt(rsqrtInput);
+        assertTrue(Math.abs(rsqrtResult[0] - 0.5f) < 1e-3f);
+        assertTrue(Math.abs(rsqrtResult[1] - 0.25f) < 1e-3f);
+        System.out.println("[OK]");
+
+        // Sin
+        System.out.print("  Sin: ");
+        float[] sinInput = {0.0f, (float) (Math.PI / 2)};
+        float[] sinResult = executeSin(sinInput);
+        assertTrue(Math.abs(sinResult[0]) < 1e-3f);
+        assertTrue(Math.abs(sinResult[1] - 1.0f) < 1e-3f);
+        System.out.println("[OK]");
+
+        // Cos
+        System.out.print("  Cos: ");
+        float[] cosInput = {0.0f, (float) Math.PI};
+        float[] cosResult = executeCos(cosInput);
+        assertTrue(Math.abs(cosResult[0] - 1.0f) < 1e-3f);
+        assertTrue(Math.abs(cosResult[1] - (-1.0f)) < 1e-3f);
+        System.out.println("[OK]");
+
+        // Ceil
+        System.out.print("  Ceil: ");
+        float[] ceilInput = {1.1f, -1.9f};
+        float[] ceilResult = executeCeil(ceilInput);
+        assertTrue(Math.abs(ceilResult[0] - 2.0f) < 1e-5f);
+        assertTrue(Math.abs(ceilResult[1] - (-1.0f)) < 1e-5f);
+        System.out.println("[OK]");
+
+        // Floor
+        System.out.print("  Floor: ");
+        float[] floorInput = {1.9f, -1.1f};
+        float[] floorResult = executeFloor(floorInput);
+        assertTrue(Math.abs(floorResult[0] - 1.0f) < 1e-5f);
+        assertTrue(Math.abs(floorResult[1] - (-2.0f)) < 1e-5f);
+        System.out.println("[OK]");
+
+        // Sign
+        System.out.print("  Sign: ");
+        float[] signInput = {5.0f, -3.0f, 0.0f};
+        float[] signResult = executeSign(signInput);
+        assertTrue(Math.abs(signResult[0] - 1.0f) < 1e-5f);
+        assertTrue(Math.abs(signResult[1] - (-1.0f)) < 1e-5f);
+        assertTrue(Math.abs(signResult[2]) < 1e-5f);
+        System.out.println("[OK]");
+
         System.out.println("----------------------------------------");
-        System.out.println("All 6 unary elementwise operations PASSED");
+        System.out.println("All 12 unary elementwise operations PASSED");
         System.out.println("========================================");
     }
 
@@ -431,6 +714,30 @@ class UnaryElementwiseKernelTest {
         return executeUnaryOp(backend, input, StableHloAst.TanhOp.class);
     }
 
+    private float[] executeRsqrt(float[] input) {
+        return executeUnaryOp(backend, input, StableHloAst.RsqrtOp.class);
+    }
+
+    private float[] executeSin(float[] input) {
+        return executeUnaryOp(backend, input, StableHloAst.SinOp.class);
+    }
+
+    private float[] executeCos(float[] input) {
+        return executeUnaryOp(backend, input, StableHloAst.CosOp.class);
+    }
+
+    private float[] executeCeil(float[] input) {
+        return executeUnaryOp(backend, input, StableHloAst.CeilOp.class);
+    }
+
+    private float[] executeFloor(float[] input) {
+        return executeUnaryOp(backend, input, StableHloAst.FloorOp.class);
+    }
+
+    private float[] executeSign(float[] input) {
+        return executeUnaryOp(backend, input, StableHloAst.SignOp.class);
+    }
+
     private float[] executeUnaryOp(NvidiaBackend backend, float[] input,
                                     Class<? extends StableHloAst.Operation> opClass) {
         int n = input.length;
@@ -454,6 +761,7 @@ class UnaryElementwiseKernelTest {
         StableHloAst.Value input = new StableHloAst.Value("0", resultType);
         StableHloAst.Value result = new StableHloAst.Value("1", resultType);
 
+        // Cluster 1
         if (opClass == StableHloAst.NegateOp.class) {
             return new StableHloAst.NegateOp(input, result, resultType);
         } else if (opClass == StableHloAst.AbsOp.class) {
@@ -466,6 +774,19 @@ class UnaryElementwiseKernelTest {
             return new StableHloAst.SqrtOp(input, result, resultType);
         } else if (opClass == StableHloAst.TanhOp.class) {
             return new StableHloAst.TanhOp(input, result, resultType);
+        // Cluster 2
+        } else if (opClass == StableHloAst.RsqrtOp.class) {
+            return new StableHloAst.RsqrtOp(input, result, resultType);
+        } else if (opClass == StableHloAst.SinOp.class) {
+            return new StableHloAst.SinOp(input, result, resultType);
+        } else if (opClass == StableHloAst.CosOp.class) {
+            return new StableHloAst.CosOp(input, result, resultType);
+        } else if (opClass == StableHloAst.CeilOp.class) {
+            return new StableHloAst.CeilOp(input, result, resultType);
+        } else if (opClass == StableHloAst.FloorOp.class) {
+            return new StableHloAst.FloorOp(input, result, resultType);
+        } else if (opClass == StableHloAst.SignOp.class) {
+            return new StableHloAst.SignOp(input, result, resultType);
         } else {
             throw new IllegalArgumentException("Unknown unary operation class: " + opClass);
         }

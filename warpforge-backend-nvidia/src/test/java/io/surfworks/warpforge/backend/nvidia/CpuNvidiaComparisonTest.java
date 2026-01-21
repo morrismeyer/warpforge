@@ -488,7 +488,270 @@ class CpuNvidiaComparisonTest {
         }
     }
 
+    // ==================== Subtract Operation Tests ====================
+
+    @Test
+    @DisplayName("Subtract: CPU vs NVIDIA - 1M elements")
+    void testSubtractLargeTensor() {
+        System.out.println("[TEST] CPU vs NVIDIA: Subtract (1M elements)");
+        int n = 1_000_000;
+        float[] aData = generateRandomFloats(n, SEED);
+        float[] bData = generateRandomFloats(n, SEED + 1);
+
+        compareBinaryOpResults(aData, bData, n, StableHloAst.SubtractOp.class, "Subtract");
+        System.out.println("[PASS] Subtract: CPU vs NVIDIA match");
+    }
+
+    @Test
+    @DisplayName("Subtract: Edge cases")
+    void testSubtractEdgeCases() {
+        System.out.println("[TEST] CPU vs NVIDIA: Subtract edge cases");
+        int n = 1024;
+
+        // Same values -> zeros
+        float[] aData = generateRandomFloats(n, SEED);
+        compareBinaryOpResults(aData, aData.clone(), n, StableHloAst.SubtractOp.class, "Subtract (a-a)");
+
+        // Negatives
+        float[] bData = new float[n];
+        for (int i = 0; i < n; i++) {
+            bData[i] = -aData[i];
+        }
+        compareBinaryOpResults(aData, bData, n, StableHloAst.SubtractOp.class, "Subtract (a-(-a))");
+
+        System.out.println("[PASS] Subtract edge cases OK");
+    }
+
+    // ==================== Divide Operation Tests ====================
+
+    @Test
+    @DisplayName("Divide: CPU vs NVIDIA - 1M elements")
+    void testDivideLargeTensor() {
+        System.out.println("[TEST] CPU vs NVIDIA: Divide (1M elements)");
+        int n = 1_000_000;
+        float[] aData = generateRandomFloats(n, SEED);
+        float[] bData = generateRandomFloats(n, SEED + 1);
+
+        // Avoid division by zero - ensure all b values are non-zero
+        for (int i = 0; i < n; i++) {
+            if (Math.abs(bData[i]) < 0.01f) {
+                bData[i] = 1.0f;
+            }
+        }
+
+        // Use looser tolerance for divide (div.approx.f32)
+        compareBinaryOpResultsWithTolerance(aData, bData, n, StableHloAst.DivideOp.class, "Divide", 1e-3f);
+        System.out.println("[PASS] Divide: CPU vs NVIDIA match");
+    }
+
+    @Test
+    @DisplayName("Divide: Identity (divide by 1)")
+    void testDivideByOne() {
+        System.out.println("[TEST] CPU vs NVIDIA: Divide by 1");
+        int n = 1024;
+        float[] aData = generateRandomFloats(n, SEED);
+        float[] bData = new float[n];
+        for (int i = 0; i < n; i++) {
+            bData[i] = 1.0f;
+        }
+
+        compareBinaryOpResultsWithTolerance(aData, bData, n, StableHloAst.DivideOp.class, "Divide by 1", 1e-4f);
+        System.out.println("[PASS] Divide by 1 OK");
+    }
+
+    // ==================== Maximum Operation Tests ====================
+
+    @Test
+    @DisplayName("Maximum: CPU vs NVIDIA - 1M elements")
+    void testMaximumLargeTensor() {
+        System.out.println("[TEST] CPU vs NVIDIA: Maximum (1M elements)");
+        int n = 1_000_000;
+        float[] aData = generateRandomFloats(n, SEED);
+        float[] bData = generateRandomFloats(n, SEED + 1);
+
+        compareBinaryOpResults(aData, bData, n, StableHloAst.MaximumOp.class, "Maximum");
+        System.out.println("[PASS] Maximum: CPU vs NVIDIA match");
+    }
+
+    @Test
+    @DisplayName("Maximum: Same values")
+    void testMaximumSameValues() {
+        System.out.println("[TEST] CPU vs NVIDIA: Maximum with same values");
+        int n = 1024;
+        float[] aData = generateRandomFloats(n, SEED);
+
+        compareBinaryOpResults(aData, aData.clone(), n, StableHloAst.MaximumOp.class, "Maximum (same)");
+        System.out.println("[PASS] Maximum same values OK");
+    }
+
+    @Test
+    @DisplayName("Maximum: Negative numbers")
+    void testMaximumNegatives() {
+        System.out.println("[TEST] CPU vs NVIDIA: Maximum with negatives");
+        int n = 1024;
+        float[] aData = new float[n];
+        float[] bData = new float[n];
+        for (int i = 0; i < n; i++) {
+            aData[i] = -100.0f + i * 0.1f;
+            bData[i] = -50.0f - i * 0.1f;
+        }
+
+        compareBinaryOpResults(aData, bData, n, StableHloAst.MaximumOp.class, "Maximum (neg)");
+        System.out.println("[PASS] Maximum negatives OK");
+    }
+
+    // ==================== Minimum Operation Tests ====================
+
+    @Test
+    @DisplayName("Minimum: CPU vs NVIDIA - 1M elements")
+    void testMinimumLargeTensor() {
+        System.out.println("[TEST] CPU vs NVIDIA: Minimum (1M elements)");
+        int n = 1_000_000;
+        float[] aData = generateRandomFloats(n, SEED);
+        float[] bData = generateRandomFloats(n, SEED + 1);
+
+        compareBinaryOpResults(aData, bData, n, StableHloAst.MinimumOp.class, "Minimum");
+        System.out.println("[PASS] Minimum: CPU vs NVIDIA match");
+    }
+
+    @Test
+    @DisplayName("Minimum: Same values")
+    void testMinimumSameValues() {
+        System.out.println("[TEST] CPU vs NVIDIA: Minimum with same values");
+        int n = 1024;
+        float[] aData = generateRandomFloats(n, SEED);
+
+        compareBinaryOpResults(aData, aData.clone(), n, StableHloAst.MinimumOp.class, "Minimum (same)");
+        System.out.println("[PASS] Minimum same values OK");
+    }
+
+    @Test
+    @DisplayName("Minimum: Negative numbers")
+    void testMinimumNegatives() {
+        System.out.println("[TEST] CPU vs NVIDIA: Minimum with negatives");
+        int n = 1024;
+        float[] aData = new float[n];
+        float[] bData = new float[n];
+        for (int i = 0; i < n; i++) {
+            aData[i] = -100.0f + i * 0.1f;
+            bData[i] = -50.0f - i * 0.1f;
+        }
+
+        compareBinaryOpResults(aData, bData, n, StableHloAst.MinimumOp.class, "Minimum (neg)");
+        System.out.println("[PASS] Minimum negatives OK");
+    }
+
+    // ==================== Combined Summary Test ====================
+
+    @Test
+    @DisplayName("All Binary Elementwise: Summary test")
+    void testAllBinaryElementwiseSummary() {
+        System.out.println("\n========================================");
+        System.out.println("Binary Elementwise Operations Summary");
+        System.out.println("========================================");
+
+        int n = 10_000;
+        float[] aData = generateRandomFloats(n, SEED);
+        float[] bData = generateRandomFloats(n, SEED + 1);
+
+        // Ensure no zeros for divide
+        for (int i = 0; i < n; i++) {
+            if (Math.abs(bData[i]) < 0.01f) {
+                bData[i] = 1.0f;
+            }
+        }
+
+        String[] ops = {"Add", "Multiply", "Subtract", "Divide", "Maximum", "Minimum"};
+        Class<?>[] opClasses = {
+            StableHloAst.AddOp.class,
+            StableHloAst.MultiplyOp.class,
+            StableHloAst.SubtractOp.class,
+            StableHloAst.DivideOp.class,
+            StableHloAst.MaximumOp.class,
+            StableHloAst.MinimumOp.class
+        };
+
+        for (int i = 0; i < ops.length; i++) {
+            try {
+                float tolerance = ops[i].equals("Divide") ? 1e-3f : TOLERANCE;
+                @SuppressWarnings("unchecked")
+                Class<? extends StableHloAst.Operation> opClass =
+                    (Class<? extends StableHloAst.Operation>) opClasses[i];
+                compareBinaryOpResultsWithTolerance(aData, bData, n, opClass, ops[i], tolerance);
+                System.out.println("  [OK] " + ops[i] + ": CPU == NVIDIA");
+            } catch (Exception e) {
+                System.out.println("  [FAIL] " + ops[i] + ": " + e.getMessage());
+                throw e;
+            }
+        }
+
+        System.out.println("========================================");
+        System.out.println("All 6 binary elementwise operations PASSED");
+        System.out.println("========================================\n");
+    }
+
     // ==================== Helper Methods ====================
+
+    private void compareBinaryOpResults(float[] aData, float[] bData, int n,
+                                         Class<? extends StableHloAst.Operation> opClass,
+                                         String opName) {
+        compareBinaryOpResultsWithTolerance(aData, bData, n, opClass, opName, TOLERANCE);
+    }
+
+    private void compareBinaryOpResultsWithTolerance(float[] aData, float[] bData, int n,
+                                                      Class<? extends StableHloAst.Operation> opClass,
+                                                      String opName, float tolerance) {
+        try (Tensor a = Tensor.fromFloatArray(aData, n);
+             Tensor b = Tensor.fromFloatArray(bData, n)) {
+
+            StableHloAst.Operation op = createBinaryOp(opClass, n);
+
+            List<Tensor> cpuResult = cpuBackend.execute(op, List.of(a, b));
+            List<Tensor> nvidiaResult = nvidiaBackend.execute(op, List.of(a, b));
+
+            assertEquals(1, cpuResult.size(), opName + ": CPU should return 1 tensor");
+            assertEquals(1, nvidiaResult.size(), opName + ": NVIDIA should return 1 tensor");
+
+            float[] cpuData = cpuResult.get(0).toFloatArray();
+            float[] nvidiaData = nvidiaResult.get(0).toFloatArray();
+
+            assertEquals(cpuData.length, nvidiaData.length, opName + ": Output sizes don't match");
+            assertArrayEquals(cpuData, nvidiaData, tolerance,
+                opName + ": NVIDIA output doesn't match CPU reference");
+        }
+    }
+
+    private StableHloAst.Operation createBinaryOp(Class<? extends StableHloAst.Operation> opClass, int... shape) {
+        List<Integer> shapeList = new java.util.ArrayList<>();
+        for (int dim : shape) {
+            shapeList.add(dim);
+        }
+
+        StableHloAst.TensorType resultType = new StableHloAst.TensorType(
+            shapeList,
+            StableHloAst.ScalarType.F32
+        );
+
+        StableHloAst.Value lhs = new StableHloAst.Value("0", resultType);
+        StableHloAst.Value rhs = new StableHloAst.Value("1", resultType);
+        StableHloAst.Value result = new StableHloAst.Value("2", resultType);
+
+        if (opClass == StableHloAst.AddOp.class) {
+            return new StableHloAst.AddOp(lhs, rhs, result, resultType);
+        } else if (opClass == StableHloAst.MultiplyOp.class) {
+            return new StableHloAst.MultiplyOp(lhs, rhs, result, resultType);
+        } else if (opClass == StableHloAst.SubtractOp.class) {
+            return new StableHloAst.SubtractOp(lhs, rhs, result, resultType);
+        } else if (opClass == StableHloAst.DivideOp.class) {
+            return new StableHloAst.DivideOp(lhs, rhs, result, resultType);
+        } else if (opClass == StableHloAst.MaximumOp.class) {
+            return new StableHloAst.MaximumOp(lhs, rhs, result, resultType);
+        } else if (opClass == StableHloAst.MinimumOp.class) {
+            return new StableHloAst.MinimumOp(lhs, rhs, result, resultType);
+        } else {
+            throw new IllegalArgumentException("Unknown operation class: " + opClass);
+        }
+    }
 
     private void compareAddResults(float[] aData, float[] bData, int... shape) {
         int n = aData.length;

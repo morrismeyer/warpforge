@@ -94,13 +94,37 @@ public final class CudaOpDispatcher {
             registerStub(StableHloAst.MultiplyOp.class);
         }
 
+        // Binary elementwise - Subtract (IMPLEMENTED)
+        if (context != null) {
+            kernels.put(StableHloAst.SubtractOp.class, BinaryElementwiseKernel.subtract(context, salt));
+        } else {
+            registerStub(StableHloAst.SubtractOp.class);
+        }
+
+        // Binary elementwise - Divide (IMPLEMENTED)
+        if (context != null) {
+            kernels.put(StableHloAst.DivideOp.class, BinaryElementwiseKernel.divide(context, salt));
+        } else {
+            registerStub(StableHloAst.DivideOp.class);
+        }
+
+        // Binary elementwise - Maximum (IMPLEMENTED)
+        if (context != null) {
+            kernels.put(StableHloAst.MaximumOp.class, BinaryElementwiseKernel.maximum(context, salt));
+        } else {
+            registerStub(StableHloAst.MaximumOp.class);
+        }
+
+        // Binary elementwise - Minimum (IMPLEMENTED)
+        if (context != null) {
+            kernels.put(StableHloAst.MinimumOp.class, BinaryElementwiseKernel.minimum(context, salt));
+        } else {
+            registerStub(StableHloAst.MinimumOp.class);
+        }
+
         // ==================== Stub Operations ====================
 
         // Binary elementwise operations (stubs)
-        registerStub(StableHloAst.SubtractOp.class);
-        registerStub(StableHloAst.DivideOp.class);
-        registerStub(StableHloAst.MaximumOp.class);
-        registerStub(StableHloAst.MinimumOp.class);
         registerStub(StableHloAst.PowerOp.class);
         registerStub(StableHloAst.RemainderOp.class);
         registerStub(StableHloAst.Atan2Op.class);

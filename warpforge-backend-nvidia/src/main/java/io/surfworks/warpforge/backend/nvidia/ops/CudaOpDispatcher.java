@@ -317,12 +317,32 @@ public final class CudaOpDispatcher {
             registerStub(StableHloAst.NotOp.class);
         }
 
+        // ==================== Integer Bitwise Operations (IMPLEMENTED) ====================
+
+        // Integer bitwise - And (IMPLEMENTED)
+        if (context != null) {
+            kernels.put(StableHloAst.AndOp.class, IntegerBitwiseKernel.and(context, salt));
+        } else {
+            registerStub(StableHloAst.AndOp.class);
+        }
+
+        // Integer bitwise - Or (IMPLEMENTED)
+        if (context != null) {
+            kernels.put(StableHloAst.OrOp.class, IntegerBitwiseKernel.or(context, salt));
+        } else {
+            registerStub(StableHloAst.OrOp.class);
+        }
+
+        // Integer bitwise - Xor (IMPLEMENTED)
+        if (context != null) {
+            kernels.put(StableHloAst.XorOp.class, IntegerBitwiseKernel.xor(context, salt));
+        } else {
+            registerStub(StableHloAst.XorOp.class);
+        }
+
         // ==================== Stub Operations ====================
 
-        // Binary elementwise operations (stubs - integer/bitwise)
-        registerStub(StableHloAst.AndOp.class);
-        registerStub(StableHloAst.OrOp.class);
-        registerStub(StableHloAst.XorOp.class);
+        // Binary elementwise operations (stubs - shifts, not yet implemented)
         registerStub(StableHloAst.ShiftLeftOp.class);
         registerStub(StableHloAst.ShiftRightArithmeticOp.class);
         registerStub(StableHloAst.ShiftRightLogicalOp.class);

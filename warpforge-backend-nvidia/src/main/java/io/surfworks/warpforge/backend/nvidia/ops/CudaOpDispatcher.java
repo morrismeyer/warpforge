@@ -379,6 +379,22 @@ public final class CudaOpDispatcher {
             registerStub(StableHloAst.ClzOp.class);
         }
 
+        // ==================== Matrix and Reduction Operations (IMPLEMENTED) ====================
+
+        // Matrix multiplication - Dot (IMPLEMENTED)
+        if (context != null) {
+            kernels.put(StableHloAst.DotOp.class, new DotKernel(context, salt));
+        } else {
+            registerStub(StableHloAst.DotOp.class);
+        }
+
+        // Parallel reduction - Reduce (IMPLEMENTED)
+        if (context != null) {
+            kernels.put(StableHloAst.ReduceOp.class, new ReduceKernel(context, salt));
+        } else {
+            registerStub(StableHloAst.ReduceOp.class);
+        }
+
         // ==================== Stub Operations ====================
 
         // Constants
@@ -416,13 +432,11 @@ public final class CudaOpDispatcher {
         registerStub(StableHloAst.UniformDequantizeOp.class);
 
         // Reduction
-        registerStub(StableHloAst.ReduceOp.class);
         registerStub(StableHloAst.ReduceWindowOp.class);
         registerStub(StableHloAst.ReducePrecisionOp.class);
         registerStub(StableHloAst.SelectAndScatterOp.class);
 
         // Linear algebra
-        registerStub(StableHloAst.DotOp.class);
         registerStub(StableHloAst.DotGeneralOp.class);
         registerStub(StableHloAst.CholeskyOp.class);
         registerStub(StableHloAst.TriangularSolveOp.class);

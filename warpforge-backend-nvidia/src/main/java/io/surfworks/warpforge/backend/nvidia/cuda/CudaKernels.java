@@ -1502,6 +1502,371 @@ lg2.approx.f32  %f4, %f2;              // temp for checking if x is positive
         return ptx.toString();
     }
 
+    // ==================== Matrix Operations ====================
+
+    /** Block size for matrix multiplication */
+    public static final int DOT_BLOCK_SIZE = 16;
+
+    /**
+     * Generate PTX for matrix multiplication (dot product).
+     * C[M,N] = A[M,K] * B[K,N]
+     *
+     * <p>This is a naive implementation where each thread computes one output element.
+     * For production, a tiled implementation with shared memory would be faster.
+     *
+     * @param salt Instrumentation level
+     * @return PTX source code
+     */
+    public static String generateDotF32(int salt) {
+        StringBuilder ptx = new StringBuilder();
+
+        ptx.append("""
+            //
+            // dot_f32: Matrix multiplication C = A * B
+            // A[M,K] * B[K,N] = C[M,N]
+            // Salt level: %d
+            //
+            .version 7.0
+            .target sm_50
+            .address_size 64
+
+            .visible .entry dot_f32(
+                .param .u64 a_ptr,
+                .param .u64 b_ptr,
+                .param .u64 c_ptr,
+                .param .u32 M,
+                .param .u32 N,
+                .param .u32 K
+            """.formatted(salt));
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("    ,.param .u64 timing_ptr\n");
+        }
+
+        ptx.append("""
+            )
+            {
+                .reg .pred  %p<2>;
+                .reg .f32   %f<5>;
+                .reg .b32   %r<16>;
+                .reg .b64   %rd<16>;
+            """);
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("    .reg .b64   %rd_t0, %rd_t1, %rd_delta;\n");
+        }
+
+        ptx.append("""
+
+                // Calculate row (i) and col (j) from thread indices
+                // Using 2D grid: blockIdx.x * blockDim.x + threadIdx.x = col (j)
+                //                blockIdx.y * blockDim.y + threadIdx.y = row (i)
+                mov.u32         %r1, %ctaid.x;      // blockIdx.x
+                mov.u32         %r2, %ntid.x;       // blockDim.x
+                mov.u32         %r3, %tid.x;        // threadIdx.x
+                mad.lo.s32      %r4, %r1, %r2, %r3; // j = col
+
+                mov.u32         %r5, %ctaid.y;      // blockIdx.y
+                mov.u32         %r6, %ntid.y;       // blockDim.y
+                mov.u32         %r7, %tid.y;        // threadIdx.y
+                mad.lo.s32      %r8, %r5, %r6, %r7; // i = row
+
+                // Load dimensions
+                ld.param.u32    %r9, [M];
+                ld.param.u32    %r10, [N];
+                ld.param.u32    %r11, [K];
+
+                // Bounds check: if (i >= M || j >= N) return
+                setp.ge.s32     %p1, %r8, %r9;
+                @%p1 bra        EXIT;
+                setp.ge.s32     %p1, %r4, %r10;
+                @%p1 bra        EXIT;
+
+                // Load base pointers
+                ld.param.u64    %rd1, [a_ptr];
+                ld.param.u64    %rd2, [b_ptr];
+                ld.param.u64    %rd3, [c_ptr];
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("    mov.u64         %rd_t0, %globaltimer;\n\n");
+        }
+
+        ptx.append("""
+                // Initialize accumulator
+                mov.f32         %f1, 0f00000000;    // sum = 0.0
+
+                // Loop: for k = 0; k < K; k++
+                mov.u32         %r12, 0;            // k = 0
+            LOOP:
+                setp.ge.s32     %p1, %r12, %r11;
+                @%p1 bra        LOOP_END;
+
+                // Load A[i, k] = A[i * K + k]
+                mul.lo.s32      %r13, %r8, %r11;    // i * K
+                add.s32         %r13, %r13, %r12;   // i * K + k
+                cvt.s64.s32     %rd4, %r13;
+                shl.b64         %rd4, %rd4, 2;      // * 4 bytes
+                add.s64         %rd5, %rd1, %rd4;
+                ld.global.f32   %f2, [%rd5];
+
+                // Load B[k, j] = B[k * N + j]
+                mul.lo.s32      %r14, %r12, %r10;   // k * N
+                add.s32         %r14, %r14, %r4;    // k * N + j
+                cvt.s64.s32     %rd6, %r14;
+                shl.b64         %rd6, %rd6, 2;      // * 4 bytes
+                add.s64         %rd7, %rd2, %rd6;
+                ld.global.f32   %f3, [%rd7];
+
+                // sum += A[i,k] * B[k,j]
+                fma.rn.f32      %f1, %f2, %f3, %f1;
+
+                // k++
+                add.s32         %r12, %r12, 1;
+                bra             LOOP;
+
+            LOOP_END:
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("""
+                    mov.u64         %rd_t1, %globaltimer;
+                    sub.u64         %rd_delta, %rd_t1, %rd_t0;
+                    ld.param.u64    %rd15, [timing_ptr];
+                    atom.global.add.u64 [%rd15], %rd_delta;
+
+            """);
+        }
+
+        ptx.append("""
+                // Store C[i, j] = C[i * N + j]
+                mul.lo.s32      %r15, %r8, %r10;    // i * N
+                add.s32         %r15, %r15, %r4;    // i * N + j
+                cvt.s64.s32     %rd8, %r15;
+                shl.b64         %rd8, %rd8, 2;      // * 4 bytes
+                add.s64         %rd9, %rd3, %rd8;
+                st.global.f32   [%rd9], %f1;
+
+            EXIT:
+                ret;
+            }
+            """);
+
+        return ptx.toString();
+    }
+
+    // ==================== Reduction Operations ====================
+
+    /** Block size for reduction operations */
+    public static final int REDUCE_BLOCK_SIZE = 256;
+
+    /**
+     * Generate PTX for parallel reduction with specified operation.
+     *
+     * <p>This implements a two-phase reduction:
+     * 1. Each block reduces its portion to a single value using shared memory
+     * 2. Final reduction across blocks (handled by launching with single block for small inputs
+     *    or by the kernel caller for large inputs)
+     *
+     * @param reducer The reduction operation: "add", "max", "min", "mul"
+     * @param salt Instrumentation level
+     * @return PTX source code
+     */
+    public static String generateReduceF32(String reducer, int salt) {
+        String ptxOp = switch (reducer) {
+            case "add" -> "add.f32";
+            case "max" -> "max.f32";
+            case "min" -> "min.f32";
+            case "mul" -> "mul.f32";
+            default -> throw new IllegalArgumentException("Unknown reducer: " + reducer);
+        };
+
+        StringBuilder ptx = new StringBuilder();
+
+        ptx.append("""
+            //
+            // reduce_%s_f32: Parallel reduction with %s operation
+            // Salt level: %d
+            //
+            .version 7.0
+            .target sm_50
+            .address_size 64
+
+            .visible .entry reduce_%s_f32(
+                .param .u64 in_ptr,
+                .param .u64 out_ptr,
+                .param .u32 n,
+                .param .f32 init_value
+            """.formatted(reducer, reducer, salt, reducer));
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("    ,.param .u64 timing_ptr\n");
+        }
+
+        ptx.append("""
+            )
+            {
+                // Shared memory for block reduction (256 floats = 1KB)
+                .shared .align 4 .f32 sdata[256];
+
+                .reg .pred  %p<4>;
+                .reg .f32   %f<8>;
+                .reg .b32   %r<16>;
+                .reg .b64   %rd<12>;
+            """);
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("    .reg .b64   %rd_t0, %rd_t1, %rd_delta;\n");
+        }
+
+        ptx.append("""
+
+                // Global thread ID
+                mov.u32         %r1, %ctaid.x;
+                mov.u32         %r2, %ntid.x;
+                mov.u32         %r3, %tid.x;
+                mad.lo.s32      %r4, %r1, %r2, %r3;  // global_id
+
+                // Load n and init_value
+                ld.param.u32    %r5, [n];
+                ld.param.f32    %f1, [init_value];   // accumulator = init_value
+
+                // Load input pointer
+                ld.param.u64    %rd1, [in_ptr];
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("    mov.u64         %rd_t0, %globaltimer;\n\n");
+        }
+
+        ptx.append("""
+                // Phase 1: Each thread loads and reduces multiple elements (grid-stride loop)
+                // This handles inputs larger than grid size
+                mov.u32         %%r6, %%nctaid.x;     // gridDim.x
+                mul.lo.s32      %%r7, %%r6, %%r2;      // stride = gridDim.x * blockDim.x
+
+            LOAD_LOOP:
+                setp.ge.s32     %%p1, %%r4, %%r5;      // if (idx >= n)
+                @%%p1 bra        LOAD_DONE;
+
+                // Load input[idx]
+                cvt.s64.s32     %%rd2, %%r4;
+                shl.b64         %%rd3, %%rd2, 2;
+                add.s64         %%rd4, %%rd1, %%rd3;
+                ld.global.f32   %%f2, [%%rd4];
+
+                // accumulator = op(accumulator, input[idx])
+                %s         %%f1, %%f1, %%f2;
+
+                // idx += stride
+                add.s32         %%r4, %%r4, %%r7;
+                bra             LOAD_LOOP;
+
+            LOAD_DONE:
+                // Store to shared memory
+                mul.lo.s32      %%r8, %%r3, 4;        // tid * 4
+                mov.u32         %%r9, sdata;
+                add.s32         %%r9, %%r9, %%r8;
+                st.shared.f32   [%%r9], %%f1;
+
+                // Synchronize threads in block
+                bar.sync        0;
+
+                // Phase 2: Tree reduction in shared memory
+                mov.u32         %%r10, 128;          // s = blockDim.x / 2
+
+            REDUCE_LOOP:
+                setp.eq.s32     %%p2, %%r10, 0;
+                @%%p2 bra        REDUCE_DONE;
+
+                setp.ge.s32     %%p3, %%r3, %%r10;     // if (tid >= s)
+                @%%p3 bra        REDUCE_SKIP;
+
+                // Load sdata[tid + s]
+                add.s32         %%r11, %%r3, %%r10;
+                mul.lo.s32      %%r12, %%r11, 4;
+                mov.u32         %%r13, sdata;
+                add.s32         %%r13, %%r13, %%r12;
+                ld.shared.f32   %%f3, [%%r13];
+
+                // Load sdata[tid]
+                ld.shared.f32   %%f4, [%%r9];
+
+                // sdata[tid] = op(sdata[tid], sdata[tid + s])
+                %s         %%f4, %%f4, %%f3;
+                st.shared.f32   [%%r9], %%f4;
+
+            REDUCE_SKIP:
+                bar.sync        0;
+                shr.u32         %%r10, %%r10, 1;      // s /= 2
+                bra             REDUCE_LOOP;
+
+            REDUCE_DONE:
+
+            """.formatted(ptxOp, ptxOp));
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("""
+                    mov.u64         %rd_t1, %globaltimer;
+                    sub.u64         %rd_delta, %rd_t1, %rd_t0;
+                    ld.param.u64    %rd11, [timing_ptr];
+                    atom.global.add.u64 [%rd11], %rd_delta;
+
+            """);
+        }
+
+        ptx.append("""
+                // Thread 0 writes block result to output
+                setp.ne.s32     %p1, %r3, 0;
+                @%p1 bra        EXIT;
+
+                ld.param.u64    %rd5, [out_ptr];
+                // Write to out[blockIdx.x]
+                cvt.s64.s32     %rd6, %r1;
+                shl.b64         %rd7, %rd6, 2;
+                add.s64         %rd8, %rd5, %rd7;
+                ld.shared.f32   %f5, [sdata];
+                st.global.f32   [%rd8], %f5;
+
+            EXIT:
+                ret;
+            }
+            """);
+
+        return ptx.toString();
+    }
+
+    /**
+     * Generate PTX for reduce with add operation.
+     */
+    public static String generateReduceAddF32(int salt) {
+        return generateReduceF32("add", salt);
+    }
+
+    /**
+     * Generate PTX for reduce with max operation.
+     */
+    public static String generateReduceMaxF32(int salt) {
+        return generateReduceF32("max", salt);
+    }
+
+    /**
+     * Generate PTX for reduce with min operation.
+     */
+    public static String generateReduceMinF32(int salt) {
+        return generateReduceF32("min", salt);
+    }
+
+    /**
+     * Generate PTX for reduce with mul operation.
+     */
+    public static String generateReduceMulF32(int salt) {
+        return generateReduceF32("mul", salt);
+    }
+
     // ==================== Utility Methods ====================
 
     /**

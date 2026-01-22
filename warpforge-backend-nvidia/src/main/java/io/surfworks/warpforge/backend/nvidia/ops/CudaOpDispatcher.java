@@ -423,9 +423,21 @@ public final class CudaOpDispatcher {
         // Constants
         registerStub(StableHloAst.ConstantOp.class);
 
+        // Shape manipulation - Concatenate (IMPLEMENTED)
+        if (context != null) {
+            kernels.put(StableHloAst.ConcatenateOp.class, new ConcatenateKernel(context, salt));
+        } else {
+            registerStub(StableHloAst.ConcatenateOp.class);
+        }
+
+        // Shape manipulation - Slice (IMPLEMENTED)
+        if (context != null) {
+            kernels.put(StableHloAst.SliceOp.class, new SliceKernel(context, salt));
+        } else {
+            registerStub(StableHloAst.SliceOp.class);
+        }
+
         // Shape manipulation (remaining stubs)
-        registerStub(StableHloAst.ConcatenateOp.class);
-        registerStub(StableHloAst.SliceOp.class);
         registerStub(StableHloAst.ReverseOp.class);
         registerStub(StableHloAst.PadOp.class);
         registerStub(StableHloAst.IotaOp.class);

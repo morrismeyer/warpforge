@@ -2733,6 +2733,380 @@ lg2.approx.f32  %f4, %f2;              // temp for checking if x is positive
         return ptx.toString();
     }
 
+    // ==================== Concatenate and Slice Operations ====================
+
+    /**
+     * Generate PTX for 1D concatenation of two tensors.
+     *
+     * <p>Concatenates two 1D tensors into one: output = [a, b].
+     *
+     * @param salt Instrumentation level
+     * @return PTX source code
+     */
+    public static String generateConcatenate2F32(int salt) {
+        StringBuilder ptx = new StringBuilder();
+
+        ptx.append("""
+            //
+            // concatenate_2_f32: Concatenate two 1D tensors
+            // output[i] = a[i] for i < n_a, output[i] = b[i - n_a] for i >= n_a
+            // Salt level: %d
+            //
+            .version 7.0
+            .target sm_50
+            .address_size 64
+
+            .visible .entry concatenate_2_f32(
+                .param .u64 a_ptr,
+                .param .u64 b_ptr,
+                .param .u64 out_ptr,
+                .param .u32 n_a,
+                .param .u32 n_total
+            """.formatted(salt));
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("    ,.param .u64 timing_ptr\n");
+        }
+
+        ptx.append("""
+            )
+            {
+                .reg .pred  %p<3>;
+                .reg .f32   %f<2>;
+                .reg .b32   %r<12>;
+                .reg .b64   %rd<12>;
+            """);
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("    .reg .b64   %rd_t0, %rd_t1, %rd_delta;\n");
+        }
+
+        ptx.append("""
+
+                // Calculate global thread index
+                mov.u32         %r1, %ctaid.x;
+                mov.u32         %r2, %ntid.x;
+                mov.u32         %r3, %tid.x;
+                mad.lo.s32      %r4, %r1, %r2, %r3;
+
+                // Load parameters
+                ld.param.u32    %r5, [n_a];
+                ld.param.u32    %r6, [n_total];
+
+                // Bounds check
+                setp.ge.s32     %p1, %r4, %r6;
+                @%p1 bra        EXIT;
+
+                // Load pointers
+                ld.param.u64    %rd1, [a_ptr];
+                ld.param.u64    %rd2, [b_ptr];
+                ld.param.u64    %rd3, [out_ptr];
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("    mov.u64         %rd_t0, %globaltimer;\n\n");
+        }
+
+        ptx.append("""
+                // Determine which input to read from
+                setp.lt.s32     %p2, %r4, %r5;      // i < n_a?
+
+                // Calculate input offset
+                @%p2 mov.u32    %r7, %r4;           // offset = i
+                @!%p2 sub.s32   %r7, %r4, %r5;      // offset = i - n_a
+
+                // Select input pointer
+                @%p2 mov.u64    %rd4, %rd1;         // use a_ptr
+                @!%p2 mov.u64   %rd4, %rd2;         // use b_ptr
+
+                // Load from selected input
+                cvt.s64.s32     %rd5, %r7;
+                shl.b64         %rd5, %rd5, 2;
+                add.s64         %rd6, %rd4, %rd5;
+                ld.global.f32   %f1, [%rd6];
+
+                // Store to output
+                cvt.s64.s32     %rd7, %r4;
+                shl.b64         %rd7, %rd7, 2;
+                add.s64         %rd8, %rd3, %rd7;
+                st.global.f32   [%rd8], %f1;
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("""
+                    mov.u64         %rd_t1, %globaltimer;
+                    sub.u64         %rd_delta, %rd_t1, %rd_t0;
+                    ld.param.u64    %rd11, [timing_ptr];
+                    atom.global.add.u64 [%rd11], %rd_delta;
+
+            """);
+        }
+
+        ptx.append("""
+            EXIT:
+                ret;
+            }
+            """);
+
+        return ptx.toString();
+    }
+
+    /**
+     * Generate PTX for 1D slice operation.
+     *
+     * <p>Extracts a contiguous slice: output[i] = input[start + i * stride].
+     *
+     * @param salt Instrumentation level
+     * @return PTX source code
+     */
+    public static String generateSlice1DF32(int salt) {
+        StringBuilder ptx = new StringBuilder();
+
+        ptx.append("""
+            //
+            // slice_1d_f32: Extract 1D slice from tensor
+            // output[i] = input[start + i * stride]
+            // Salt level: %d
+            //
+            .version 7.0
+            .target sm_50
+            .address_size 64
+
+            .visible .entry slice_1d_f32(
+                .param .u64 in_ptr,
+                .param .u64 out_ptr,
+                .param .u32 start,
+                .param .u32 stride,
+                .param .u32 n_out
+            """.formatted(salt));
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("    ,.param .u64 timing_ptr\n");
+        }
+
+        ptx.append("""
+            )
+            {
+                .reg .pred  %p<2>;
+                .reg .f32   %f<2>;
+                .reg .b32   %r<12>;
+                .reg .b64   %rd<12>;
+            """);
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("    .reg .b64   %rd_t0, %rd_t1, %rd_delta;\n");
+        }
+
+        ptx.append("""
+
+                // Calculate global thread index (output index)
+                mov.u32         %r1, %ctaid.x;
+                mov.u32         %r2, %ntid.x;
+                mov.u32         %r3, %tid.x;
+                mad.lo.s32      %r4, %r1, %r2, %r3;
+
+                // Load parameters
+                ld.param.u32    %r5, [n_out];
+
+                // Bounds check
+                setp.ge.s32     %p1, %r4, %r5;
+                @%p1 bra        EXIT;
+
+                // Load start and stride
+                ld.param.u32    %r6, [start];
+                ld.param.u32    %r7, [stride];
+
+                // Load pointers
+                ld.param.u64    %rd1, [in_ptr];
+                ld.param.u64    %rd2, [out_ptr];
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("    mov.u64         %rd_t0, %globaltimer;\n\n");
+        }
+
+        ptx.append("""
+                // Calculate input index: start + i * stride
+                mul.lo.s32      %r8, %r4, %r7;      // i * stride
+                add.s32         %r8, %r8, %r6;      // start + i * stride
+
+                // Load from input
+                cvt.s64.s32     %rd3, %r8;
+                shl.b64         %rd3, %rd3, 2;
+                add.s64         %rd4, %rd1, %rd3;
+                ld.global.f32   %f1, [%rd4];
+
+                // Store to output
+                cvt.s64.s32     %rd5, %r4;
+                shl.b64         %rd5, %rd5, 2;
+                add.s64         %rd6, %rd2, %rd5;
+                st.global.f32   [%rd6], %f1;
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("""
+                    mov.u64         %rd_t1, %globaltimer;
+                    sub.u64         %rd_delta, %rd_t1, %rd_t0;
+                    ld.param.u64    %rd11, [timing_ptr];
+                    atom.global.add.u64 [%rd11], %rd_delta;
+
+            """);
+        }
+
+        ptx.append("""
+            EXIT:
+                ret;
+            }
+            """);
+
+        return ptx.toString();
+    }
+
+    /**
+     * Generate PTX for 2D slice operation.
+     *
+     * <p>Extracts a 2D slice with start, limit, and stride for each dimension.
+     *
+     * @param salt Instrumentation level
+     * @return PTX source code
+     */
+    public static String generateSlice2DF32(int salt) {
+        StringBuilder ptx = new StringBuilder();
+
+        ptx.append("""
+            //
+            // slice_2d_f32: Extract 2D slice from tensor
+            // output[i,j] = input[start0 + i*stride0, start1 + j*stride1]
+            // Salt level: %d
+            //
+            .version 7.0
+            .target sm_50
+            .address_size 64
+
+            .visible .entry slice_2d_f32(
+                .param .u64 in_ptr,
+                .param .u64 out_ptr,
+                .param .u32 in_cols,
+                .param .u32 out_rows,
+                .param .u32 out_cols,
+                .param .u32 start0,
+                .param .u32 start1,
+                .param .u32 stride0,
+                .param .u32 stride1
+            """.formatted(salt));
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("    ,.param .u64 timing_ptr\n");
+        }
+
+        ptx.append("""
+            )
+            {
+                .reg .pred  %p<2>;
+                .reg .f32   %f<2>;
+                .reg .b32   %r<20>;
+                .reg .b64   %rd<12>;
+            """);
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("    .reg .b64   %rd_t0, %rd_t1, %rd_delta;\n");
+        }
+
+        ptx.append("""
+
+                // Calculate output row (i) and col (j) from 2D grid
+                mov.u32         %r1, %ctaid.x;
+                mov.u32         %r2, %ntid.x;
+                mov.u32         %r3, %tid.x;
+                mad.lo.s32      %r4, %r1, %r2, %r3; // j = out col
+
+                mov.u32         %r5, %ctaid.y;
+                mov.u32         %r6, %ntid.y;
+                mov.u32         %r7, %tid.y;
+                mad.lo.s32      %r8, %r5, %r6, %r7; // i = out row
+
+                // Load output dimensions
+                ld.param.u32    %r9, [out_rows];
+                ld.param.u32    %r10, [out_cols];
+
+                // Bounds check
+                setp.ge.s32     %p1, %r8, %r9;
+                @%p1 bra        EXIT;
+                setp.ge.s32     %p1, %r4, %r10;
+                @%p1 bra        EXIT;
+
+                // Load slice parameters
+                ld.param.u32    %r11, [in_cols];
+                ld.param.u32    %r12, [start0];
+                ld.param.u32    %r13, [start1];
+                ld.param.u32    %r14, [stride0];
+                ld.param.u32    %r15, [stride1];
+
+                // Load pointers
+                ld.param.u64    %rd1, [in_ptr];
+                ld.param.u64    %rd2, [out_ptr];
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("    mov.u64         %rd_t0, %globaltimer;\n\n");
+        }
+
+        ptx.append("""
+                // Calculate input indices
+                // in_row = start0 + i * stride0
+                // in_col = start1 + j * stride1
+                mul.lo.s32      %r16, %r8, %r14;    // i * stride0
+                add.s32         %r16, %r16, %r12;   // start0 + i * stride0 = in_row
+
+                mul.lo.s32      %r17, %r4, %r15;    // j * stride1
+                add.s32         %r17, %r17, %r13;   // start1 + j * stride1 = in_col
+
+                // Input linear index: in_row * in_cols + in_col
+                mul.lo.s32      %r18, %r16, %r11;
+                add.s32         %r18, %r18, %r17;
+
+                // Load from input
+                cvt.s64.s32     %rd3, %r18;
+                shl.b64         %rd3, %rd3, 2;
+                add.s64         %rd4, %rd1, %rd3;
+                ld.global.f32   %f1, [%rd4];
+
+                // Output linear index: i * out_cols + j
+                mul.lo.s32      %r19, %r8, %r10;
+                add.s32         %r19, %r19, %r4;
+
+                // Store to output
+                cvt.s64.s32     %rd5, %r19;
+                shl.b64         %rd5, %rd5, 2;
+                add.s64         %rd6, %rd2, %rd5;
+                st.global.f32   [%rd6], %f1;
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("""
+                    mov.u64         %rd_t1, %globaltimer;
+                    sub.u64         %rd_delta, %rd_t1, %rd_t0;
+                    ld.param.u64    %rd11, [timing_ptr];
+                    atom.global.add.u64 [%rd11], %rd_delta;
+
+            """);
+        }
+
+        ptx.append("""
+            EXIT:
+                ret;
+            }
+            """);
+
+        return ptx.toString();
+    }
+
     // ==================== Utility Methods ====================
 
     /**

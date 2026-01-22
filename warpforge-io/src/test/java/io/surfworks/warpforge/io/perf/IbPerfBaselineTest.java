@@ -17,9 +17,18 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 /**
  * Baseline performance tests using native ibperf tools.
  *
- * <p>These tests establish the theoretical maximum throughput of the
- * Mellanox 100GbE hardware. The Java implementation should achieve
- * 95-98% of these baseline numbers.
+ * <p>These tests establish the maximum throughput achievable on the current
+ * hardware configuration. The results serve as the target for the Java RDMA
+ * implementation.
+ *
+ * <h2>Hardware Configuration (Mark 1 Lab)</h2>
+ * <pre>
+ * NIC: Mellanox ConnectX-5 (MT27800) @ 100 Gbps link rate
+ * PCIe: 3.0 x8 @ 8 GT/s = 62.5 Gbps theoretical
+ * Actual: ~56 Gbps (89% of PCIe max)
+ *
+ * The PCIe bus is the bottleneck, not the network link.
+ * </pre>
  *
  * <h2>Prerequisites</h2>
  * <ul>
@@ -36,8 +45,10 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
  * # Run test:
  * ./gradlew :warpforge-io:rdmaPerfTest \
  *     --tests "*IbPerfBaselineTest*" \
- *     -Drdma.server.host=gpu-node-2
+ *     -Drdma.server.host=10.0.0.1
  * }</pre>
+ *
+ * @see <a href="../../../../../../holmes-lab/mark1/mellanox-perf/CONNECTX5.md">ConnectX-5 Performance Baseline</a>
  */
 @Tag("rdma-perf")
 @Tag("rdma")
@@ -92,9 +103,10 @@ class IbPerfBaselineTest {
         System.out.printf("ib_write_bw baseline: %.2f Gbps (%.2f MB/s)%n",
                 result.bandwidthGbps, result.bandwidthMBps);
 
-        // Mellanox ConnectX-5 should achieve close to 100 Gbps
-        assertTrue(result.bandwidthGbps >= 90.0,
-                "Write bandwidth should be at least 90 Gbps on 100GbE, got " + result.bandwidthGbps);
+        // ConnectX-5 on PCIe 3.0 x8 achieves ~56 Gbps (PCIe bottleneck, not network)
+        // See holmes-lab/mark1/mellanox-perf/CONNECTX5.md for hardware baseline
+        assertTrue(result.bandwidthGbps >= 50.0,
+                "Write bandwidth should be at least 50 Gbps on PCIe 3.0 x8, got " + result.bandwidthGbps);
     }
 
     @Test
@@ -118,8 +130,9 @@ class IbPerfBaselineTest {
         System.out.printf("ib_read_bw baseline: %.2f Gbps (%.2f MB/s)%n",
                 result.bandwidthGbps, result.bandwidthMBps);
 
-        assertTrue(result.bandwidthGbps >= 90.0,
-                "Read bandwidth should be at least 90 Gbps on 100GbE, got " + result.bandwidthGbps);
+        // PCIe 3.0 x8 limited to ~56 Gbps
+        assertTrue(result.bandwidthGbps >= 50.0,
+                "Read bandwidth should be at least 50 Gbps on PCIe 3.0 x8, got " + result.bandwidthGbps);
     }
 
     @Test
@@ -143,9 +156,9 @@ class IbPerfBaselineTest {
         System.out.printf("ib_send_bw baseline: %.2f Gbps (%.2f MB/s)%n",
                 result.bandwidthGbps, result.bandwidthMBps);
 
-        // Send might be slightly lower due to two-sided overhead
-        assertTrue(result.bandwidthGbps >= 80.0,
-                "Send bandwidth should be at least 80 Gbps on 100GbE, got " + result.bandwidthGbps);
+        // PCIe 3.0 x8 limited to ~56 Gbps
+        assertTrue(result.bandwidthGbps >= 50.0,
+                "Send bandwidth should be at least 50 Gbps on PCIe 3.0 x8, got " + result.bandwidthGbps);
     }
 
     @Test
@@ -168,9 +181,9 @@ class IbPerfBaselineTest {
         System.out.printf("ib_write_lat baseline: avg=%.2f us, p99=%.2f us%n",
                 result.avgLatencyUs, result.p99LatencyUs);
 
-        // ConnectX-5 should achieve < 2us latency
-        assertTrue(result.avgLatencyUs < 5.0,
-                "Write latency should be < 5us on 100GbE, got " + result.avgLatencyUs);
+        // ConnectX-5 baseline: ~1 μs typical (see CONNECTX5.md)
+        assertTrue(result.avgLatencyUs < 2.0,
+                "Write latency should be < 2us on ConnectX-5, got " + result.avgLatencyUs);
     }
 
     @Test
@@ -191,8 +204,9 @@ class IbPerfBaselineTest {
         System.out.printf("ib_send_lat baseline: avg=%.2f us, p99=%.2f us%n",
                 result.avgLatencyUs, result.p99LatencyUs);
 
-        assertTrue(result.avgLatencyUs < 10.0,
-                "Send latency should be < 10us on 100GbE, got " + result.avgLatencyUs);
+        // ConnectX-5 baseline: ~0.92 μs typical (see CONNECTX5.md)
+        assertTrue(result.avgLatencyUs < 2.0,
+                "Send latency should be < 2us on ConnectX-5, got " + result.avgLatencyUs);
     }
 
     @Test

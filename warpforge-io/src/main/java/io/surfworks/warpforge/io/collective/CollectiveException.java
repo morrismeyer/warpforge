@@ -32,6 +32,12 @@ public class CollectiveException extends RuntimeException {
         this.nativeErrorCode = nativeErrorCode;
     }
 
+    public CollectiveException(String message, ErrorCode errorCode, Throwable cause) {
+        super(message, cause);
+        this.errorCode = errorCode;
+        this.nativeErrorCode = 0;
+    }
+
     public ErrorCode errorCode() {
         return errorCode;
     }

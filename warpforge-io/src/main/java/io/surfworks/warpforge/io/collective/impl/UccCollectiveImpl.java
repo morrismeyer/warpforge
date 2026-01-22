@@ -2,8 +2,11 @@ package io.surfworks.warpforge.io.collective.impl;
 
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 import io.surfworks.warpforge.core.tensor.Tensor;
 import io.surfworks.warpforge.io.VirtualThreads;
@@ -12,6 +15,13 @@ import io.surfworks.warpforge.io.collective.CollectiveApi;
 import io.surfworks.warpforge.io.collective.CollectiveConfig;
 import io.surfworks.warpforge.io.collective.CollectiveException;
 import io.surfworks.warpforge.io.collective.CollectiveApi.CollectiveStats;
+import io.surfworks.warpforge.io.ffi.ucc.Ucc;
+import io.surfworks.warpforge.io.ffi.ucc.ucc_coll_args;
+import io.surfworks.warpforge.io.ffi.ucc.ucc_coll_buffer_info;
+import io.surfworks.warpforge.io.ffi.ucc.ucc_context_params;
+import io.surfworks.warpforge.io.ffi.ucc.ucc_lib_params;
+import io.surfworks.warpforge.io.ffi.ucc.ucc_oob_coll;
+import io.surfworks.warpforge.io.ffi.ucc.ucc_team_params;
 
 /**
  * UCC-backed implementation of CollectiveApi.
@@ -38,6 +48,8 @@ import io.surfworks.warpforge.io.collective.CollectiveApi.CollectiveStats;
  */
 public class UccCollectiveImpl implements CollectiveApi {
 
+    private static final Logger LOG = Logger.getLogger(UccCollectiveImpl.class.getName());
+
     private final CollectiveConfig config;
     private final Arena arena;
 
@@ -45,6 +57,9 @@ public class UccCollectiveImpl implements CollectiveApi {
     private MemorySegment uccLib;
     private MemorySegment uccContext;
     private MemorySegment uccTeam;
+
+    // OOB coordinator for team formation
+    private OobCoordinator oobCoordinator;
 
     private volatile boolean closed = false;
     private volatile boolean initialized = false;
@@ -81,32 +96,82 @@ public class UccCollectiveImpl implements CollectiveApi {
     }
 
     private void initializeUccReal() {
-        // TODO: Implement real UCC initialization using jextract stubs
-        //
-        // Pseudocode:
-        // var libParams = arena.allocate(Ucc.ucc_lib_params_t.sizeof());
-        // Ucc.ucc_lib_params_t.mask$set(libParams, 0);
-        //
-        // var libHandle = arena.allocate(ValueLayout.ADDRESS);
-        // int status = Ucc.ucc_init(libParams, Ucc.ucc_lib_config_h.NULL, libHandle);
-        // if (status != Ucc.UCC_OK()) {
-        //     throw new CollectiveException("ucc_init failed: " + status);
-        // }
-        // this.uccLib = libHandle.get(ValueLayout.ADDRESS, 0);
-        //
-        // // Create context
-        // var ctxParams = arena.allocate(Ucc.ucc_context_params_t.sizeof());
-        // // ... configure context params ...
-        //
-        // // Create team
-        // var teamParams = arena.allocate(Ucc.ucc_team_params_t.sizeof());
-        // Ucc.ucc_team_params_t.oob$set(teamParams, ...); // Set OOB allgather
-        // Ucc.ucc_team_params_t.ep$set(teamParams, config.rank());
-        // Ucc.ucc_team_params_t.ep_range$set(teamParams, Ucc.UCC_COLLECTIVE_EP_RANGE_CONTIG());
+        LOG.info("Initializing UCC for rank " + config.rank() + " of " + config.worldSize());
 
-        throw new CollectiveException(
-            "UCC initialization not yet implemented - awaiting jextract stub generation",
-            CollectiveException.ErrorCode.NOT_SUPPORTED);
+        // 1. Initialize UCC library
+        MemorySegment libParams = ucc_lib_params.allocate(arena);
+        ucc_lib_params.mask(libParams, 0L);
+
+        MemorySegment libHandlePtr = arena.allocate(ValueLayout.ADDRESS);
+        int status = Ucc.ucc_init_version(1, 0, libParams, MemorySegment.NULL, libHandlePtr);
+        UccHelper.checkStatus(status, "ucc_init_version");
+        this.uccLib = libHandlePtr.get(ValueLayout.ADDRESS, 0);
+        LOG.fine("UCC library initialized");
+
+        // 2. Create OOB coordinator for team formation
+        this.oobCoordinator = new OobCoordinator(config, arena);
+        LOG.fine("OOB coordinator created");
+
+        // 3. Create UCC context
+        MemorySegment ctxParams = ucc_context_params.allocate(arena);
+        ucc_context_params.mask(ctxParams, Ucc.UCC_CONTEXT_PARAM_FIELD_OOB());
+
+        // Copy OOB structure from coordinator to context params
+        MemorySegment oobStruct = oobCoordinator.getOobStruct();
+        ucc_context_params.oob(ctxParams, oobStruct);
+
+        MemorySegment ctxHandlePtr = arena.allocate(ValueLayout.ADDRESS);
+        status = Ucc.ucc_context_create(uccLib, ctxParams, MemorySegment.NULL, ctxHandlePtr);
+        UccHelper.checkStatus(status, "ucc_context_create");
+        this.uccContext = ctxHandlePtr.get(ValueLayout.ADDRESS, 0);
+        LOG.fine("UCC context created");
+
+        // 4. Create UCC team
+        MemorySegment teamParams = ucc_team_params.allocate(arena);
+        long teamMask = Ucc.UCC_TEAM_PARAM_FIELD_EP()
+                      | Ucc.UCC_TEAM_PARAM_FIELD_EP_RANGE()
+                      | Ucc.UCC_TEAM_PARAM_FIELD_TEAM_SIZE()
+                      | Ucc.UCC_TEAM_PARAM_FIELD_OOB();
+        ucc_team_params.mask(teamParams, teamMask);
+        ucc_team_params.ep(teamParams, config.rank());
+        ucc_team_params.ep_range(teamParams, UccConstants.EP_RANGE_CONTIG);
+        ucc_team_params.team_size(teamParams, config.worldSize());
+
+        // Copy OOB structure from coordinator to team params
+        ucc_team_params.oob(teamParams, oobStruct);
+
+        // Allocate array of context pointers (we have 1 context)
+        MemorySegment ctxArray = arena.allocate(ValueLayout.ADDRESS);
+        ctxArray.set(ValueLayout.ADDRESS, 0, uccContext);
+
+        MemorySegment teamHandlePtr = arena.allocate(ValueLayout.ADDRESS);
+        status = Ucc.ucc_team_create_post(ctxArray, 1, teamParams, teamHandlePtr);
+        UccHelper.checkStatus(status, "ucc_team_create_post");
+        this.uccTeam = teamHandlePtr.get(ValueLayout.ADDRESS, 0);
+
+        // 5. Poll until team creation completes
+        LOG.fine("Waiting for team creation to complete...");
+        int pollCount = 0;
+        while (true) {
+            status = Ucc.ucc_team_create_test(uccTeam);
+            if (status == UccConstants.OK) {
+                break;
+            }
+            if (status != UccConstants.INPROGRESS) {
+                throw new CollectiveException(
+                    "Team creation failed: " + UccConstants.statusToString(status),
+                    CollectiveException.ErrorCode.COMMUNICATION_ERROR,
+                    status
+                );
+            }
+            pollCount++;
+            if (pollCount % 10000 == 0) {
+                LOG.fine("Team creation still in progress, poll count: " + pollCount);
+            }
+            Thread.onSpinWait();
+        }
+
+        LOG.info("UCC team created successfully for rank " + config.rank());
     }
 
     @Override
@@ -134,15 +199,35 @@ public class UccCollectiveImpl implements CollectiveApi {
         checkInitialized();
         checkNotClosed();
         return VirtualThreads.supplyAsync(() -> {
-            // TODO: Use ucc_collective_init() with UCC_COLL_TYPE_ALLREDUCE
-            // Then ucc_collective_post() and ucc_collective_test() / ucc_collective_finalize()
+            // Allocate output tensor
+            Tensor result = Tensor.zeros(input.dtype(), input.shape());
+
+            // Set up collective args
+            MemorySegment args = ucc_coll_args.allocate(arena);
+            UccHelper.setupCollectiveArgsWithOp(args, UccConstants.COLL_TYPE_ALLREDUCE, allReduceOpToUcc(op));
+
+            // Configure source buffer
+            MemorySegment srcInfo = UccHelper.getSrcBufferInfo(args);
+            UccHelper.setupBufferInfo(srcInfo, input);
+
+            // Configure destination buffer
+            MemorySegment dstInfo = UccHelper.getDstBufferInfo(args);
+            UccHelper.setupBufferInfo(dstInfo, result);
+
+            // Initialize and post collective
+            MemorySegment requestPtr = arena.allocate(ValueLayout.ADDRESS);
+            int status = Ucc.ucc_collective_init_and_post(args, requestPtr, uccTeam);
+            UccHelper.checkStatusAllowInProgress(status, "allreduce init_and_post");
+
+            // Wait for completion
+            MemorySegment request = requestPtr.get(ValueLayout.ADDRESS, 0);
+            UccHelper.waitForCompletion(request);
+
+            // Update statistics
             allReduceCount.incrementAndGet();
             totalOps.incrementAndGet();
             totalBytes.addAndGet(input.spec().byteSize());
 
-            // Placeholder: return copy of input
-            Tensor result = Tensor.zeros(input.dtype(), input.shape());
-            MemorySegment.copy(input.data(), 0, result.data(), 0, input.spec().byteSize());
             return result;
         });
     }
@@ -152,7 +237,28 @@ public class UccCollectiveImpl implements CollectiveApi {
         checkInitialized();
         checkNotClosed();
         return VirtualThreads.runAsync(() -> {
-            // TODO: In-place allreduce with UCC_COLL_ARGS_FLAG_IN_PLACE
+            // Set up collective args with in-place flag
+            MemorySegment args = ucc_coll_args.allocate(arena);
+            UccHelper.setupCollectiveArgsWithOp(args, UccConstants.COLL_TYPE_ALLREDUCE, allReduceOpToUcc(op));
+            ucc_coll_args.flags(args, UccConstants.COLL_ARGS_FLAG_IN_PLACE);
+
+            // For in-place, both src and dst point to the same buffer
+            MemorySegment srcInfo = UccHelper.getSrcBufferInfo(args);
+            UccHelper.setupBufferInfo(srcInfo, tensor);
+
+            MemorySegment dstInfo = UccHelper.getDstBufferInfo(args);
+            UccHelper.setupBufferInfo(dstInfo, tensor);
+
+            // Initialize and post collective
+            MemorySegment requestPtr = arena.allocate(ValueLayout.ADDRESS);
+            int status = Ucc.ucc_collective_init_and_post(args, requestPtr, uccTeam);
+            UccHelper.checkStatusAllowInProgress(status, "allreduce_inplace init_and_post");
+
+            // Wait for completion
+            MemorySegment request = requestPtr.get(ValueLayout.ADDRESS, 0);
+            UccHelper.waitForCompletion(request);
+
+            // Update statistics
             allReduceCount.incrementAndGet();
             totalOps.incrementAndGet();
             totalBytes.addAndGet(tensor.spec().byteSize());
@@ -164,7 +270,29 @@ public class UccCollectiveImpl implements CollectiveApi {
         checkInitialized();
         checkNotClosed();
         return VirtualThreads.runAsync(() -> {
-            // TODO: Raw memory allreduce
+            // Set up collective args with in-place flag (modifies buffer in place)
+            MemorySegment args = ucc_coll_args.allocate(arena);
+            UccHelper.setupCollectiveArgsWithOp(args, UccConstants.COLL_TYPE_ALLREDUCE, allReduceOpToUcc(op));
+            ucc_coll_args.flags(args, UccConstants.COLL_ARGS_FLAG_IN_PLACE);
+
+            // Configure buffers - use raw buffer info
+            long uccDatatype = uccDatatypeFromInt(datatype);
+            MemorySegment srcInfo = UccHelper.getSrcBufferInfo(args);
+            UccHelper.setupBufferInfo(srcInfo, buffer, count, uccDatatype, UccConstants.MEMORY_TYPE_HOST);
+
+            MemorySegment dstInfo = UccHelper.getDstBufferInfo(args);
+            UccHelper.setupBufferInfo(dstInfo, buffer, count, uccDatatype, UccConstants.MEMORY_TYPE_HOST);
+
+            // Initialize and post collective
+            MemorySegment requestPtr = arena.allocate(ValueLayout.ADDRESS);
+            int status = Ucc.ucc_collective_init_and_post(args, requestPtr, uccTeam);
+            UccHelper.checkStatusAllowInProgress(status, "allreduce_raw init_and_post");
+
+            // Wait for completion
+            MemorySegment request = requestPtr.get(ValueLayout.ADDRESS, 0);
+            UccHelper.waitForCompletion(request);
+
+            // Update statistics
             allReduceCount.incrementAndGet();
             totalOps.incrementAndGet();
             totalBytes.addAndGet(buffer.byteSize());
@@ -176,14 +304,38 @@ public class UccCollectiveImpl implements CollectiveApi {
         checkInitialized();
         checkNotClosed();
         return VirtualThreads.supplyAsync(() -> {
-            // TODO: Use UCC_COLL_TYPE_ALLGATHER
+            // Allocate output tensor with worldSize * input size
+            int[] newShape = input.shape().clone();
+            newShape[0] *= config.worldSize();
+            Tensor result = Tensor.zeros(input.dtype(), newShape);
+
+            // Set up collective args
+            MemorySegment args = ucc_coll_args.allocate(arena);
+            UccHelper.setupCollectiveArgs(args, UccConstants.COLL_TYPE_ALLGATHER);
+
+            // Configure source buffer
+            MemorySegment srcInfo = UccHelper.getSrcBufferInfo(args);
+            UccHelper.setupBufferInfo(srcInfo, input);
+
+            // Configure destination buffer
+            MemorySegment dstInfo = UccHelper.getDstBufferInfo(args);
+            UccHelper.setupBufferInfo(dstInfo, result);
+
+            // Initialize and post collective
+            MemorySegment requestPtr = arena.allocate(ValueLayout.ADDRESS);
+            int status = Ucc.ucc_collective_init_and_post(args, requestPtr, uccTeam);
+            UccHelper.checkStatusAllowInProgress(status, "allgather init_and_post");
+
+            // Wait for completion
+            MemorySegment request = requestPtr.get(ValueLayout.ADDRESS, 0);
+            UccHelper.waitForCompletion(request);
+
+            // Update statistics
             allGatherCount.incrementAndGet();
             totalOps.incrementAndGet();
             totalBytes.addAndGet(input.spec().byteSize() * config.worldSize());
 
-            int[] newShape = input.shape().clone();
-            newShape[0] *= config.worldSize();
-            return Tensor.zeros(input.dtype(), newShape);
+            return result;
         });
     }
 
@@ -192,6 +344,27 @@ public class UccCollectiveImpl implements CollectiveApi {
         checkInitialized();
         checkNotClosed();
         return VirtualThreads.runAsync(() -> {
+            // Set up collective args
+            MemorySegment args = ucc_coll_args.allocate(arena);
+            UccHelper.setupCollectiveArgs(args, UccConstants.COLL_TYPE_ALLGATHER);
+
+            // Configure source buffer
+            MemorySegment srcInfo = UccHelper.getSrcBufferInfo(args);
+            UccHelper.setupBufferInfo(srcInfo, input);
+
+            // Configure destination buffer
+            MemorySegment dstInfo = UccHelper.getDstBufferInfo(args);
+            UccHelper.setupBufferInfo(dstInfo, output);
+
+            // Initialize and post collective
+            MemorySegment requestPtr = arena.allocate(ValueLayout.ADDRESS);
+            int status = Ucc.ucc_collective_init_and_post(args, requestPtr, uccTeam);
+            UccHelper.checkStatusAllowInProgress(status, "allgather_into init_and_post");
+
+            // Wait for completion
+            MemorySegment request = requestPtr.get(ValueLayout.ADDRESS, 0);
+            UccHelper.waitForCompletion(request);
+
             allGatherCount.incrementAndGet();
             totalOps.incrementAndGet();
             totalBytes.addAndGet(input.spec().byteSize() * config.worldSize());
@@ -204,13 +377,38 @@ public class UccCollectiveImpl implements CollectiveApi {
         checkNotClosed();
         validateRank(root);
         return VirtualThreads.supplyAsync(() -> {
-            // TODO: Use UCC_COLL_TYPE_BCAST
+            // Allocate output tensor
+            Tensor result = Tensor.zeros(tensor.dtype(), tensor.shape());
+
+            // Copy input to result (will be overwritten if not root)
+            MemorySegment.copy(tensor.data(), 0, result.data(), 0, tensor.spec().byteSize());
+
+            // Set up collective args
+            MemorySegment args = ucc_coll_args.allocate(arena);
+            UccHelper.setupCollectiveArgsWithRoot(args, UccConstants.COLL_TYPE_BCAST, root);
+
+            // Configure source buffer (root's data)
+            MemorySegment srcInfo = UccHelper.getSrcBufferInfo(args);
+            UccHelper.setupBufferInfo(srcInfo, config.rank() == root ? tensor : result);
+
+            // Configure destination buffer
+            MemorySegment dstInfo = UccHelper.getDstBufferInfo(args);
+            UccHelper.setupBufferInfo(dstInfo, result);
+
+            // Initialize and post collective
+            MemorySegment requestPtr = arena.allocate(ValueLayout.ADDRESS);
+            int status = Ucc.ucc_collective_init_and_post(args, requestPtr, uccTeam);
+            UccHelper.checkStatusAllowInProgress(status, "broadcast init_and_post");
+
+            // Wait for completion
+            MemorySegment request = requestPtr.get(ValueLayout.ADDRESS, 0);
+            UccHelper.waitForCompletion(request);
+
+            // Update statistics
             broadcastCount.incrementAndGet();
             totalOps.incrementAndGet();
             totalBytes.addAndGet(tensor.spec().byteSize());
 
-            Tensor result = Tensor.zeros(tensor.dtype(), tensor.shape());
-            MemorySegment.copy(tensor.data(), 0, result.data(), 0, tensor.spec().byteSize());
             return result;
         });
     }
@@ -221,6 +419,27 @@ public class UccCollectiveImpl implements CollectiveApi {
         checkNotClosed();
         validateRank(root);
         return VirtualThreads.runAsync(() -> {
+            // Set up collective args
+            MemorySegment args = ucc_coll_args.allocate(arena);
+            UccHelper.setupCollectiveArgsWithRoot(args, UccConstants.COLL_TYPE_BCAST, root);
+            ucc_coll_args.flags(args, UccConstants.COLL_ARGS_FLAG_IN_PLACE);
+
+            // For in-place, src and dst are the same buffer
+            MemorySegment srcInfo = UccHelper.getSrcBufferInfo(args);
+            UccHelper.setupBufferInfo(srcInfo, tensor);
+
+            MemorySegment dstInfo = UccHelper.getDstBufferInfo(args);
+            UccHelper.setupBufferInfo(dstInfo, tensor);
+
+            // Initialize and post collective
+            MemorySegment requestPtr = arena.allocate(ValueLayout.ADDRESS);
+            int status = Ucc.ucc_collective_init_and_post(args, requestPtr, uccTeam);
+            UccHelper.checkStatusAllowInProgress(status, "broadcast_inplace init_and_post");
+
+            // Wait for completion
+            MemorySegment request = requestPtr.get(ValueLayout.ADDRESS, 0);
+            UccHelper.waitForCompletion(request);
+
             broadcastCount.incrementAndGet();
             totalOps.incrementAndGet();
             totalBytes.addAndGet(tensor.spec().byteSize());
@@ -232,14 +451,38 @@ public class UccCollectiveImpl implements CollectiveApi {
         checkInitialized();
         checkNotClosed();
         return VirtualThreads.supplyAsync(() -> {
-            // TODO: Use UCC_COLL_TYPE_REDUCE_SCATTER
+            // Allocate output tensor with input size / worldSize
+            int[] newShape = input.shape().clone();
+            newShape[0] /= config.worldSize();
+            Tensor result = Tensor.zeros(input.dtype(), newShape);
+
+            // Set up collective args
+            MemorySegment args = ucc_coll_args.allocate(arena);
+            UccHelper.setupCollectiveArgsWithOp(args, UccConstants.COLL_TYPE_REDUCE_SCATTER, allReduceOpToUcc(op));
+
+            // Configure source buffer
+            MemorySegment srcInfo = UccHelper.getSrcBufferInfo(args);
+            UccHelper.setupBufferInfo(srcInfo, input);
+
+            // Configure destination buffer
+            MemorySegment dstInfo = UccHelper.getDstBufferInfo(args);
+            UccHelper.setupBufferInfo(dstInfo, result);
+
+            // Initialize and post collective
+            MemorySegment requestPtr = arena.allocate(ValueLayout.ADDRESS);
+            int status = Ucc.ucc_collective_init_and_post(args, requestPtr, uccTeam);
+            UccHelper.checkStatusAllowInProgress(status, "reduce_scatter init_and_post");
+
+            // Wait for completion
+            MemorySegment request = requestPtr.get(ValueLayout.ADDRESS, 0);
+            UccHelper.waitForCompletion(request);
+
+            // Update statistics
             reduceScatterCount.incrementAndGet();
             totalOps.incrementAndGet();
             totalBytes.addAndGet(input.spec().byteSize());
 
-            int[] newShape = input.shape().clone();
-            newShape[0] /= config.worldSize();
-            return Tensor.zeros(input.dtype(), newShape);
+            return result;
         });
     }
 
@@ -248,6 +491,27 @@ public class UccCollectiveImpl implements CollectiveApi {
         checkInitialized();
         checkNotClosed();
         return VirtualThreads.runAsync(() -> {
+            // Set up collective args
+            MemorySegment args = ucc_coll_args.allocate(arena);
+            UccHelper.setupCollectiveArgsWithOp(args, UccConstants.COLL_TYPE_REDUCE_SCATTER, allReduceOpToUcc(op));
+
+            // Configure source buffer
+            MemorySegment srcInfo = UccHelper.getSrcBufferInfo(args);
+            UccHelper.setupBufferInfo(srcInfo, input);
+
+            // Configure destination buffer
+            MemorySegment dstInfo = UccHelper.getDstBufferInfo(args);
+            UccHelper.setupBufferInfo(dstInfo, output);
+
+            // Initialize and post collective
+            MemorySegment requestPtr = arena.allocate(ValueLayout.ADDRESS);
+            int status = Ucc.ucc_collective_init_and_post(args, requestPtr, uccTeam);
+            UccHelper.checkStatusAllowInProgress(status, "reduce_scatter_into init_and_post");
+
+            // Wait for completion
+            MemorySegment request = requestPtr.get(ValueLayout.ADDRESS, 0);
+            UccHelper.waitForCompletion(request);
+
             reduceScatterCount.incrementAndGet();
             totalOps.incrementAndGet();
             totalBytes.addAndGet(input.spec().byteSize());
@@ -259,10 +523,33 @@ public class UccCollectiveImpl implements CollectiveApi {
         checkInitialized();
         checkNotClosed();
         return VirtualThreads.supplyAsync(() -> {
-            // TODO: Use UCC_COLL_TYPE_ALLTOALL
+            // Output has same shape as input for all-to-all
+            Tensor result = Tensor.zeros(input.dtype(), input.shape());
+
+            // Set up collective args
+            MemorySegment args = ucc_coll_args.allocate(arena);
+            UccHelper.setupCollectiveArgs(args, UccConstants.COLL_TYPE_ALLTOALL);
+
+            // Configure source buffer
+            MemorySegment srcInfo = UccHelper.getSrcBufferInfo(args);
+            UccHelper.setupBufferInfo(srcInfo, input);
+
+            // Configure destination buffer
+            MemorySegment dstInfo = UccHelper.getDstBufferInfo(args);
+            UccHelper.setupBufferInfo(dstInfo, result);
+
+            // Initialize and post collective
+            MemorySegment requestPtr = arena.allocate(ValueLayout.ADDRESS);
+            int status = Ucc.ucc_collective_init_and_post(args, requestPtr, uccTeam);
+            UccHelper.checkStatusAllowInProgress(status, "alltoall init_and_post");
+
+            // Wait for completion
+            MemorySegment request = requestPtr.get(ValueLayout.ADDRESS, 0);
+            UccHelper.waitForCompletion(request);
+
             totalOps.incrementAndGet();
             totalBytes.addAndGet(input.spec().byteSize());
-            return Tensor.zeros(input.dtype(), input.shape());
+            return result;
         });
     }
 
@@ -271,6 +558,27 @@ public class UccCollectiveImpl implements CollectiveApi {
         checkInitialized();
         checkNotClosed();
         return VirtualThreads.runAsync(() -> {
+            // Set up collective args
+            MemorySegment args = ucc_coll_args.allocate(arena);
+            UccHelper.setupCollectiveArgs(args, UccConstants.COLL_TYPE_ALLTOALL);
+
+            // Configure source buffer
+            MemorySegment srcInfo = UccHelper.getSrcBufferInfo(args);
+            UccHelper.setupBufferInfo(srcInfo, input);
+
+            // Configure destination buffer
+            MemorySegment dstInfo = UccHelper.getDstBufferInfo(args);
+            UccHelper.setupBufferInfo(dstInfo, output);
+
+            // Initialize and post collective
+            MemorySegment requestPtr = arena.allocate(ValueLayout.ADDRESS);
+            int status = Ucc.ucc_collective_init_and_post(args, requestPtr, uccTeam);
+            UccHelper.checkStatusAllowInProgress(status, "alltoall_into init_and_post");
+
+            // Wait for completion
+            MemorySegment request = requestPtr.get(ValueLayout.ADDRESS, 0);
+            UccHelper.waitForCompletion(request);
+
             totalOps.incrementAndGet();
             totalBytes.addAndGet(input.spec().byteSize());
         });
@@ -282,10 +590,33 @@ public class UccCollectiveImpl implements CollectiveApi {
         checkNotClosed();
         validateRank(root);
         return VirtualThreads.supplyAsync(() -> {
-            // TODO: Use UCC_COLL_TYPE_REDUCE
+            // Result is only valid at root, but all ranks need output buffer
+            Tensor result = Tensor.zeros(input.dtype(), input.shape());
+
+            // Set up collective args
+            MemorySegment args = ucc_coll_args.allocate(arena);
+            UccHelper.setupCollectiveArgsWithOpAndRoot(args, UccConstants.COLL_TYPE_REDUCE, allReduceOpToUcc(op), root);
+
+            // Configure source buffer
+            MemorySegment srcInfo = UccHelper.getSrcBufferInfo(args);
+            UccHelper.setupBufferInfo(srcInfo, input);
+
+            // Configure destination buffer
+            MemorySegment dstInfo = UccHelper.getDstBufferInfo(args);
+            UccHelper.setupBufferInfo(dstInfo, result);
+
+            // Initialize and post collective
+            MemorySegment requestPtr = arena.allocate(ValueLayout.ADDRESS);
+            int status = Ucc.ucc_collective_init_and_post(args, requestPtr, uccTeam);
+            UccHelper.checkStatusAllowInProgress(status, "reduce init_and_post");
+
+            // Wait for completion
+            MemorySegment request = requestPtr.get(ValueLayout.ADDRESS, 0);
+            UccHelper.waitForCompletion(request);
+
             totalOps.incrementAndGet();
             totalBytes.addAndGet(input.spec().byteSize());
-            return Tensor.zeros(input.dtype(), input.shape());
+            return result;
         });
     }
 
@@ -295,12 +626,40 @@ public class UccCollectiveImpl implements CollectiveApi {
         checkNotClosed();
         validateRank(root);
         return VirtualThreads.supplyAsync(() -> {
-            // TODO: Use UCC_COLL_TYPE_SCATTER
-            totalOps.incrementAndGet();
+            // Each rank receives input.size / worldSize elements
             int[] newShape = input.shape().clone();
             newShape[0] /= config.worldSize();
+            Tensor result = Tensor.zeros(input.dtype(), newShape);
+
+            // Set up collective args
+            MemorySegment args = ucc_coll_args.allocate(arena);
+            UccHelper.setupCollectiveArgsWithRoot(args, UccConstants.COLL_TYPE_SCATTER, root);
+
+            // Configure source buffer (root has the full data)
+            MemorySegment srcInfo = UccHelper.getSrcBufferInfo(args);
+            if (config.rank() == root) {
+                UccHelper.setupBufferInfo(srcInfo, input);
+            } else {
+                // Non-root ranks don't need valid source data, but must set buffer info
+                UccHelper.setupBufferInfo(srcInfo, result);
+            }
+
+            // Configure destination buffer
+            MemorySegment dstInfo = UccHelper.getDstBufferInfo(args);
+            UccHelper.setupBufferInfo(dstInfo, result);
+
+            // Initialize and post collective
+            MemorySegment requestPtr = arena.allocate(ValueLayout.ADDRESS);
+            int status = Ucc.ucc_collective_init_and_post(args, requestPtr, uccTeam);
+            UccHelper.checkStatusAllowInProgress(status, "scatter init_and_post");
+
+            // Wait for completion
+            MemorySegment request = requestPtr.get(ValueLayout.ADDRESS, 0);
+            UccHelper.waitForCompletion(request);
+
+            totalOps.incrementAndGet();
             totalBytes.addAndGet(input.spec().byteSize() / config.worldSize());
-            return Tensor.zeros(input.dtype(), newShape);
+            return result;
         });
     }
 
@@ -310,16 +669,44 @@ public class UccCollectiveImpl implements CollectiveApi {
         checkNotClosed();
         validateRank(root);
         return VirtualThreads.supplyAsync(() -> {
-            // TODO: Use UCC_COLL_TYPE_GATHER
-            totalOps.incrementAndGet();
-            totalBytes.addAndGet(input.spec().byteSize());
+            // Root receives worldSize * input.size elements, others get empty tensor
+            Tensor result;
             if (config.rank() == root) {
                 int[] newShape = input.shape().clone();
                 newShape[0] *= config.worldSize();
-                return Tensor.zeros(input.dtype(), newShape);
+                result = Tensor.zeros(input.dtype(), newShape);
             } else {
-                return Tensor.zeros(input.dtype(), new int[]{0});
+                result = Tensor.zeros(input.dtype(), new int[]{0});
             }
+
+            // Set up collective args
+            MemorySegment args = ucc_coll_args.allocate(arena);
+            UccHelper.setupCollectiveArgsWithRoot(args, UccConstants.COLL_TYPE_GATHER, root);
+
+            // Configure source buffer
+            MemorySegment srcInfo = UccHelper.getSrcBufferInfo(args);
+            UccHelper.setupBufferInfo(srcInfo, input);
+
+            // Configure destination buffer (only meaningful at root)
+            MemorySegment dstInfo = UccHelper.getDstBufferInfo(args);
+            if (config.rank() == root) {
+                UccHelper.setupBufferInfo(dstInfo, result);
+            } else {
+                UccHelper.setupBufferInfo(dstInfo, input);
+            }
+
+            // Initialize and post collective
+            MemorySegment requestPtr = arena.allocate(ValueLayout.ADDRESS);
+            int status = Ucc.ucc_collective_init_and_post(args, requestPtr, uccTeam);
+            UccHelper.checkStatusAllowInProgress(status, "gather init_and_post");
+
+            // Wait for completion
+            MemorySegment request = requestPtr.get(ValueLayout.ADDRESS, 0);
+            UccHelper.waitForCompletion(request);
+
+            totalOps.incrementAndGet();
+            totalBytes.addAndGet(input.spec().byteSize());
+            return result;
         });
     }
 
@@ -328,7 +715,16 @@ public class UccCollectiveImpl implements CollectiveApi {
         checkInitialized();
         checkNotClosed();
         return VirtualThreads.runAsync(() -> {
-            // TODO: Use UCC_COLL_TYPE_BARRIER
+            MemorySegment args = ucc_coll_args.allocate(arena);
+            UccHelper.setupCollectiveArgs(args, UccConstants.COLL_TYPE_BARRIER);
+
+            MemorySegment requestPtr = arena.allocate(ValueLayout.ADDRESS);
+            int status = Ucc.ucc_collective_init_and_post(args, requestPtr, uccTeam);
+            UccHelper.checkStatusAllowInProgress(status, "barrier init_and_post");
+
+            MemorySegment request = requestPtr.get(ValueLayout.ADDRESS, 0);
+            UccHelper.waitForCompletion(request);
+
             barrierCount.incrementAndGet();
             totalOps.incrementAndGet();
         });
@@ -376,12 +772,59 @@ public class UccCollectiveImpl implements CollectiveApi {
         if (closed) return;
         closed = true;
 
-        // TODO: Cleanup UCC resources
-        // ucc_team_destroy(uccTeam);
-        // ucc_context_destroy(uccContext);
-        // ucc_finalize(uccLib);
+        LOG.info("Closing UCC collective for rank " + config.rank());
 
-        arena.close();
+        // Cleanup UCC resources in reverse order
+        try {
+            if (uccTeam != null && !UccHelper.isNull(uccTeam)) {
+                int status = Ucc.ucc_team_destroy(uccTeam);
+                if (status != UccConstants.OK) {
+                    LOG.warning("ucc_team_destroy returned: " + UccConstants.statusToString(status));
+                }
+            }
+        } catch (Exception e) {
+            LOG.log(Level.WARNING, "Error destroying UCC team", e);
+        }
+
+        try {
+            if (uccContext != null && !UccHelper.isNull(uccContext)) {
+                int status = Ucc.ucc_context_destroy(uccContext);
+                if (status != UccConstants.OK) {
+                    LOG.warning("ucc_context_destroy returned: " + UccConstants.statusToString(status));
+                }
+            }
+        } catch (Exception e) {
+            LOG.log(Level.WARNING, "Error destroying UCC context", e);
+        }
+
+        try {
+            if (uccLib != null && !UccHelper.isNull(uccLib)) {
+                int status = Ucc.ucc_finalize(uccLib);
+                if (status != UccConstants.OK) {
+                    LOG.warning("ucc_finalize returned: " + UccConstants.statusToString(status));
+                }
+            }
+        } catch (Exception e) {
+            LOG.log(Level.WARNING, "Error finalizing UCC library", e);
+        }
+
+        // Close OOB coordinator
+        if (oobCoordinator != null) {
+            try {
+                oobCoordinator.close();
+            } catch (Exception e) {
+                LOG.log(Level.WARNING, "Error closing OOB coordinator", e);
+            }
+        }
+
+        // Close arena
+        try {
+            arena.close();
+        } catch (Exception e) {
+            LOG.log(Level.WARNING, "Error closing arena", e);
+        }
+
+        LOG.fine("UCC collective closed for rank " + config.rank());
     }
 
     private void checkInitialized() {
@@ -401,5 +844,48 @@ public class UccCollectiveImpl implements CollectiveApi {
         if (rank < 0 || rank >= config.worldSize()) {
             throw CollectiveException.invalidRank(rank, config.worldSize());
         }
+    }
+
+    // ========================================================================
+    // Helper Methods
+    // ========================================================================
+
+    /**
+     * Convert AllReduceOp to UCC reduction operation constant.
+     */
+    private int allReduceOpToUcc(AllReduceOp op) {
+        return switch (op) {
+            case SUM -> UccConstants.OP_SUM;
+            case PROD -> UccConstants.OP_PROD;
+            case MIN -> UccConstants.OP_MIN;
+            case MAX -> UccConstants.OP_MAX;
+            case AVG -> UccConstants.OP_AVG;
+            case LAND -> UccConstants.OP_LAND;
+            case LOR -> UccConstants.OP_LOR;
+            case BAND -> UccConstants.OP_BAND;
+            case BOR -> UccConstants.OP_BOR;
+            case BXOR -> UccConstants.OP_BXOR;
+            case MINLOC -> UccConstants.OP_MINLOC;
+            case MAXLOC -> UccConstants.OP_MAXLOC;
+        };
+    }
+
+    /**
+     * Convert raw datatype int to UCC datatype constant.
+     * The raw int is expected to match CollectiveApi datatype constants.
+     */
+    private long uccDatatypeFromInt(int datatype) {
+        // Map CollectiveApi.DTYPE_* to UCC datatypes
+        return switch (datatype) {
+            case 0 -> UccConstants.DT_FLOAT32;  // DTYPE_FLOAT32
+            case 1 -> UccConstants.DT_FLOAT64;  // DTYPE_FLOAT64
+            case 2 -> UccConstants.DT_FLOAT16;  // DTYPE_FLOAT16
+            case 3 -> UccConstants.DT_BFLOAT16; // DTYPE_BFLOAT16
+            case 4 -> UccConstants.DT_INT32;    // DTYPE_INT32
+            case 5 -> UccConstants.DT_INT64;    // DTYPE_INT64
+            case 6 -> UccConstants.DT_INT8;     // DTYPE_INT8
+            case 7 -> UccConstants.DT_INT16;    // DTYPE_INT16
+            default -> throw new IllegalArgumentException("Unknown datatype: " + datatype);
+        };
     }
 }

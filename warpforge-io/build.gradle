@@ -95,6 +95,9 @@ tasks.register('unitTest', Test) {
     description = 'Run unit tests with mock backends (can run on NUC without RDMA)'
     group = 'verification'
 
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+
     useJUnitPlatform {
         includeTags 'unit'
         excludeTags 'integration', 'rdma', 'rdma-perf', 'ray-integration'
@@ -108,6 +111,9 @@ tasks.register('unitTest', Test) {
 tasks.register('rdmaTest', Test) {
     description = 'Run RDMA tests (requires Mellanox hardware)'
     group = 'verification'
+
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
 
     useJUnitPlatform {
         includeTags 'rdma'
@@ -123,6 +129,10 @@ tasks.register('rdmaPerfTest', Test) {
     description = 'Run RDMA performance tests (measures throughput vs ibperf baseline)'
     group = 'verification'
 
+    // Must set test classes and classpath for custom Test tasks
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+
     useJUnitPlatform {
         includeTags 'rdma-perf'
     }
@@ -133,12 +143,20 @@ tasks.register('rdmaPerfTest', Test) {
     // Performance test configuration
     systemProperty 'rdma.perf.iterations', System.getProperty('rdma.perf.iterations', '10000')
     systemProperty 'rdma.perf.message.size', System.getProperty('rdma.perf.message.size', '1048576')
+
+    testLogging {
+        events 'passed', 'skipped', 'failed'
+        showStandardStreams = true
+    }
 }
 
 // Ray-launched integration tests for distributed operations
 tasks.register('rayIntegrationTest', Test) {
     description = 'Run Ray-launched integration tests for all RDMA and collective operations'
     group = 'verification'
+
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
 
     useJUnitPlatform {
         includeTags 'ray-integration'
@@ -156,6 +174,9 @@ tasks.register('rayIntegrationTest', Test) {
 tasks.register('integrationTest', Test) {
     description = 'Run all integration tests (RDMA + Ray)'
     group = 'verification'
+
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
 
     useJUnitPlatform {
         includeTags 'integration', 'rdma', 'ray-integration'

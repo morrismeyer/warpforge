@@ -458,9 +458,21 @@ public final class CudaOpDispatcher {
             registerStub(StableHloAst.ReverseOp.class);
         }
 
+        // Shape manipulation - Gather (IMPLEMENTED)
+        if (context != null) {
+            kernels.put(StableHloAst.GatherOp.class, new GatherKernel(context, salt));
+        } else {
+            registerStub(StableHloAst.GatherOp.class);
+        }
+
+        // Shape manipulation - Scatter (IMPLEMENTED)
+        if (context != null) {
+            kernels.put(StableHloAst.ScatterOp.class, new ScatterKernel(context, salt));
+        } else {
+            registerStub(StableHloAst.ScatterOp.class);
+        }
+
         // Shape manipulation (remaining stubs)
-        registerStub(StableHloAst.GatherOp.class);
-        registerStub(StableHloAst.ScatterOp.class);
         registerStub(StableHloAst.DynamicSliceOp.class);
         registerStub(StableHloAst.DynamicUpdateSliceOp.class);
         registerStub(StableHloAst.GetDimensionSizeOp.class);
@@ -487,21 +499,46 @@ public final class CudaOpDispatcher {
         registerStub(StableHloAst.UniformQuantizeOp.class);
         registerStub(StableHloAst.UniformDequantizeOp.class);
 
-        // Reduction
-        registerStub(StableHloAst.ReduceWindowOp.class);
+        // Reduction - ReduceWindow (IMPLEMENTED)
+        if (context != null) {
+            kernels.put(StableHloAst.ReduceWindowOp.class, new ReduceWindowKernel(context, salt));
+        } else {
+            registerStub(StableHloAst.ReduceWindowOp.class);
+        }
+
+        // Reduction (remaining stubs)
         registerStub(StableHloAst.ReducePrecisionOp.class);
         registerStub(StableHloAst.SelectAndScatterOp.class);
 
-        // Linear algebra
-        registerStub(StableHloAst.DotGeneralOp.class);
+        // Linear algebra - DotGeneral (IMPLEMENTED)
+        if (context != null) {
+            kernels.put(StableHloAst.DotGeneralOp.class, new DotGeneralKernel(context, salt));
+        } else {
+            registerStub(StableHloAst.DotGeneralOp.class);
+        }
+
+        // Linear algebra (remaining stubs)
         registerStub(StableHloAst.CholeskyOp.class);
         registerStub(StableHloAst.TriangularSolveOp.class);
 
-        // Convolution and neural network
-        registerStub(StableHloAst.ConvolutionOp.class);
-        registerStub(StableHloAst.BatchNormTrainingOp.class);
-        registerStub(StableHloAst.BatchNormInferenceOp.class);
-        registerStub(StableHloAst.BatchNormGradOp.class);
+        // Convolution - Convolution (IMPLEMENTED)
+        if (context != null) {
+            kernels.put(StableHloAst.ConvolutionOp.class, new ConvolutionKernel(context, salt));
+        } else {
+            registerStub(StableHloAst.ConvolutionOp.class);
+        }
+
+        // BatchNorm operations (IMPLEMENTED)
+        if (context != null) {
+            BatchNormKernel batchNormKernel = new BatchNormKernel(context, salt);
+            kernels.put(StableHloAst.BatchNormTrainingOp.class, batchNormKernel);
+            kernels.put(StableHloAst.BatchNormInferenceOp.class, batchNormKernel);
+            kernels.put(StableHloAst.BatchNormGradOp.class, batchNormKernel);
+        } else {
+            registerStub(StableHloAst.BatchNormTrainingOp.class);
+            registerStub(StableHloAst.BatchNormInferenceOp.class);
+            registerStub(StableHloAst.BatchNormGradOp.class);
+        }
 
         // Control flow
         registerStub(StableHloAst.IfOp.class);

@@ -4062,6 +4062,1197 @@ lg2.approx.f32  %f4, %f2;              // temp for checking if x is positive
         return ptx.toString();
     }
 
+    // ==================== Gather and Scatter Operations ====================
+
+    /**
+     * Generate PTX for 1D gather operation.
+     *
+     * <p>Gathers elements from input using indices: output[i] = input[indices[i]].
+     * This is a simplified gather that handles the common embedding lookup case.
+     *
+     * @param salt Instrumentation level
+     * @return PTX source code
+     */
+    public static String generateGather1DF32(int salt) {
+        StringBuilder ptx = new StringBuilder();
+
+        ptx.append("""
+            //
+            // gather_1d_f32: Gather elements using indices
+            // output[i] = input[indices[i]]
+            // Salt level: %d
+            //
+            .version 7.0
+            .target sm_50
+            .address_size 64
+
+            .visible .entry gather_1d_f32(
+                .param .u64 in_ptr,
+                .param .u64 indices_ptr,
+                .param .u64 out_ptr,
+                .param .u32 n_out
+            """.formatted(salt));
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("    ,.param .u64 timing_ptr\n");
+        }
+
+        ptx.append("""
+            )
+            {
+                .reg .pred  %p<2>;
+                .reg .f32   %f<2>;
+                .reg .b32   %r<10>;
+                .reg .b64   %rd<12>;
+            """);
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("    .reg .b64   %rd_t0, %rd_t1, %rd_delta;\n");
+        }
+
+        ptx.append("""
+
+                // Calculate global thread index
+                mov.u32         %r1, %ctaid.x;
+                mov.u32         %r2, %ntid.x;
+                mov.u32         %r3, %tid.x;
+                mad.lo.s32      %r4, %r1, %r2, %r3;
+
+                // Bounds check
+                ld.param.u32    %r5, [n_out];
+                setp.ge.s32     %p1, %r4, %r5;
+                @%p1 bra        EXIT;
+
+                // Load pointers
+                ld.param.u64    %rd1, [in_ptr];
+                ld.param.u64    %rd2, [indices_ptr];
+                ld.param.u64    %rd3, [out_ptr];
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("    mov.u64         %rd_t0, %globaltimer;\n\n");
+        }
+
+        ptx.append("""
+                // Load index: indices[i]
+                cvt.s64.s32     %rd4, %r4;
+                shl.b64         %rd4, %rd4, 2;      // * 4 (int32 indices)
+                add.s64         %rd5, %rd2, %rd4;
+                ld.global.s32   %r6, [%rd5];        // r6 = indices[i]
+
+                // Load from input[indices[i]]
+                cvt.s64.s32     %rd6, %r6;
+                shl.b64         %rd6, %rd6, 2;      // * 4 (float32)
+                add.s64         %rd7, %rd1, %rd6;
+                ld.global.f32   %f1, [%rd7];
+
+                // Store to output[i]
+                add.s64         %rd8, %rd3, %rd4;
+                st.global.f32   [%rd8], %f1;
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("""
+                    mov.u64         %rd_t1, %globaltimer;
+                    sub.u64         %rd_delta, %rd_t1, %rd_t0;
+                    ld.param.u64    %rd11, [timing_ptr];
+                    atom.global.add.u64 [%rd11], %rd_delta;
+
+            """);
+        }
+
+        ptx.append("""
+            EXIT:
+                ret;
+            }
+            """);
+
+        return ptx.toString();
+    }
+
+    /**
+     * Generate PTX for 2D gather operation (embedding lookup).
+     *
+     * <p>Gathers rows from a 2D embedding table: output[i,:] = input[indices[i],:].
+     *
+     * @param salt Instrumentation level
+     * @return PTX source code
+     */
+    public static String generateGather2DF32(int salt) {
+        StringBuilder ptx = new StringBuilder();
+
+        ptx.append("""
+            //
+            // gather_2d_f32: Gather rows from 2D table (embedding lookup)
+            // output[i, j] = input[indices[i], j]
+            // Salt level: %d
+            //
+            .version 7.0
+            .target sm_50
+            .address_size 64
+
+            .visible .entry gather_2d_f32(
+                .param .u64 in_ptr,
+                .param .u64 indices_ptr,
+                .param .u64 out_ptr,
+                .param .u32 n_indices,
+                .param .u32 embedding_dim
+            """.formatted(salt));
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("    ,.param .u64 timing_ptr\n");
+        }
+
+        ptx.append("""
+            )
+            {
+                .reg .pred  %p<2>;
+                .reg .f32   %f<2>;
+                .reg .b32   %r<16>;
+                .reg .b64   %rd<16>;
+            """);
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("    .reg .b64   %rd_t0, %rd_t1, %rd_delta;\n");
+        }
+
+        ptx.append("""
+
+                // Calculate output position (i, j) from 2D grid
+                mov.u32         %r1, %ctaid.x;
+                mov.u32         %r2, %ntid.x;
+                mov.u32         %r3, %tid.x;
+                mad.lo.s32      %r4, %r1, %r2, %r3; // j = embedding position
+
+                mov.u32         %r5, %ctaid.y;
+                mov.u32         %r6, %ntid.y;
+                mov.u32         %r7, %tid.y;
+                mad.lo.s32      %r8, %r5, %r6, %r7; // i = index position
+
+                // Load dimensions
+                ld.param.u32    %r9, [n_indices];
+                ld.param.u32    %r10, [embedding_dim];
+
+                // Bounds check
+                setp.ge.s32     %p1, %r8, %r9;
+                @%p1 bra        EXIT;
+                setp.ge.s32     %p1, %r4, %r10;
+                @%p1 bra        EXIT;
+
+                // Load pointers
+                ld.param.u64    %rd1, [in_ptr];
+                ld.param.u64    %rd2, [indices_ptr];
+                ld.param.u64    %rd3, [out_ptr];
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("    mov.u64         %rd_t0, %globaltimer;\n\n");
+        }
+
+        ptx.append("""
+                // Load index: indices[i]
+                cvt.s64.s32     %rd4, %r8;
+                shl.b64         %rd4, %rd4, 2;      // * 4 (int32 indices)
+                add.s64         %rd5, %rd2, %rd4;
+                ld.global.s32   %r11, [%rd5];       // r11 = indices[i]
+
+                // Load from input[indices[i], j] = input[indices[i] * embedding_dim + j]
+                mul.lo.s32      %r12, %r11, %r10;   // indices[i] * embedding_dim
+                add.s32         %r12, %r12, %r4;    // + j
+                cvt.s64.s32     %rd6, %r12;
+                shl.b64         %rd6, %rd6, 2;      // * 4 (float32)
+                add.s64         %rd7, %rd1, %rd6;
+                ld.global.f32   %f1, [%rd7];
+
+                // Output linear index: i * embedding_dim + j
+                mul.lo.s32      %r13, %r8, %r10;
+                add.s32         %r13, %r13, %r4;
+                cvt.s64.s32     %rd8, %r13;
+                shl.b64         %rd8, %rd8, 2;
+                add.s64         %rd9, %rd3, %rd8;
+                st.global.f32   [%rd9], %f1;
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("""
+                    mov.u64         %rd_t1, %globaltimer;
+                    sub.u64         %rd_delta, %rd_t1, %rd_t0;
+                    ld.param.u64    %rd15, [timing_ptr];
+                    atom.global.add.u64 [%rd15], %rd_delta;
+
+            """);
+        }
+
+        ptx.append("""
+            EXIT:
+                ret;
+            }
+            """);
+
+        return ptx.toString();
+    }
+
+    /**
+     * Generate PTX for 1D scatter operation (add mode).
+     *
+     * <p>Scatters updates into output: output[indices[i]] += updates[i].
+     * Uses atomic add for thread-safe updates.
+     *
+     * @param salt Instrumentation level
+     * @return PTX source code
+     */
+    public static String generateScatterAddF32(int salt) {
+        StringBuilder ptx = new StringBuilder();
+
+        ptx.append("""
+            //
+            // scatter_add_f32: Scatter-add updates using indices
+            // output[indices[i]] += updates[i]
+            // Salt level: %d
+            //
+            .version 7.0
+            .target sm_50
+            .address_size 64
+
+            .visible .entry scatter_add_f32(
+                .param .u64 out_ptr,
+                .param .u64 indices_ptr,
+                .param .u64 updates_ptr,
+                .param .u32 n_updates
+            """.formatted(salt));
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("    ,.param .u64 timing_ptr\n");
+        }
+
+        ptx.append("""
+            )
+            {
+                .reg .pred  %p<2>;
+                .reg .f32   %f<2>;
+                .reg .b32   %r<10>;
+                .reg .b64   %rd<12>;
+            """);
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("    .reg .b64   %rd_t0, %rd_t1, %rd_delta;\n");
+        }
+
+        ptx.append("""
+
+                // Calculate global thread index
+                mov.u32         %r1, %ctaid.x;
+                mov.u32         %r2, %ntid.x;
+                mov.u32         %r3, %tid.x;
+                mad.lo.s32      %r4, %r1, %r2, %r3;
+
+                // Bounds check
+                ld.param.u32    %r5, [n_updates];
+                setp.ge.s32     %p1, %r4, %r5;
+                @%p1 bra        EXIT;
+
+                // Load pointers
+                ld.param.u64    %rd1, [out_ptr];
+                ld.param.u64    %rd2, [indices_ptr];
+                ld.param.u64    %rd3, [updates_ptr];
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("    mov.u64         %rd_t0, %globaltimer;\n\n");
+        }
+
+        ptx.append("""
+                // Load index and update value
+                cvt.s64.s32     %rd4, %r4;
+                shl.b64         %rd5, %rd4, 2;      // * 4
+
+                // Load indices[i]
+                add.s64         %rd6, %rd2, %rd5;
+                ld.global.s32   %r6, [%rd6];
+
+                // Load updates[i]
+                add.s64         %rd7, %rd3, %rd5;
+                ld.global.f32   %f1, [%rd7];
+
+                // Atomically add to output[indices[i]]
+                cvt.s64.s32     %rd8, %r6;
+                shl.b64         %rd8, %rd8, 2;
+                add.s64         %rd9, %rd1, %rd8;
+                atom.global.add.f32 %f1, [%rd9], %f1;
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("""
+                    mov.u64         %rd_t1, %globaltimer;
+                    sub.u64         %rd_delta, %rd_t1, %rd_t0;
+                    ld.param.u64    %rd11, [timing_ptr];
+                    atom.global.add.u64 [%rd11], %rd_delta;
+
+            """);
+        }
+
+        ptx.append("""
+            EXIT:
+                ret;
+            }
+            """);
+
+        return ptx.toString();
+    }
+
+    // ==================== DotGeneral and Batch Operations ====================
+
+    /**
+     * Generate PTX for batch matrix multiplication.
+     *
+     * <p>Computes C[b,i,j] = sum_k A[b,i,k] * B[b,k,j] for each batch b.
+     * This handles the common DotGeneral case with one batch dimension.
+     *
+     * @param salt Instrumentation level
+     * @return PTX source code
+     */
+    public static String generateBatchMatMulF32(int salt) {
+        StringBuilder ptx = new StringBuilder();
+
+        ptx.append("""
+            //
+            // batch_matmul_f32: Batched matrix multiplication
+            // C[b,i,j] = sum_k A[b,i,k] * B[b,k,j]
+            // Salt level: %d
+            //
+            .version 7.0
+            .target sm_50
+            .address_size 64
+
+            .visible .entry batch_matmul_f32(
+                .param .u64 a_ptr,
+                .param .u64 b_ptr,
+                .param .u64 c_ptr,
+                .param .u32 batch_size,
+                .param .u32 M,
+                .param .u32 N,
+                .param .u32 K
+            """.formatted(salt));
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("    ,.param .u64 timing_ptr\n");
+        }
+
+        ptx.append("""
+            )
+            {
+                .reg .pred  %p<3>;
+                .reg .f32   %f<4>;
+                .reg .b32   %r<24>;
+                .reg .b64   %rd<20>;
+            """);
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("    .reg .b64   %rd_t0, %rd_t1, %rd_delta;\n");
+        }
+
+        ptx.append("""
+
+                // Calculate output position (batch, i, j) from 3D grid
+                // Using 2D blocks for i,j and 1D grid for batch
+                mov.u32         %r1, %ctaid.x;
+                mov.u32         %r2, %ntid.x;
+                mov.u32         %r3, %tid.x;
+                mad.lo.s32      %r4, %r1, %r2, %r3; // j
+
+                mov.u32         %r5, %ctaid.y;
+                mov.u32         %r6, %ntid.y;
+                mov.u32         %r7, %tid.y;
+                mad.lo.s32      %r8, %r5, %r6, %r7; // i
+
+                mov.u32         %r21, %ctaid.z;     // batch
+
+                // Load dimensions
+                ld.param.u32    %r9, [batch_size];
+                ld.param.u32    %r10, [M];
+                ld.param.u32    %r11, [N];
+                ld.param.u32    %r12, [K];
+
+                // Bounds check
+                setp.ge.s32     %p1, %r21, %r9;
+                @%p1 bra        EXIT;
+                setp.ge.s32     %p1, %r8, %r10;
+                @%p1 bra        EXIT;
+                setp.ge.s32     %p1, %r4, %r11;
+                @%p1 bra        EXIT;
+
+                // Load pointers
+                ld.param.u64    %rd1, [a_ptr];
+                ld.param.u64    %rd2, [b_ptr];
+                ld.param.u64    %rd3, [c_ptr];
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("    mov.u64         %rd_t0, %globaltimer;\n\n");
+        }
+
+        ptx.append("""
+                // Calculate batch offsets
+                // A batch stride = M * K
+                mul.lo.s32      %r13, %r10, %r12;   // M * K
+                mul.lo.s32      %r14, %r21, %r13;   // batch * M * K
+                cvt.s64.s32     %rd4, %r14;
+                shl.b64         %rd4, %rd4, 2;
+                add.s64         %rd5, %rd1, %rd4;   // A base for this batch
+
+                // B batch stride = K * N
+                mul.lo.s32      %r15, %r12, %r11;   // K * N
+                mul.lo.s32      %r16, %r21, %r15;   // batch * K * N
+                cvt.s64.s32     %rd6, %r16;
+                shl.b64         %rd6, %rd6, 2;
+                add.s64         %rd7, %rd2, %rd6;   // B base for this batch
+
+                // Initialize sum = 0
+                mov.f32         %f1, 0f00000000;
+
+                // Loop: for k = 0; k < K; k++
+                mov.u32         %r17, 0;
+            LOOP:
+                setp.ge.s32     %p2, %r17, %r12;
+                @%p2 bra        LOOP_END;
+
+                // Load A[i, k] = A[i * K + k]
+                mul.lo.s32      %r18, %r8, %r12;    // i * K
+                add.s32         %r18, %r18, %r17;   // i * K + k
+                cvt.s64.s32     %rd8, %r18;
+                shl.b64         %rd8, %rd8, 2;
+                add.s64         %rd9, %rd5, %rd8;
+                ld.global.f32   %f2, [%rd9];
+
+                // Load B[k, j] = B[k * N + j]
+                mul.lo.s32      %r19, %r17, %r11;   // k * N
+                add.s32         %r19, %r19, %r4;    // k * N + j
+                cvt.s64.s32     %rd10, %r19;
+                shl.b64         %rd10, %rd10, 2;
+                add.s64         %rd11, %rd7, %rd10;
+                ld.global.f32   %f3, [%rd11];
+
+                // sum += A[i,k] * B[k,j]
+                fma.rn.f32      %f1, %f2, %f3, %f1;
+
+                // k++
+                add.s32         %r17, %r17, 1;
+                bra             LOOP;
+
+            LOOP_END:
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("""
+                    mov.u64         %rd_t1, %globaltimer;
+                    sub.u64         %rd_delta, %rd_t1, %rd_t0;
+                    ld.param.u64    %rd19, [timing_ptr];
+                    atom.global.add.u64 [%rd19], %rd_delta;
+
+            """);
+        }
+
+        ptx.append("""
+                // C batch stride = M * N
+                mul.lo.s32      %r20, %r10, %r11;   // M * N
+                mul.lo.s32      %r22, %r21, %r20;   // batch * M * N
+                // C[i, j] = i * N + j
+                mul.lo.s32      %r23, %r8, %r11;
+                add.s32         %r23, %r23, %r4;
+                add.s32         %r23, %r23, %r22;   // + batch offset
+                cvt.s64.s32     %rd12, %r23;
+                shl.b64         %rd12, %rd12, 2;
+                add.s64         %rd13, %rd3, %rd12;
+                st.global.f32   [%rd13], %f1;
+
+            EXIT:
+                ret;
+            }
+            """);
+
+        return ptx.toString();
+    }
+
+    // ==================== ReduceWindow (Pooling) Operations ====================
+
+    /**
+     * Generate PTX for 2D max pooling.
+     *
+     * <p>Computes max over sliding windows: output[i,j] = max(input[window around i,j]).
+     *
+     * @param salt Instrumentation level
+     * @return PTX source code
+     */
+    public static String generateMaxPool2DF32(int salt) {
+        StringBuilder ptx = new StringBuilder();
+
+        ptx.append("""
+            //
+            // maxpool_2d_f32: 2D max pooling
+            // output[i,j] = max over window
+            // Salt level: %d
+            //
+            .version 7.0
+            .target sm_50
+            .address_size 64
+
+            .visible .entry maxpool_2d_f32(
+                .param .u64 in_ptr,
+                .param .u64 out_ptr,
+                .param .u32 in_height,
+                .param .u32 in_width,
+                .param .u32 out_height,
+                .param .u32 out_width,
+                .param .u32 window_h,
+                .param .u32 window_w,
+                .param .u32 stride_h,
+                .param .u32 stride_w
+            """.formatted(salt));
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("    ,.param .u64 timing_ptr\n");
+        }
+
+        ptx.append("""
+            )
+            {
+                .reg .pred  %p<4>;
+                .reg .f32   %f<4>;
+                .reg .b32   %r<24>;
+                .reg .b64   %rd<12>;
+            """);
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("    .reg .b64   %rd_t0, %rd_t1, %rd_delta;\n");
+        }
+
+        ptx.append("""
+
+                // Calculate output position (oi, oj)
+                mov.u32         %r1, %ctaid.x;
+                mov.u32         %r2, %ntid.x;
+                mov.u32         %r3, %tid.x;
+                mad.lo.s32      %r4, %r1, %r2, %r3; // oj
+
+                mov.u32         %r5, %ctaid.y;
+                mov.u32         %r6, %ntid.y;
+                mov.u32         %r7, %tid.y;
+                mad.lo.s32      %r8, %r5, %r6, %r7; // oi
+
+                // Load dimensions
+                ld.param.u32    %r9, [out_height];
+                ld.param.u32    %r10, [out_width];
+                ld.param.u32    %r11, [in_width];
+                ld.param.u32    %r12, [window_h];
+                ld.param.u32    %r13, [window_w];
+                ld.param.u32    %r14, [stride_h];
+                ld.param.u32    %r15, [stride_w];
+
+                // Bounds check
+                setp.ge.s32     %p1, %r8, %r9;
+                @%p1 bra        EXIT;
+                setp.ge.s32     %p1, %r4, %r10;
+                @%p1 bra        EXIT;
+
+                // Load pointers
+                ld.param.u64    %rd1, [in_ptr];
+                ld.param.u64    %rd2, [out_ptr];
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("    mov.u64         %rd_t0, %globaltimer;\n\n");
+        }
+
+        ptx.append("""
+                // Calculate input start position
+                mul.lo.s32      %r16, %r8, %r14;    // oi * stride_h = start_row
+                mul.lo.s32      %r17, %r4, %r15;    // oj * stride_w = start_col
+
+                // Initialize max to -inf (0xFF7FFFFF)
+                mov.f32         %f1, 0fFF7FFFFF;
+
+                // Loop over window
+                mov.u32         %r18, 0;            // wh = 0
+            LOOP_H:
+                setp.ge.s32     %p2, %r18, %r12;
+                @%p2 bra        LOOP_END;
+
+                mov.u32         %r19, 0;            // ww = 0
+            LOOP_W:
+                setp.ge.s32     %p3, %r19, %r13;
+                @%p3 bra        LOOP_W_END;
+
+                // Input position: (start_row + wh) * in_width + (start_col + ww)
+                add.s32         %r20, %r16, %r18;   // start_row + wh
+                add.s32         %r21, %r17, %r19;   // start_col + ww
+                mul.lo.s32      %r22, %r20, %r11;
+                add.s32         %r22, %r22, %r21;
+
+                cvt.s64.s32     %rd3, %r22;
+                shl.b64         %rd3, %rd3, 2;
+                add.s64         %rd4, %rd1, %rd3;
+                ld.global.f32   %f2, [%rd4];
+
+                // max = max(max, val)
+                max.f32         %f1, %f1, %f2;
+
+                add.s32         %r19, %r19, 1;
+                bra             LOOP_W;
+
+            LOOP_W_END:
+                add.s32         %r18, %r18, 1;
+                bra             LOOP_H;
+
+            LOOP_END:
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("""
+                    mov.u64         %rd_t1, %globaltimer;
+                    sub.u64         %rd_delta, %rd_t1, %rd_t0;
+                    ld.param.u64    %rd11, [timing_ptr];
+                    atom.global.add.u64 [%rd11], %rd_delta;
+
+            """);
+        }
+
+        ptx.append("""
+                // Store output: oi * out_width + oj
+                mul.lo.s32      %r23, %r8, %r10;
+                add.s32         %r23, %r23, %r4;
+                cvt.s64.s32     %rd5, %r23;
+                shl.b64         %rd5, %rd5, 2;
+                add.s64         %rd6, %rd2, %rd5;
+                st.global.f32   [%rd6], %f1;
+
+            EXIT:
+                ret;
+            }
+            """);
+
+        return ptx.toString();
+    }
+
+    /**
+     * Generate PTX for 2D average pooling.
+     *
+     * <p>Computes average over sliding windows.
+     *
+     * @param salt Instrumentation level
+     * @return PTX source code
+     */
+    public static String generateAvgPool2DF32(int salt) {
+        StringBuilder ptx = new StringBuilder();
+
+        ptx.append("""
+            //
+            // avgpool_2d_f32: 2D average pooling
+            // output[i,j] = avg over window
+            // Salt level: %d
+            //
+            .version 7.0
+            .target sm_50
+            .address_size 64
+
+            .visible .entry avgpool_2d_f32(
+                .param .u64 in_ptr,
+                .param .u64 out_ptr,
+                .param .u32 in_height,
+                .param .u32 in_width,
+                .param .u32 out_height,
+                .param .u32 out_width,
+                .param .u32 window_h,
+                .param .u32 window_w,
+                .param .u32 stride_h,
+                .param .u32 stride_w
+            """.formatted(salt));
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("    ,.param .u64 timing_ptr\n");
+        }
+
+        ptx.append("""
+            )
+            {
+                .reg .pred  %p<4>;
+                .reg .f32   %f<4>;
+                .reg .b32   %r<24>;
+                .reg .b64   %rd<12>;
+            """);
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("    .reg .b64   %rd_t0, %rd_t1, %rd_delta;\n");
+        }
+
+        ptx.append("""
+
+                // Calculate output position (oi, oj)
+                mov.u32         %r1, %ctaid.x;
+                mov.u32         %r2, %ntid.x;
+                mov.u32         %r3, %tid.x;
+                mad.lo.s32      %r4, %r1, %r2, %r3; // oj
+
+                mov.u32         %r5, %ctaid.y;
+                mov.u32         %r6, %ntid.y;
+                mov.u32         %r7, %tid.y;
+                mad.lo.s32      %r8, %r5, %r6, %r7; // oi
+
+                // Load dimensions
+                ld.param.u32    %r9, [out_height];
+                ld.param.u32    %r10, [out_width];
+                ld.param.u32    %r11, [in_width];
+                ld.param.u32    %r12, [window_h];
+                ld.param.u32    %r13, [window_w];
+                ld.param.u32    %r14, [stride_h];
+                ld.param.u32    %r15, [stride_w];
+
+                // Bounds check
+                setp.ge.s32     %p1, %r8, %r9;
+                @%p1 bra        EXIT;
+                setp.ge.s32     %p1, %r4, %r10;
+                @%p1 bra        EXIT;
+
+                // Load pointers
+                ld.param.u64    %rd1, [in_ptr];
+                ld.param.u64    %rd2, [out_ptr];
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("    mov.u64         %rd_t0, %globaltimer;\n\n");
+        }
+
+        ptx.append("""
+                // Calculate input start position
+                mul.lo.s32      %r16, %r8, %r14;    // oi * stride_h = start_row
+                mul.lo.s32      %r17, %r4, %r15;    // oj * stride_w = start_col
+
+                // Initialize sum to 0
+                mov.f32         %f1, 0f00000000;
+
+                // Loop over window
+                mov.u32         %r18, 0;            // wh = 0
+            LOOP_H:
+                setp.ge.s32     %p2, %r18, %r12;
+                @%p2 bra        LOOP_END;
+
+                mov.u32         %r19, 0;            // ww = 0
+            LOOP_W:
+                setp.ge.s32     %p3, %r19, %r13;
+                @%p3 bra        LOOP_W_END;
+
+                // Input position: (start_row + wh) * in_width + (start_col + ww)
+                add.s32         %r20, %r16, %r18;   // start_row + wh
+                add.s32         %r21, %r17, %r19;   // start_col + ww
+                mul.lo.s32      %r22, %r20, %r11;
+                add.s32         %r22, %r22, %r21;
+
+                cvt.s64.s32     %rd3, %r22;
+                shl.b64         %rd3, %rd3, 2;
+                add.s64         %rd4, %rd1, %rd3;
+                ld.global.f32   %f2, [%rd4];
+
+                // sum += val
+                add.f32         %f1, %f1, %f2;
+
+                add.s32         %r19, %r19, 1;
+                bra             LOOP_W;
+
+            LOOP_W_END:
+                add.s32         %r18, %r18, 1;
+                bra             LOOP_H;
+
+            LOOP_END:
+
+                // Divide by window size: sum / (window_h * window_w)
+                mul.lo.s32      %r23, %r12, %r13;
+                cvt.rn.f32.s32  %f3, %r23;
+                div.approx.f32  %f1, %f1, %f3;
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("""
+                    mov.u64         %rd_t1, %globaltimer;
+                    sub.u64         %rd_delta, %rd_t1, %rd_t0;
+                    ld.param.u64    %rd11, [timing_ptr];
+                    atom.global.add.u64 [%rd11], %rd_delta;
+
+            """);
+        }
+
+        ptx.append("""
+                // Store output: oi * out_width + oj
+                mul.lo.s32      %r23, %r8, %r10;
+                add.s32         %r23, %r23, %r4;
+                cvt.s64.s32     %rd5, %r23;
+                shl.b64         %rd5, %rd5, 2;
+                add.s64         %rd6, %rd2, %rd5;
+                st.global.f32   [%rd6], %f1;
+
+            EXIT:
+                ret;
+            }
+            """);
+
+        return ptx.toString();
+    }
+
+    // ==================== Convolution Operations ====================
+
+    /**
+     * Generate PTX for 2D convolution (no batch, single channel).
+     *
+     * <p>Computes convolution: output[i,j] = sum(input[i+ki, j+kj] * kernel[ki, kj]).
+     *
+     * @param salt Instrumentation level
+     * @return PTX source code
+     */
+    public static String generateConv2DF32(int salt) {
+        StringBuilder ptx = new StringBuilder();
+
+        ptx.append("""
+            //
+            // conv2d_f32: 2D convolution (single channel)
+            // output[i,j] = sum(input[i+ki, j+kj] * kernel[ki, kj])
+            // Salt level: %d
+            //
+            .version 7.0
+            .target sm_50
+            .address_size 64
+
+            .visible .entry conv2d_f32(
+                .param .u64 in_ptr,
+                .param .u64 kernel_ptr,
+                .param .u64 out_ptr,
+                .param .u32 in_height,
+                .param .u32 in_width,
+                .param .u32 kernel_h,
+                .param .u32 kernel_w,
+                .param .u32 out_height,
+                .param .u32 out_width,
+                .param .u32 stride_h,
+                .param .u32 stride_w,
+                .param .u32 pad_h,
+                .param .u32 pad_w
+            """.formatted(salt));
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("    ,.param .u64 timing_ptr\n");
+        }
+
+        ptx.append("""
+            )
+            {
+                .reg .pred  %p<6>;
+                .reg .f32   %f<4>;
+                .reg .b32   %r<32>;
+                .reg .b64   %rd<16>;
+            """);
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("    .reg .b64   %rd_t0, %rd_t1, %rd_delta;\n");
+        }
+
+        ptx.append("""
+
+                // Calculate output position (oi, oj)
+                mov.u32         %r1, %ctaid.x;
+                mov.u32         %r2, %ntid.x;
+                mov.u32         %r3, %tid.x;
+                mad.lo.s32      %r4, %r1, %r2, %r3; // oj
+
+                mov.u32         %r5, %ctaid.y;
+                mov.u32         %r6, %ntid.y;
+                mov.u32         %r7, %tid.y;
+                mad.lo.s32      %r8, %r5, %r6, %r7; // oi
+
+                // Load dimensions
+                ld.param.u32    %r9, [out_height];
+                ld.param.u32    %r10, [out_width];
+                ld.param.u32    %r11, [in_height];
+                ld.param.u32    %r12, [in_width];
+                ld.param.u32    %r13, [kernel_h];
+                ld.param.u32    %r14, [kernel_w];
+                ld.param.u32    %r15, [stride_h];
+                ld.param.u32    %r16, [stride_w];
+                ld.param.u32    %r17, [pad_h];
+                ld.param.u32    %r18, [pad_w];
+
+                // Bounds check
+                setp.ge.s32     %p1, %r8, %r9;
+                @%p1 bra        EXIT;
+                setp.ge.s32     %p1, %r4, %r10;
+                @%p1 bra        EXIT;
+
+                // Load pointers
+                ld.param.u64    %rd1, [in_ptr];
+                ld.param.u64    %rd2, [kernel_ptr];
+                ld.param.u64    %rd3, [out_ptr];
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("    mov.u64         %rd_t0, %globaltimer;\n\n");
+        }
+
+        ptx.append("""
+                // Calculate input start position (with padding offset)
+                mul.lo.s32      %r19, %r8, %r15;    // oi * stride_h
+                sub.s32         %r19, %r19, %r17;   // - pad_h
+                mul.lo.s32      %r20, %r4, %r16;    // oj * stride_w
+                sub.s32         %r20, %r20, %r18;   // - pad_w
+
+                // Initialize sum to 0
+                mov.f32         %f1, 0f00000000;
+
+                // Loop over kernel
+                mov.u32         %r21, 0;            // ki = 0
+            LOOP_KH:
+                setp.ge.s32     %p2, %r21, %r13;
+                @%p2 bra        LOOP_END;
+
+                mov.u32         %r22, 0;            // kj = 0
+            LOOP_KW:
+                setp.ge.s32     %p3, %r22, %r14;
+                @%p3 bra        LOOP_KW_END;
+
+                // Input position: (start_row + ki, start_col + kj)
+                add.s32         %r23, %r19, %r21;   // in_row = start_row + ki
+                add.s32         %r24, %r20, %r22;   // in_col = start_col + kj
+
+                // Check bounds (for padding)
+                setp.lt.s32     %p4, %r23, 0;
+                @%p4 bra        SKIP_PIXEL;
+                setp.ge.s32     %p4, %r23, %r11;
+                @%p4 bra        SKIP_PIXEL;
+                setp.lt.s32     %p5, %r24, 0;
+                @%p5 bra        SKIP_PIXEL;
+                setp.ge.s32     %p5, %r24, %r12;
+                @%p5 bra        SKIP_PIXEL;
+
+                // Load input[in_row, in_col]
+                mul.lo.s32      %r25, %r23, %r12;
+                add.s32         %r25, %r25, %r24;
+                cvt.s64.s32     %rd4, %r25;
+                shl.b64         %rd4, %rd4, 2;
+                add.s64         %rd5, %rd1, %rd4;
+                ld.global.f32   %f2, [%rd5];
+
+                // Load kernel[ki, kj]
+                mul.lo.s32      %r26, %r21, %r14;
+                add.s32         %r26, %r26, %r22;
+                cvt.s64.s32     %rd6, %r26;
+                shl.b64         %rd6, %rd6, 2;
+                add.s64         %rd7, %rd2, %rd6;
+                ld.global.f32   %f3, [%rd7];
+
+                // sum += input * kernel
+                fma.rn.f32      %f1, %f2, %f3, %f1;
+
+            SKIP_PIXEL:
+                add.s32         %r22, %r22, 1;
+                bra             LOOP_KW;
+
+            LOOP_KW_END:
+                add.s32         %r21, %r21, 1;
+                bra             LOOP_KH;
+
+            LOOP_END:
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("""
+                    mov.u64         %rd_t1, %globaltimer;
+                    sub.u64         %rd_delta, %rd_t1, %rd_t0;
+                    ld.param.u64    %rd15, [timing_ptr];
+                    atom.global.add.u64 [%rd15], %rd_delta;
+
+            """);
+        }
+
+        ptx.append("""
+                // Store output: oi * out_width + oj
+                mul.lo.s32      %r27, %r8, %r10;
+                add.s32         %r27, %r27, %r4;
+                cvt.s64.s32     %rd8, %r27;
+                shl.b64         %rd8, %rd8, 2;
+                add.s64         %rd9, %rd3, %rd8;
+                st.global.f32   [%rd9], %f1;
+
+            EXIT:
+                ret;
+            }
+            """);
+
+        return ptx.toString();
+    }
+
+    // ==================== BatchNorm Operations ====================
+
+    /**
+     * Generate PTX for batch normalization (inference mode).
+     *
+     * <p>Computes: output = (input - mean) / sqrt(variance + epsilon) * scale + offset.
+     * This is the element-wise inference formula per feature.
+     *
+     * @param salt Instrumentation level
+     * @return PTX source code
+     */
+    public static String generateBatchNormInferenceF32(int salt) {
+        StringBuilder ptx = new StringBuilder();
+
+        ptx.append("""
+            //
+            // batchnorm_inference_f32: Batch normalization (inference)
+            // output = (input - mean) / sqrt(var + eps) * scale + offset
+            // Salt level: %d
+            //
+            .version 7.0
+            .target sm_50
+            .address_size 64
+
+            .visible .entry batchnorm_inference_f32(
+                .param .u64 in_ptr,
+                .param .u64 scale_ptr,
+                .param .u64 offset_ptr,
+                .param .u64 mean_ptr,
+                .param .u64 var_ptr,
+                .param .u64 out_ptr,
+                .param .u64 eps_ptr,
+                .param .u32 batch_size,
+                .param .u32 num_features,
+                .param .u32 spatial_size
+            """.formatted(salt));
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("    ,.param .u64 timing_ptr\n");
+        }
+
+        ptx.append("""
+            )
+            {
+                .reg .pred  %p<2>;
+                .reg .f32   %f<12>;
+                .reg .b32   %r<16>;
+                .reg .b64   %rd<20>;
+            """);
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("    .reg .b64   %rd_t0, %rd_t1, %rd_delta;\n");
+        }
+
+        ptx.append("""
+
+                // Calculate global thread index
+                mov.u32         %r1, %ctaid.x;
+                mov.u32         %r2, %ntid.x;
+                mov.u32         %r3, %tid.x;
+                mad.lo.s32      %r4, %r1, %r2, %r3;
+
+                // Load total size
+                ld.param.u32    %r5, [batch_size];
+                ld.param.u32    %r6, [num_features];
+                ld.param.u32    %r7, [spatial_size];
+
+                // Total elements = batch_size * num_features * spatial_size
+                mul.lo.s32      %r8, %r5, %r6;
+                mul.lo.s32      %r8, %r8, %r7;
+
+                // Bounds check
+                setp.ge.s32     %p1, %r4, %r8;
+                @%p1 bra        EXIT;
+
+                // Calculate feature index: (idx / spatial_size) % num_features
+                // This handles NCHW layout: idx = n * C * HW + c * HW + hw
+                div.s32         %r9, %r4, %r7;      // idx / spatial_size
+                rem.s32         %r10, %r9, %r6;     // % num_features = c
+
+                // Load pointers
+                ld.param.u64    %rd1, [in_ptr];
+                ld.param.u64    %rd2, [scale_ptr];
+                ld.param.u64    %rd3, [offset_ptr];
+                ld.param.u64    %rd4, [mean_ptr];
+                ld.param.u64    %rd5, [var_ptr];
+                ld.param.u64    %rd6, [out_ptr];
+                ld.param.u64    %rd7, [eps_ptr];
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("    mov.u64         %rd_t0, %globaltimer;\n\n");
+        }
+
+        ptx.append("""
+                // Load epsilon
+                ld.global.f32   %f1, [%rd7];
+
+                // Load per-feature parameters
+                cvt.s64.s32     %rd8, %r10;
+                shl.b64         %rd8, %rd8, 2;
+
+                add.s64         %rd9, %rd2, %rd8;
+                ld.global.f32   %f2, [%rd9];        // scale[c]
+
+                add.s64         %rd10, %rd3, %rd8;
+                ld.global.f32   %f3, [%rd10];       // offset[c]
+
+                add.s64         %rd11, %rd4, %rd8;
+                ld.global.f32   %f4, [%rd11];       // mean[c]
+
+                add.s64         %rd12, %rd5, %rd8;
+                ld.global.f32   %f5, [%rd12];       // var[c]
+
+                // Load input[idx]
+                cvt.s64.s32     %rd13, %r4;
+                shl.b64         %rd13, %rd13, 2;
+                add.s64         %rd14, %rd1, %rd13;
+                ld.global.f32   %f6, [%rd14];
+
+                // Compute: (x - mean) / sqrt(var + eps) * scale + offset
+                sub.f32         %f7, %f6, %f4;      // x - mean
+                add.f32         %f8, %f5, %f1;      // var + eps
+                sqrt.approx.f32 %f9, %f8;           // sqrt(var + eps)
+                div.approx.f32  %f10, %f7, %f9;     // (x - mean) / sqrt(var + eps)
+                mul.f32         %f10, %f10, %f2;    // * scale
+                add.f32         %f11, %f10, %f3;    // + offset
+
+                // Store output
+                add.s64         %rd15, %rd6, %rd13;
+                st.global.f32   [%rd15], %f11;
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("""
+                    mov.u64         %rd_t1, %globaltimer;
+                    sub.u64         %rd_delta, %rd_t1, %rd_t0;
+                    ld.param.u64    %rd19, [timing_ptr];
+                    atom.global.add.u64 [%rd19], %rd_delta;
+
+            """);
+        }
+
+        ptx.append("""
+            EXIT:
+                ret;
+            }
+            """);
+
+        return ptx.toString();
+    }
+
     // ==================== Utility Methods ====================
 
     /**

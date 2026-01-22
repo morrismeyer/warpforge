@@ -49,7 +49,7 @@ class RocblasDotKernelTest {
      */
     private void createContext() {
         try {
-            createContext();
+            context = HipContext.create(0);
         } catch (Exception e) {
             assumeTrue(false, "HIP context creation failed: " + e.getMessage());
         }

@@ -32,6 +32,8 @@ BRANCH="${GITHUB_REF_NAME:-main}"
 # Build and test commands to run on the AMD box
 BUILD_CMD="${BUILD_CMD_OVERRIDE:-./gradlew clean assemble}"
 TEST_CMD="${TEST_CMD_OVERRIDE:-./gradlew test}"
+# AMD-specific GPU tests (tagged with @Tag("amd"))
+AMD_TEST_CMD="${AMD_TEST_CMD_OVERRIDE:-./gradlew amdTest}"
 
 # SSH wait behavior
 # - Set SKIP_IF_UNREACHABLE=1 to continue the overall orchestrator even if the target box is offline.
@@ -63,6 +65,7 @@ log "Remote repo dir: ${REMOTE_REPO_DIR}"
 log "Repo URL: ${WARP_FORGE_REPO_URL}"
 log "Build cmd: ${BUILD_CMD}"
 log "Test cmd:  ${TEST_CMD}"
+log "AMD test cmd: ${AMD_TEST_CMD}"
 log "Broadcast: ${BROADCAST_IP}"
 
 # 1) Wake the GPU box
@@ -148,6 +151,9 @@ ssh "$TARGET_HOST" bash -lc "
 
   echo \"[remote \$(date)] Running tests: ${TEST_CMD}\"
   bash -lc \"${TEST_CMD}\"
+
+  echo \"[remote \$(date)] Running AMD GPU tests: ${AMD_TEST_CMD}\"
+  bash -lc \"${AMD_TEST_CMD}\"
 
   echo \"[remote \$(date)] Build + tests completed successfully\"
 " 2>&1 | tee -a "$LOG_FILE"

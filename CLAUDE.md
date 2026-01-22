@@ -15,9 +15,18 @@ WarpForge is a multi-module Java build system integrating:
 For detailed architectural decisions and implementation roadmaps, see the `architecture/` directory:
 
 - **[ARCHITECTURE.md](architecture/ARCHITECTURE.md)** - High-level system overview, module map, design principles
-- **[backend-phases.md](architecture/backend-phases.md)** - Phased approach to GPU backend development
+- **[BACKEND-PHASES.md](architecture/BACKEND-PHASES.md)** - Phased approach to GPU backend development
 
 This file (CLAUDE.md) covers build commands, development workflow, and code style. The architecture docs cover **what to build and why**.
+
+### Architecture Doc Naming Convention
+
+All architecture documentation files use **ALL-CAPS-WITH-HYPHENS.md** naming:
+- `ARCHITECTURE.md` not `architecture.md`
+- `BACKEND-PHASES.md` not `backend-phases.md`
+- `GPU-SCHEDULING.md` not `gpu_scheduling.md`
+
+This makes architecture docs visually distinct from code and config files.
 
 ## Language Preference
 

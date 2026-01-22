@@ -82,15 +82,26 @@ public class UccCollectiveImpl implements CollectiveApi {
     }
 
     private void initializeUcc() {
-        // TODO: Use jextract-generated FFM bindings when available
         try {
-            // Check if FFM stubs are available
+            // Check if FFM stubs are available and native library is loadable
+            // Note: Loading Ucc class triggers SymbolLookup.libraryLookup() which
+            // will throw if libucc.so is not found or not loadable
             Class.forName("io.surfworks.warpforge.io.ffi.ucc.Ucc");
             initializeUccReal();
             initialized = true;
         } catch (ClassNotFoundException e) {
             throw new CollectiveException(
                 "UCC FFM bindings not found. Run: ./gradlew :openucx-runtime:generateJextractStubs",
+                CollectiveException.ErrorCode.NOT_SUPPORTED);
+        } catch (UnsatisfiedLinkError e) {
+            throw new CollectiveException(
+                "UCC native library (libucc.so) not found or not loadable: " + e.getMessage(),
+                CollectiveException.ErrorCode.NOT_SUPPORTED);
+        } catch (ExceptionInInitializerError e) {
+            Throwable cause = e.getCause();
+            String msg = cause != null ? cause.getMessage() : e.getMessage();
+            throw new CollectiveException(
+                "Failed to initialize UCC FFM bindings: " + msg,
                 CollectiveException.ErrorCode.NOT_SUPPORTED);
         }
     }

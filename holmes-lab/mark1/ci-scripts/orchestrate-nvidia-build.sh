@@ -44,7 +44,13 @@ SSH_MAX_WAIT_SECONDS="${SSH_MAX_WAIT_SECONDS:-60}"
 SKIP_IF_UNREACHABLE="${SKIP_IF_UNREACHABLE:-1}"
 
 # If 1, power off NVIDIA only when build + tests succeed
-POWER_OFF_ON_SUCCESS="${POWER_OFF_ON_SUCCESS:-1}"
+# Check for the no-shutdown flag file first (set by shutdown-mode.sh)
+NO_SHUTDOWN_FLAG="${HOME}/.holmes-lab/no-shutdown"
+if [[ -f "$NO_SHUTDOWN_FLAG" ]]; then
+  POWER_OFF_ON_SUCCESS="${POWER_OFF_ON_SUCCESS:-0}"
+else
+  POWER_OFF_ON_SUCCESS="${POWER_OFF_ON_SUCCESS:-1}"
+fi
 
 # Where to store logs on the NUC
 LOG_ROOT="${LOG_ROOT_OVERRIDE:-$HOME/build-logs}"
@@ -67,6 +73,11 @@ log "Build cmd: ${BUILD_CMD}"
 log "Test cmd:  ${TEST_CMD}"
 log "NVIDIA test cmd: ${NVIDIA_TEST_CMD}"
 log "Broadcast: ${BROADCAST_IP}"
+if [[ -f "$NO_SHUTDOWN_FLAG" ]]; then
+  log "Shutdown mode: DISABLED (flag file present: ${NO_SHUTDOWN_FLAG})"
+else
+  log "Shutdown mode: ENABLED (will power off on success)"
+fi
 
 # 1) Wake the GPU box
 log "Waking ${TARGET_HOST} (MAC ${TARGET_MAC})..."

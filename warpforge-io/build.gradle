@@ -198,6 +198,68 @@ tasks.withType(JavaExec).configureEach {
     environment 'LD_LIBRARY_PATH', "${ucxLibPath.get()}:${uccLibPath.get()}:${System.getenv('LD_LIBRARY_PATH') ?: ''}"
 }
 
+// ===== Mellanox Smoke Test =====
+
+// Run the Mellanox cross-connect smoke test
+// Usage: ./gradlew :warpforge-io:mellanoxSmokeTest --args='server'
+//        ./gradlew :warpforge-io:mellanoxSmokeTest --args='client 192.168.2.1'
+//        ./gradlew :warpforge-io:mellanoxSmokeTest --args='info'
+tasks.register('mellanoxSmokeTest', JavaExec) {
+    description = 'Run Mellanox cross-connect smoke test (server/client/info mode)'
+    group = 'verification'
+
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'io.surfworks.warpforge.io.test.MellanoxSmokeTest'
+
+    jvmArgs '--enable-native-access=ALL-UNNAMED', '--enable-preview'
+
+    // Allow passing args via --args='...'
+    // Default to 'info' if no args provided
+    args = project.hasProperty('args') ? project.property('args').split(' ') : ['info']
+}
+
+// Convenience aliases
+tasks.register('mellanoxInfo', JavaExec) {
+    description = 'Show RDMA device information'
+    group = 'verification'
+
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'io.surfworks.warpforge.io.test.MellanoxSmokeTest'
+    jvmArgs '--enable-native-access=ALL-UNNAMED', '--enable-preview'
+    args 'info'
+}
+
+tasks.register('mellanoxServer', JavaExec) {
+    description = 'Run Mellanox smoke test in server mode'
+    group = 'verification'
+
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'io.surfworks.warpforge.io.test.MellanoxSmokeTest'
+    jvmArgs '--enable-native-access=ALL-UNNAMED', '--enable-preview'
+
+    def port = project.hasProperty('port') ? project.property('port') : '18515'
+    args 'server', port
+}
+
+tasks.register('mellanoxClient', JavaExec) {
+    description = 'Run Mellanox smoke test in client mode (requires -Phost=<server-ip>)'
+    group = 'verification'
+
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'io.surfworks.warpforge.io.test.MellanoxSmokeTest'
+    jvmArgs '--enable-native-access=ALL-UNNAMED', '--enable-preview'
+
+    doFirst {
+        if (!project.hasProperty('host')) {
+            throw new GradleException('Client mode requires -Phost=<server-ip>')
+        }
+    }
+
+    def host = project.hasProperty('host') ? project.property('host') : 'localhost'
+    def port = project.hasProperty('port') ? project.property('port') : '18515'
+    args 'client', host, port
+}
+
 // ===== Documentation =====
 
 javadoc {

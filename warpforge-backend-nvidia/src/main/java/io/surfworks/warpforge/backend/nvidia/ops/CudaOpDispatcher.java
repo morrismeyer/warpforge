@@ -437,10 +437,28 @@ public final class CudaOpDispatcher {
             registerStub(StableHloAst.SliceOp.class);
         }
 
+        // Shape manipulation - Iota (IMPLEMENTED)
+        if (context != null) {
+            kernels.put(StableHloAst.IotaOp.class, new IotaKernel(context, salt));
+        } else {
+            registerStub(StableHloAst.IotaOp.class);
+        }
+
+        // Shape manipulation - Pad (IMPLEMENTED)
+        if (context != null) {
+            kernels.put(StableHloAst.PadOp.class, new PadKernel(context, salt));
+        } else {
+            registerStub(StableHloAst.PadOp.class);
+        }
+
+        // Shape manipulation - Reverse (IMPLEMENTED)
+        if (context != null) {
+            kernels.put(StableHloAst.ReverseOp.class, new ReverseKernel(context, salt));
+        } else {
+            registerStub(StableHloAst.ReverseOp.class);
+        }
+
         // Shape manipulation (remaining stubs)
-        registerStub(StableHloAst.ReverseOp.class);
-        registerStub(StableHloAst.PadOp.class);
-        registerStub(StableHloAst.IotaOp.class);
         registerStub(StableHloAst.GatherOp.class);
         registerStub(StableHloAst.ScatterOp.class);
         registerStub(StableHloAst.DynamicSliceOp.class);

@@ -1867,6 +1867,555 @@ lg2.approx.f32  %f4, %f2;              // temp for checking if x is positive
         return generateReduceF32("mul", salt);
     }
 
+    // ==================== Shape Manipulation Operations ====================
+
+    /**
+     * Generate PTX for reshape operation.
+     *
+     * <p>Reshape is essentially a memory copy since data layout doesn't change,
+     * only the interpretation of dimensions. This kernel performs a simple
+     * element-wise copy from input to output.
+     *
+     * @param salt Instrumentation level
+     * @return PTX source code
+     */
+    public static String generateReshapeF32(int salt) {
+        StringBuilder ptx = new StringBuilder();
+
+        ptx.append("""
+            //
+            // reshape_f32: Copy data with new shape interpretation
+            // Salt level: %d
+            //
+            .version 7.0
+            .target sm_50
+            .address_size 64
+
+            .visible .entry reshape_f32(
+                .param .u64 in_ptr,
+                .param .u64 out_ptr,
+                .param .u32 n
+            """.formatted(salt));
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("    ,.param .u64 timing_ptr\n");
+        }
+
+        ptx.append("""
+            )
+            {
+                .reg .pred  %p<2>;
+                .reg .f32   %f<2>;
+                .reg .b32   %r<8>;
+                .reg .b64   %rd<8>;
+            """);
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("    .reg .b64   %rd_t0, %rd_t1, %rd_delta;\n");
+        }
+
+        ptx.append("""
+
+                // Calculate global thread index
+                mov.u32         %r1, %ctaid.x;
+                mov.u32         %r2, %ntid.x;
+                mov.u32         %r3, %tid.x;
+                mad.lo.s32      %r4, %r1, %r2, %r3;
+
+                // Bounds check
+                ld.param.u32    %r5, [n];
+                setp.ge.s32     %p1, %r4, %r5;
+                @%p1 bra        EXIT;
+
+                // Load pointers
+                ld.param.u64    %rd1, [in_ptr];
+                ld.param.u64    %rd2, [out_ptr];
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("    mov.u64         %rd_t0, %globaltimer;\n\n");
+        }
+
+        ptx.append("""
+                // Calculate offset
+                cvt.s64.s32     %rd3, %r4;
+                shl.b64         %rd3, %rd3, 2;      // * 4 bytes
+
+                // Load from input
+                add.s64         %rd4, %rd1, %rd3;
+                ld.global.f32   %f1, [%rd4];
+
+                // Store to output
+                add.s64         %rd5, %rd2, %rd3;
+                st.global.f32   [%rd5], %f1;
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("""
+                    mov.u64         %rd_t1, %globaltimer;
+                    sub.u64         %rd_delta, %rd_t1, %rd_t0;
+                    ld.param.u64    %rd7, [timing_ptr];
+                    atom.global.add.u64 [%rd7], %rd_delta;
+
+            """);
+        }
+
+        ptx.append("""
+            EXIT:
+                ret;
+            }
+            """);
+
+        return ptx.toString();
+    }
+
+    /**
+     * Generate PTX for 2D transpose operation.
+     *
+     * <p>Transposes a 2D matrix: output[j,i] = input[i,j].
+     * Uses a simple element-wise kernel. For better performance on large
+     * matrices, a tiled shared-memory version would be preferred.
+     *
+     * @param salt Instrumentation level
+     * @return PTX source code
+     */
+    public static String generateTranspose2DF32(int salt) {
+        StringBuilder ptx = new StringBuilder();
+
+        ptx.append("""
+            //
+            // transpose_2d_f32: Transpose 2D matrix
+            // output[j,i] = input[i,j]
+            // Salt level: %d
+            //
+            .version 7.0
+            .target sm_50
+            .address_size 64
+
+            .visible .entry transpose_2d_f32(
+                .param .u64 in_ptr,
+                .param .u64 out_ptr,
+                .param .u32 rows,
+                .param .u32 cols
+            """.formatted(salt));
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("    ,.param .u64 timing_ptr\n");
+        }
+
+        ptx.append("""
+            )
+            {
+                .reg .pred  %p<2>;
+                .reg .f32   %f<2>;
+                .reg .b32   %r<16>;
+                .reg .b64   %rd<12>;
+            """);
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("    .reg .b64   %rd_t0, %rd_t1, %rd_delta;\n");
+        }
+
+        ptx.append("""
+
+                // Calculate row (i) and col (j) from 2D grid
+                mov.u32         %r1, %ctaid.x;
+                mov.u32         %r2, %ntid.x;
+                mov.u32         %r3, %tid.x;
+                mad.lo.s32      %r4, %r1, %r2, %r3; // j = col
+
+                mov.u32         %r5, %ctaid.y;
+                mov.u32         %r6, %ntid.y;
+                mov.u32         %r7, %tid.y;
+                mad.lo.s32      %r8, %r5, %r6, %r7; // i = row
+
+                // Load dimensions
+                ld.param.u32    %r9, [rows];
+                ld.param.u32    %r10, [cols];
+
+                // Bounds check
+                setp.ge.s32     %p1, %r8, %r9;
+                @%p1 bra        EXIT;
+                setp.ge.s32     %p1, %r4, %r10;
+                @%p1 bra        EXIT;
+
+                // Load pointers
+                ld.param.u64    %rd1, [in_ptr];
+                ld.param.u64    %rd2, [out_ptr];
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("    mov.u64         %rd_t0, %globaltimer;\n\n");
+        }
+
+        ptx.append("""
+                // Input index: i * cols + j
+                mul.lo.s32      %r11, %r8, %r10;
+                add.s32         %r11, %r11, %r4;
+                cvt.s64.s32     %rd3, %r11;
+                shl.b64         %rd3, %rd3, 2;
+                add.s64         %rd4, %rd1, %rd3;
+                ld.global.f32   %f1, [%rd4];
+
+                // Output index: j * rows + i (transposed)
+                mul.lo.s32      %r12, %r4, %r9;
+                add.s32         %r12, %r12, %r8;
+                cvt.s64.s32     %rd5, %r12;
+                shl.b64         %rd5, %rd5, 2;
+                add.s64         %rd6, %rd2, %rd5;
+                st.global.f32   [%rd6], %f1;
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("""
+                    mov.u64         %rd_t1, %globaltimer;
+                    sub.u64         %rd_delta, %rd_t1, %rd_t0;
+                    ld.param.u64    %rd11, [timing_ptr];
+                    atom.global.add.u64 [%rd11], %rd_delta;
+
+            """);
+        }
+
+        ptx.append("""
+            EXIT:
+                ret;
+            }
+            """);
+
+        return ptx.toString();
+    }
+
+    /**
+     * Generate PTX for broadcast operation.
+     *
+     * <p>Broadcasts a tensor to a larger shape. Each output element reads
+     * from the corresponding input element based on the broadcast mapping.
+     *
+     * <p>This kernel handles the common case of broadcasting a 1D tensor
+     * to 2D by replicating along rows or columns.
+     *
+     * @param salt Instrumentation level
+     * @return PTX source code for row broadcast (input[j] -> output[i,j])
+     */
+    public static String generateBroadcast1Dto2DRowF32(int salt) {
+        StringBuilder ptx = new StringBuilder();
+
+        ptx.append("""
+            //
+            // broadcast_1d_to_2d_row_f32: Broadcast 1D to 2D along rows
+            // input[j] -> output[i,j] for all i
+            // Salt level: %d
+            //
+            .version 7.0
+            .target sm_50
+            .address_size 64
+
+            .visible .entry broadcast_1d_to_2d_row_f32(
+                .param .u64 in_ptr,
+                .param .u64 out_ptr,
+                .param .u32 rows,
+                .param .u32 cols
+            """.formatted(salt));
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("    ,.param .u64 timing_ptr\n");
+        }
+
+        ptx.append("""
+            )
+            {
+                .reg .pred  %p<2>;
+                .reg .f32   %f<2>;
+                .reg .b32   %r<16>;
+                .reg .b64   %rd<12>;
+            """);
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("    .reg .b64   %rd_t0, %rd_t1, %rd_delta;\n");
+        }
+
+        ptx.append("""
+
+                // Calculate row (i) and col (j) from 2D grid
+                mov.u32         %r1, %ctaid.x;
+                mov.u32         %r2, %ntid.x;
+                mov.u32         %r3, %tid.x;
+                mad.lo.s32      %r4, %r1, %r2, %r3; // j = col
+
+                mov.u32         %r5, %ctaid.y;
+                mov.u32         %r6, %ntid.y;
+                mov.u32         %r7, %tid.y;
+                mad.lo.s32      %r8, %r5, %r6, %r7; // i = row
+
+                // Load dimensions
+                ld.param.u32    %r9, [rows];
+                ld.param.u32    %r10, [cols];
+
+                // Bounds check
+                setp.ge.s32     %p1, %r8, %r9;
+                @%p1 bra        EXIT;
+                setp.ge.s32     %p1, %r4, %r10;
+                @%p1 bra        EXIT;
+
+                // Load pointers
+                ld.param.u64    %rd1, [in_ptr];
+                ld.param.u64    %rd2, [out_ptr];
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("    mov.u64         %rd_t0, %globaltimer;\n\n");
+        }
+
+        ptx.append("""
+                // Input index: just j (broadcast along rows)
+                cvt.s64.s32     %rd3, %r4;
+                shl.b64         %rd3, %rd3, 2;
+                add.s64         %rd4, %rd1, %rd3;
+                ld.global.f32   %f1, [%rd4];
+
+                // Output index: i * cols + j
+                mul.lo.s32      %r11, %r8, %r10;
+                add.s32         %r11, %r11, %r4;
+                cvt.s64.s32     %rd5, %r11;
+                shl.b64         %rd5, %rd5, 2;
+                add.s64         %rd6, %rd2, %rd5;
+                st.global.f32   [%rd6], %f1;
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("""
+                    mov.u64         %rd_t1, %globaltimer;
+                    sub.u64         %rd_delta, %rd_t1, %rd_t0;
+                    ld.param.u64    %rd11, [timing_ptr];
+                    atom.global.add.u64 [%rd11], %rd_delta;
+
+            """);
+        }
+
+        ptx.append("""
+            EXIT:
+                ret;
+            }
+            """);
+
+        return ptx.toString();
+    }
+
+    /**
+     * Generate PTX for broadcast operation along columns.
+     *
+     * @param salt Instrumentation level
+     * @return PTX source code for column broadcast (input[i] -> output[i,j])
+     */
+    public static String generateBroadcast1Dto2DColF32(int salt) {
+        StringBuilder ptx = new StringBuilder();
+
+        ptx.append("""
+            //
+            // broadcast_1d_to_2d_col_f32: Broadcast 1D to 2D along columns
+            // input[i] -> output[i,j] for all j
+            // Salt level: %d
+            //
+            .version 7.0
+            .target sm_50
+            .address_size 64
+
+            .visible .entry broadcast_1d_to_2d_col_f32(
+                .param .u64 in_ptr,
+                .param .u64 out_ptr,
+                .param .u32 rows,
+                .param .u32 cols
+            """.formatted(salt));
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("    ,.param .u64 timing_ptr\n");
+        }
+
+        ptx.append("""
+            )
+            {
+                .reg .pred  %p<2>;
+                .reg .f32   %f<2>;
+                .reg .b32   %r<16>;
+                .reg .b64   %rd<12>;
+            """);
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("    .reg .b64   %rd_t0, %rd_t1, %rd_delta;\n");
+        }
+
+        ptx.append("""
+
+                // Calculate row (i) and col (j) from 2D grid
+                mov.u32         %r1, %ctaid.x;
+                mov.u32         %r2, %ntid.x;
+                mov.u32         %r3, %tid.x;
+                mad.lo.s32      %r4, %r1, %r2, %r3; // j = col
+
+                mov.u32         %r5, %ctaid.y;
+                mov.u32         %r6, %ntid.y;
+                mov.u32         %r7, %tid.y;
+                mad.lo.s32      %r8, %r5, %r6, %r7; // i = row
+
+                // Load dimensions
+                ld.param.u32    %r9, [rows];
+                ld.param.u32    %r10, [cols];
+
+                // Bounds check
+                setp.ge.s32     %p1, %r8, %r9;
+                @%p1 bra        EXIT;
+                setp.ge.s32     %p1, %r4, %r10;
+                @%p1 bra        EXIT;
+
+                // Load pointers
+                ld.param.u64    %rd1, [in_ptr];
+                ld.param.u64    %rd2, [out_ptr];
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("    mov.u64         %rd_t0, %globaltimer;\n\n");
+        }
+
+        ptx.append("""
+                // Input index: just i (broadcast along columns)
+                cvt.s64.s32     %rd3, %r8;
+                shl.b64         %rd3, %rd3, 2;
+                add.s64         %rd4, %rd1, %rd3;
+                ld.global.f32   %f1, [%rd4];
+
+                // Output index: i * cols + j
+                mul.lo.s32      %r11, %r8, %r10;
+                add.s32         %r11, %r11, %r4;
+                cvt.s64.s32     %rd5, %r11;
+                shl.b64         %rd5, %rd5, 2;
+                add.s64         %rd6, %rd2, %rd5;
+                st.global.f32   [%rd6], %f1;
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("""
+                    mov.u64         %rd_t1, %globaltimer;
+                    sub.u64         %rd_delta, %rd_t1, %rd_t0;
+                    ld.param.u64    %rd11, [timing_ptr];
+                    atom.global.add.u64 [%rd11], %rd_delta;
+
+            """);
+        }
+
+        ptx.append("""
+            EXIT:
+                ret;
+            }
+            """);
+
+        return ptx.toString();
+    }
+
+    /**
+     * Generate PTX for scalar broadcast to any shape.
+     *
+     * <p>Broadcasts a single scalar value to fill an entire tensor.
+     *
+     * @param salt Instrumentation level
+     * @return PTX source code
+     */
+    public static String generateBroadcastScalarF32(int salt) {
+        StringBuilder ptx = new StringBuilder();
+
+        ptx.append("""
+            //
+            // broadcast_scalar_f32: Broadcast scalar to tensor
+            // Salt level: %d
+            //
+            .version 7.0
+            .target sm_50
+            .address_size 64
+
+            .visible .entry broadcast_scalar_f32(
+                .param .u64 in_ptr,
+                .param .u64 out_ptr,
+                .param .u32 n
+            """.formatted(salt));
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("    ,.param .u64 timing_ptr\n");
+        }
+
+        ptx.append("""
+            )
+            {
+                .reg .pred  %p<2>;
+                .reg .f32   %f<2>;
+                .reg .b32   %r<8>;
+                .reg .b64   %rd<8>;
+            """);
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("    .reg .b64   %rd_t0, %rd_t1, %rd_delta;\n");
+        }
+
+        ptx.append("""
+
+                // Calculate global thread index
+                mov.u32         %r1, %ctaid.x;
+                mov.u32         %r2, %ntid.x;
+                mov.u32         %r3, %tid.x;
+                mad.lo.s32      %r4, %r1, %r2, %r3;
+
+                // Bounds check
+                ld.param.u32    %r5, [n];
+                setp.ge.s32     %p1, %r4, %r5;
+                @%p1 bra        EXIT;
+
+                // Load scalar value (same for all threads)
+                ld.param.u64    %rd1, [in_ptr];
+                ld.global.f32   %f1, [%rd1];
+
+                // Load output pointer
+                ld.param.u64    %rd2, [out_ptr];
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("    mov.u64         %rd_t0, %globaltimer;\n\n");
+        }
+
+        ptx.append("""
+                // Calculate output offset
+                cvt.s64.s32     %rd3, %r4;
+                shl.b64         %rd3, %rd3, 2;
+                add.s64         %rd4, %rd2, %rd3;
+                st.global.f32   [%rd4], %f1;
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("""
+                    mov.u64         %rd_t1, %globaltimer;
+                    sub.u64         %rd_delta, %rd_t1, %rd_t0;
+                    ld.param.u64    %rd7, [timing_ptr];
+                    atom.global.add.u64 [%rd7], %rd_delta;
+
+            """);
+        }
+
+        ptx.append("""
+            EXIT:
+                ret;
+            }
+            """);
+
+        return ptx.toString();
+    }
+
     // ==================== Utility Methods ====================
 
     /**

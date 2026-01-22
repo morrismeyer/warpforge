@@ -395,15 +395,35 @@ public final class CudaOpDispatcher {
             registerStub(StableHloAst.ReduceOp.class);
         }
 
+        // ==================== Shape Manipulation Operations (IMPLEMENTED) ====================
+
+        // Shape manipulation - Reshape (IMPLEMENTED)
+        if (context != null) {
+            kernels.put(StableHloAst.ReshapeOp.class, new ReshapeKernel(context, salt));
+        } else {
+            registerStub(StableHloAst.ReshapeOp.class);
+        }
+
+        // Shape manipulation - Transpose (IMPLEMENTED)
+        if (context != null) {
+            kernels.put(StableHloAst.TransposeOp.class, new TransposeKernel(context, salt));
+        } else {
+            registerStub(StableHloAst.TransposeOp.class);
+        }
+
+        // Shape manipulation - BroadcastInDim (IMPLEMENTED)
+        if (context != null) {
+            kernels.put(StableHloAst.BroadcastInDimOp.class, new BroadcastInDimKernel(context, salt));
+        } else {
+            registerStub(StableHloAst.BroadcastInDimOp.class);
+        }
+
         // ==================== Stub Operations ====================
 
         // Constants
         registerStub(StableHloAst.ConstantOp.class);
 
-        // Shape manipulation
-        registerStub(StableHloAst.ReshapeOp.class);
-        registerStub(StableHloAst.TransposeOp.class);
-        registerStub(StableHloAst.BroadcastInDimOp.class);
+        // Shape manipulation (remaining stubs)
         registerStub(StableHloAst.ConcatenateOp.class);
         registerStub(StableHloAst.SliceOp.class);
         registerStub(StableHloAst.ReverseOp.class);

@@ -301,12 +301,16 @@ This allows GPU operations to appear in vendor profiler timelines, correlated wi
 ## Module Structure
 
 ```
-warpforge-core-jfr/                      # New module
-├── src/main/java/.../jfr/
-│   ├── GpuKernelEvent.java
-│   ├── GpuMemoryEvent.java
-│   ├── GpuCompilationEvent.java
-│   └── GpuEventRecorder.java            # Utility for emitting events
+warpforge-core/
+├── src/main/java/.../core/jfr/
+│   ├── GpuKernelEvent.java              # Kernel execution timing
+│   ├── GpuMemoryEvent.java              # Memory transfer timing
+│   └── GpuCompilationEvent.java         # Kernel compilation timing
+
+warpforge-benchmark/
+├── src/main/java/.../benchmark/jfr/
+│   ├── GpuBenchmarkEvent.java           # Benchmark iteration results
+│   └── GpuTierComparisonEvent.java      # Tier comparison results
 
 warpforge-backend-nvidia/
 ├── src/main/java/.../cuda/

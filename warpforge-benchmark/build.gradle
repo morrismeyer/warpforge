@@ -1,0 +1,94 @@
+plugins {
+    id 'java-library'
+    id 'application'
+}
+
+group = 'io.surfworks.warpforge'
+version = '0.0.1-SNAPSHOT'
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    // Core WarpForge dependencies
+    api project(':warpforge-core')
+    api project(':warpforge-backend-cpu')
+
+    // GPU backends (optional - loaded at runtime if available)
+    runtimeOnly project(':warpforge-backend-nvidia')
+    runtimeOnly project(':warpforge-backend-amd')
+
+    // JMH for benchmark methodology reference (optional, for validation)
+    // We implement our own GPU-aware framework inspired by JMH
+    compileOnly 'org.openjdk.jmh:jmh-core:1.37'
+
+    // Test dependencies
+    testImplementation 'org.junit.jupiter:junit-jupiter-api:5.10.2'
+    testImplementation 'org.junit.jupiter:junit-jupiter-params:5.10.2'
+    testRuntimeOnly 'org.junit.jupiter:junit-jupiter-engine:5.10.2'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher:1.10.2'
+}
+
+application {
+    mainClass = 'io.surfworks.warpforge.benchmark.GpuBenchmarkRunner'
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+}
+
+tasks.withType(Test).configureEach {
+    useJUnitPlatform()
+}
+
+test {
+    useJUnitPlatform {
+        excludeTags 'nvidia', 'amd', 'gpu'
+    }
+}
+
+// GPU benchmark tests (require actual hardware)
+tasks.register('gpuBenchmarkTest', Test) {
+    description = 'Run GPU benchmark tests (requires GPU hardware)'
+    group = 'verification'
+
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+
+    useJUnitPlatform {
+        includeTags 'nvidia', 'amd', 'gpu'
+    }
+
+    // Benchmarks may need more time
+    systemProperty 'junit.jupiter.execution.timeout.default', '30m'
+
+    testLogging {
+        events 'passed', 'skipped', 'failed', 'standardOut'
+        showStandardStreams = true
+    }
+}
+
+// JFR-enabled benchmark run (like JMH -prof jfr)
+tasks.register('runWithJfr', JavaExec) {
+    description = 'Run benchmarks with JFR profiler enabled (like JMH -prof jfr)'
+    group = 'benchmark'
+
+    mainClass = application.mainClass
+    classpath = sourceSets.main.runtimeClasspath
+
+    jvmArgs = [
+        '-XX:StartFlightRecording=filename=gpu-benchmark.jfr,settings=profile',
+        '-XX:+UnlockDiagnosticVMOptions',
+        '-XX:+DebugNonSafepoints'
+    ]
+
+    args = ['--prof', 'jfr', '--all-tiers']
+}
+
+// Distribution configuration
+distributions {
+    main {
+        distributionBaseName = 'warpforge-benchmark'
+    }
+}

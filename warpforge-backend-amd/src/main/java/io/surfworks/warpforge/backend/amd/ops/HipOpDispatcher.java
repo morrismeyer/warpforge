@@ -1,6 +1,9 @@
 package io.surfworks.warpforge.backend.amd.ops;
 
 import io.surfworks.snakeburger.stablehlo.StableHloAst;
+import io.surfworks.warpforge.backend.amd.hip.HipContext;
+import io.surfworks.warpforge.backend.amd.hip.HipKernels;
+import io.surfworks.warpforge.backend.amd.rocblas.RocblasRuntime;
 import io.surfworks.warpforge.core.tensor.Tensor;
 
 import java.util.List;
@@ -8,15 +11,42 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Dispatches StableHLO operations to HIP kernel stubs.
- * All operations are registered but throw UnsupportedOperationException
- * until real HIP implementations are provided.
+ * Dispatches StableHLO operations to HIP kernel implementations.
+ *
+ * <p>This dispatcher follows the three-tier kernel architecture:
+ * <ul>
+ *   <li><b>PRODUCTION</b>: rocBLAS for matrix operations (DotOp) - fully implemented</li>
+ *   <li><b>OPTIMIZED_OBSERVABLE</b>: HIP kernels with salt instrumentation - requires HIPRTC</li>
+ *   <li><b>CORRECTNESS</b>: Naive HIP kernels with full tracing - requires HIPRTC</li>
+ * </ul>
+ *
+ * <p>Operations without rocBLAS support (elementwise, etc.) currently throw
+ * UnsupportedOperationException until HIPRTC integration is complete.
  */
 public final class HipOpDispatcher {
 
     private final Map<Class<? extends StableHloAst.Operation>, HipOpKernel> kernels = new ConcurrentHashMap<>();
+    private final HipContext context;
+    private final int salt;
+    private final boolean useRocblas;
 
+    /**
+     * Create a dispatcher without a HIP context (stub mode for testing).
+     */
     public HipOpDispatcher() {
+        this(null, HipKernels.SALT_NONE);
+    }
+
+    /**
+     * Create a dispatcher with a HIP context.
+     *
+     * @param context HIP context for kernel execution (null for stub mode)
+     * @param salt Instrumentation level for custom kernels
+     */
+    public HipOpDispatcher(HipContext context, int salt) {
+        this.context = context;
+        this.salt = salt;
+        this.useRocblas = context != null && RocblasRuntime.isAvailable();
         registerAllOperations();
     }
 
@@ -42,175 +72,200 @@ public final class HipOpDispatcher {
     }
 
     /**
-     * Register all StableHLO operations as stubs.
+     * Check if a specific operation has a real (non-stub) implementation.
      */
-    private void registerAllOperations() {
-        // Binary elementwise operations
-        registerStub(StableHloAst.AddOp.class);
-        registerStub(StableHloAst.SubtractOp.class);
-        registerStub(StableHloAst.MultiplyOp.class);
-        registerStub(StableHloAst.DivideOp.class);
-        registerStub(StableHloAst.MaximumOp.class);
-        registerStub(StableHloAst.MinimumOp.class);
-        registerStub(StableHloAst.PowerOp.class);
-        registerStub(StableHloAst.RemainderOp.class);
-        registerStub(StableHloAst.Atan2Op.class);
-        registerStub(StableHloAst.AndOp.class);
-        registerStub(StableHloAst.OrOp.class);
-        registerStub(StableHloAst.XorOp.class);
-        registerStub(StableHloAst.ShiftLeftOp.class);
-        registerStub(StableHloAst.ShiftRightArithmeticOp.class);
-        registerStub(StableHloAst.ShiftRightLogicalOp.class);
-
-        // Unary elementwise operations
-        registerStub(StableHloAst.NegateOp.class);
-        registerStub(StableHloAst.AbsOp.class);
-        registerStub(StableHloAst.ExpOp.class);
-        registerStub(StableHloAst.LogOp.class);
-        registerStub(StableHloAst.TanhOp.class);
-        registerStub(StableHloAst.SqrtOp.class);
-        registerStub(StableHloAst.RsqrtOp.class);
-        registerStub(StableHloAst.SinOp.class);
-        registerStub(StableHloAst.CosOp.class);
-        registerStub(StableHloAst.TanOp.class);
-        registerStub(StableHloAst.LogisticOp.class);
-        registerStub(StableHloAst.CeilOp.class);
-        registerStub(StableHloAst.FloorOp.class);
-        registerStub(StableHloAst.SignOp.class);
-        registerStub(StableHloAst.Expm1Op.class);
-        registerStub(StableHloAst.Log1pOp.class);
-        registerStub(StableHloAst.CbrtOp.class);
-        registerStub(StableHloAst.IsFiniteOp.class);
-        registerStub(StableHloAst.RoundNearestEvenOp.class);
-        registerStub(StableHloAst.RoundNearestAfzOp.class);
-        registerStub(StableHloAst.NotOp.class);
-        registerStub(StableHloAst.PopcntOp.class);
-        registerStub(StableHloAst.ClzOp.class);
-
-        // Comparison and selection
-        registerStub(StableHloAst.CompareOp.class);
-        registerStub(StableHloAst.SelectOp.class);
-        registerStub(StableHloAst.ClampOp.class);
-
-        // Constants
-        registerStub(StableHloAst.ConstantOp.class);
-
-        // Shape manipulation
-        registerStub(StableHloAst.ReshapeOp.class);
-        registerStub(StableHloAst.TransposeOp.class);
-        registerStub(StableHloAst.BroadcastInDimOp.class);
-        registerStub(StableHloAst.ConcatenateOp.class);
-        registerStub(StableHloAst.SliceOp.class);
-        registerStub(StableHloAst.ReverseOp.class);
-        registerStub(StableHloAst.PadOp.class);
-        registerStub(StableHloAst.IotaOp.class);
-        registerStub(StableHloAst.GatherOp.class);
-        registerStub(StableHloAst.ScatterOp.class);
-        registerStub(StableHloAst.DynamicSliceOp.class);
-        registerStub(StableHloAst.DynamicUpdateSliceOp.class);
-        registerStub(StableHloAst.GetDimensionSizeOp.class);
-
-        // Dynamic shape operations
-        registerStub(StableHloAst.DynamicBroadcastInDimOp.class);
-        registerStub(StableHloAst.DynamicGatherOp.class);
-        registerStub(StableHloAst.DynamicIotaOp.class);
-        registerStub(StableHloAst.DynamicPadOp.class);
-        registerStub(StableHloAst.DynamicReshapeOp.class);
-        registerStub(StableHloAst.DynamicConvOp.class);
-
-        // Type conversion
-        registerStub(StableHloAst.ConvertOp.class);
-        registerStub(StableHloAst.BitcastConvertOp.class);
-
-        // Quantization
-        registerStub(StableHloAst.UniformQuantizeOp.class);
-        registerStub(StableHloAst.UniformDequantizeOp.class);
-
-        // Reduction
-        registerStub(StableHloAst.ReduceOp.class);
-        registerStub(StableHloAst.ReduceWindowOp.class);
-        registerStub(StableHloAst.ReducePrecisionOp.class);
-        registerStub(StableHloAst.SelectAndScatterOp.class);
-
-        // Linear algebra
-        registerStub(StableHloAst.DotOp.class);
-        registerStub(StableHloAst.DotGeneralOp.class);
-        registerStub(StableHloAst.CholeskyOp.class);
-        registerStub(StableHloAst.TriangularSolveOp.class);
-
-        // Convolution and neural network
-        registerStub(StableHloAst.ConvolutionOp.class);
-        registerStub(StableHloAst.BatchNormTrainingOp.class);
-        registerStub(StableHloAst.BatchNormInferenceOp.class);
-        registerStub(StableHloAst.BatchNormGradOp.class);
-
-        // Control flow
-        registerStub(StableHloAst.IfOp.class);
-        registerStub(StableHloAst.WhileOp.class);
-        registerStub(StableHloAst.CaseOp.class);
-        registerStub(StableHloAst.MapOp.class);
-
-        // Collective operations
-        registerStub(StableHloAst.AfterAllOp.class);
-        registerStub(StableHloAst.AllGatherOp.class);
-        registerStub(StableHloAst.AllReduceOp.class);
-        registerStub(StableHloAst.AllToAllOp.class);
-        registerStub(StableHloAst.CollectiveBroadcastOp.class);
-        registerStub(StableHloAst.CollectivePermuteOp.class);
-        registerStub(StableHloAst.ReduceScatterOp.class);
-        registerStub(StableHloAst.PartitionIdOp.class);
-        registerStub(StableHloAst.ReplicaIdOp.class);
-
-        // Communication
-        registerStub(StableHloAst.InfeedOp.class);
-        registerStub(StableHloAst.OutfeedOp.class);
-        registerStub(StableHloAst.RecvOp.class);
-        registerStub(StableHloAst.SendOp.class);
-
-        // Tuple operations
-        registerStub(StableHloAst.TupleOp.class);
-        registerStub(StableHloAst.GetTupleElementOp.class);
-
-        // Complex number operations
-        registerStub(StableHloAst.RealOp.class);
-        registerStub(StableHloAst.ImagOp.class);
-        registerStub(StableHloAst.ComplexOp.class);
-
-        // Signal processing
-        registerStub(StableHloAst.FftOp.class);
-
-        // Random number generation
-        registerStub(StableHloAst.RngOp.class);
-        registerStub(StableHloAst.RngBitGeneratorOp.class);
-
-        // Other operations
-        registerStub(StableHloAst.SortOp.class);
-        registerStub(StableHloAst.OptimizationBarrierOp.class);
-        registerStub(StableHloAst.CompositeOp.class);
-        registerStub(StableHloAst.CustomCallOp.class);
-        registerStub(StableHloAst.ReturnOp.class);
-    }
-
-    private <T extends StableHloAst.Operation> void registerStub(Class<T> opClass) {
-        kernels.put(opClass, new HipStubKernel(opClass.getSimpleName()));
+    public boolean hasRealImplementation(Class<? extends StableHloAst.Operation> opClass) {
+        HipOpKernel kernel = kernels.get(opClass);
+        return kernel != null && !(kernel instanceof HipStubKernel);
     }
 
     /**
-     * Stub kernel that throws UnsupportedOperationException.
-     * Replace with real HIP implementations.
+     * Register all StableHLO operations.
+     */
+    private void registerAllOperations() {
+        // ==================== PRODUCTION Tier (rocBLAS) ====================
+        // These are fully functional when rocBLAS is available
+
+        if (useRocblas) {
+            kernels.put(StableHloAst.DotOp.class, new RocblasDotKernel(context));
+        } else {
+            registerStub(StableHloAst.DotOp.class, "DotOp requires rocBLAS or HIPRTC");
+        }
+
+        // ==================== Requires HIPRTC (stubs for now) ====================
+        // These have HIP C++ source ready but need HIPRTC to compile
+
+        // Binary elementwise operations
+        registerHiprtcStub(StableHloAst.AddOp.class, "AddOp");
+        registerHiprtcStub(StableHloAst.SubtractOp.class, "SubtractOp");
+        registerHiprtcStub(StableHloAst.MultiplyOp.class, "MultiplyOp");
+        registerHiprtcStub(StableHloAst.DivideOp.class, "DivideOp");
+        registerHiprtcStub(StableHloAst.MaximumOp.class, "MaximumOp");
+        registerHiprtcStub(StableHloAst.MinimumOp.class, "MinimumOp");
+        registerHiprtcStub(StableHloAst.PowerOp.class, "PowerOp");
+        registerHiprtcStub(StableHloAst.RemainderOp.class, "RemainderOp");
+        registerHiprtcStub(StableHloAst.Atan2Op.class, "Atan2Op");
+        registerHiprtcStub(StableHloAst.AndOp.class, "AndOp");
+        registerHiprtcStub(StableHloAst.OrOp.class, "OrOp");
+        registerHiprtcStub(StableHloAst.XorOp.class, "XorOp");
+        registerHiprtcStub(StableHloAst.ShiftLeftOp.class, "ShiftLeftOp");
+        registerHiprtcStub(StableHloAst.ShiftRightArithmeticOp.class, "ShiftRightArithmeticOp");
+        registerHiprtcStub(StableHloAst.ShiftRightLogicalOp.class, "ShiftRightLogicalOp");
+
+        // Unary elementwise operations
+        registerHiprtcStub(StableHloAst.NegateOp.class, "NegateOp");
+        registerHiprtcStub(StableHloAst.AbsOp.class, "AbsOp");
+        registerHiprtcStub(StableHloAst.ExpOp.class, "ExpOp");
+        registerHiprtcStub(StableHloAst.LogOp.class, "LogOp");
+        registerHiprtcStub(StableHloAst.TanhOp.class, "TanhOp");
+        registerHiprtcStub(StableHloAst.SqrtOp.class, "SqrtOp");
+        registerHiprtcStub(StableHloAst.RsqrtOp.class, "RsqrtOp");
+        registerHiprtcStub(StableHloAst.SinOp.class, "SinOp");
+        registerHiprtcStub(StableHloAst.CosOp.class, "CosOp");
+        registerHiprtcStub(StableHloAst.TanOp.class, "TanOp");
+        registerHiprtcStub(StableHloAst.LogisticOp.class, "LogisticOp");
+        registerHiprtcStub(StableHloAst.CeilOp.class, "CeilOp");
+        registerHiprtcStub(StableHloAst.FloorOp.class, "FloorOp");
+        registerHiprtcStub(StableHloAst.SignOp.class, "SignOp");
+        registerHiprtcStub(StableHloAst.Expm1Op.class, "Expm1Op");
+        registerHiprtcStub(StableHloAst.Log1pOp.class, "Log1pOp");
+        registerHiprtcStub(StableHloAst.CbrtOp.class, "CbrtOp");
+        registerHiprtcStub(StableHloAst.IsFiniteOp.class, "IsFiniteOp");
+        registerHiprtcStub(StableHloAst.RoundNearestEvenOp.class, "RoundNearestEvenOp");
+        registerHiprtcStub(StableHloAst.RoundNearestAfzOp.class, "RoundNearestAfzOp");
+        registerHiprtcStub(StableHloAst.NotOp.class, "NotOp");
+        registerHiprtcStub(StableHloAst.PopcntOp.class, "PopcntOp");
+        registerHiprtcStub(StableHloAst.ClzOp.class, "ClzOp");
+
+        // Comparison and selection
+        registerHiprtcStub(StableHloAst.CompareOp.class, "CompareOp");
+        registerHiprtcStub(StableHloAst.SelectOp.class, "SelectOp");
+        registerHiprtcStub(StableHloAst.ClampOp.class, "ClampOp");
+
+        // Constants
+        registerStub(StableHloAst.ConstantOp.class, "ConstantOp");
+
+        // Shape manipulation
+        registerHiprtcStub(StableHloAst.ReshapeOp.class, "ReshapeOp");
+        registerHiprtcStub(StableHloAst.TransposeOp.class, "TransposeOp");
+        registerHiprtcStub(StableHloAst.BroadcastInDimOp.class, "BroadcastInDimOp");
+        registerHiprtcStub(StableHloAst.ConcatenateOp.class, "ConcatenateOp");
+        registerHiprtcStub(StableHloAst.SliceOp.class, "SliceOp");
+        registerHiprtcStub(StableHloAst.ReverseOp.class, "ReverseOp");
+        registerHiprtcStub(StableHloAst.PadOp.class, "PadOp");
+        registerHiprtcStub(StableHloAst.IotaOp.class, "IotaOp");
+        registerHiprtcStub(StableHloAst.GatherOp.class, "GatherOp");
+        registerHiprtcStub(StableHloAst.ScatterOp.class, "ScatterOp");
+        registerStub(StableHloAst.DynamicSliceOp.class, "DynamicSliceOp");
+        registerStub(StableHloAst.DynamicUpdateSliceOp.class, "DynamicUpdateSliceOp");
+        registerStub(StableHloAst.GetDimensionSizeOp.class, "GetDimensionSizeOp");
+
+        // Dynamic shape operations
+        registerStub(StableHloAst.DynamicBroadcastInDimOp.class, "DynamicBroadcastInDimOp");
+        registerStub(StableHloAst.DynamicGatherOp.class, "DynamicGatherOp");
+        registerStub(StableHloAst.DynamicIotaOp.class, "DynamicIotaOp");
+        registerStub(StableHloAst.DynamicPadOp.class, "DynamicPadOp");
+        registerStub(StableHloAst.DynamicReshapeOp.class, "DynamicReshapeOp");
+        registerStub(StableHloAst.DynamicConvOp.class, "DynamicConvOp");
+
+        // Type conversion
+        registerHiprtcStub(StableHloAst.ConvertOp.class, "ConvertOp");
+        registerStub(StableHloAst.BitcastConvertOp.class, "BitcastConvertOp");
+
+        // Quantization
+        registerStub(StableHloAst.UniformQuantizeOp.class, "UniformQuantizeOp");
+        registerStub(StableHloAst.UniformDequantizeOp.class, "UniformDequantizeOp");
+
+        // Reduction
+        registerHiprtcStub(StableHloAst.ReduceOp.class, "ReduceOp");
+        registerStub(StableHloAst.ReduceWindowOp.class, "ReduceWindowOp");
+        registerStub(StableHloAst.ReducePrecisionOp.class, "ReducePrecisionOp");
+        registerStub(StableHloAst.SelectAndScatterOp.class, "SelectAndScatterOp");
+
+        // Linear algebra (DotOp handled above with rocBLAS)
+        registerStub(StableHloAst.DotGeneralOp.class, "DotGeneralOp - use rocBLAS batched GEMM");
+        registerStub(StableHloAst.CholeskyOp.class, "CholeskyOp");
+        registerStub(StableHloAst.TriangularSolveOp.class, "TriangularSolveOp");
+
+        // Convolution and neural network (future: MIOpen integration)
+        registerStub(StableHloAst.ConvolutionOp.class, "ConvolutionOp - future MIOpen integration");
+        registerStub(StableHloAst.BatchNormTrainingOp.class, "BatchNormTrainingOp");
+        registerStub(StableHloAst.BatchNormInferenceOp.class, "BatchNormInferenceOp");
+        registerStub(StableHloAst.BatchNormGradOp.class, "BatchNormGradOp");
+
+        // Control flow
+        registerStub(StableHloAst.IfOp.class, "IfOp");
+        registerStub(StableHloAst.WhileOp.class, "WhileOp");
+        registerStub(StableHloAst.CaseOp.class, "CaseOp");
+        registerStub(StableHloAst.MapOp.class, "MapOp");
+
+        // Collective operations (future: RCCL integration)
+        registerStub(StableHloAst.AfterAllOp.class, "AfterAllOp");
+        registerStub(StableHloAst.AllGatherOp.class, "AllGatherOp - future RCCL integration");
+        registerStub(StableHloAst.AllReduceOp.class, "AllReduceOp - future RCCL integration");
+        registerStub(StableHloAst.AllToAllOp.class, "AllToAllOp");
+        registerStub(StableHloAst.CollectiveBroadcastOp.class, "CollectiveBroadcastOp");
+        registerStub(StableHloAst.CollectivePermuteOp.class, "CollectivePermuteOp");
+        registerStub(StableHloAst.ReduceScatterOp.class, "ReduceScatterOp");
+        registerStub(StableHloAst.PartitionIdOp.class, "PartitionIdOp");
+        registerStub(StableHloAst.ReplicaIdOp.class, "ReplicaIdOp");
+
+        // Communication
+        registerStub(StableHloAst.InfeedOp.class, "InfeedOp");
+        registerStub(StableHloAst.OutfeedOp.class, "OutfeedOp");
+        registerStub(StableHloAst.RecvOp.class, "RecvOp");
+        registerStub(StableHloAst.SendOp.class, "SendOp");
+
+        // Tuple operations
+        registerStub(StableHloAst.TupleOp.class, "TupleOp");
+        registerStub(StableHloAst.GetTupleElementOp.class, "GetTupleElementOp");
+
+        // Complex number operations
+        registerStub(StableHloAst.RealOp.class, "RealOp");
+        registerStub(StableHloAst.ImagOp.class, "ImagOp");
+        registerStub(StableHloAst.ComplexOp.class, "ComplexOp");
+
+        // Signal processing
+        registerStub(StableHloAst.FftOp.class, "FftOp - future rocFFT integration");
+
+        // Random number generation
+        registerStub(StableHloAst.RngOp.class, "RngOp - future rocRAND integration");
+        registerStub(StableHloAst.RngBitGeneratorOp.class, "RngBitGeneratorOp");
+
+        // Other operations
+        registerStub(StableHloAst.SortOp.class, "SortOp");
+        registerStub(StableHloAst.OptimizationBarrierOp.class, "OptimizationBarrierOp");
+        registerStub(StableHloAst.CompositeOp.class, "CompositeOp");
+        registerStub(StableHloAst.CustomCallOp.class, "CustomCallOp");
+        registerStub(StableHloAst.ReturnOp.class, "ReturnOp");
+    }
+
+    private <T extends StableHloAst.Operation> void registerStub(Class<T> opClass, String message) {
+        kernels.put(opClass, new HipStubKernel(opClass.getSimpleName(), message));
+    }
+
+    private <T extends StableHloAst.Operation> void registerHiprtcStub(Class<T> opClass, String opName) {
+        kernels.put(opClass, new HipStubKernel(opName,
+            opName + " requires HIPRTC integration. HIP C++ source is ready in HipKernels."));
+    }
+
+    /**
+     * Stub kernel that throws UnsupportedOperationException with helpful message.
      */
     private static class HipStubKernel implements HipOpKernel {
         private final String opName;
+        private final String message;
 
-        HipStubKernel(String opName) {
+        HipStubKernel(String opName, String message) {
             this.opName = opName;
+            this.message = message;
         }
 
         @Override
         public List<Tensor> execute(StableHloAst.Operation op, List<Tensor> inputs) {
             throw new UnsupportedOperationException(
-                "HIP kernel not yet implemented for: " + opName +
-                ". Use CPU backend for reference implementation.");
+                "HIP kernel not yet implemented for: " + opName + ". " + message +
+                " Use CPU backend for reference implementation.");
         }
     }
 }

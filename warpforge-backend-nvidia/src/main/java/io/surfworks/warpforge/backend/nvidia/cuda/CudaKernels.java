@@ -2416,6 +2416,323 @@ lg2.approx.f32  %f4, %f2;              // temp for checking if x is positive
         return ptx.toString();
     }
 
+    // ==================== Type Conversion Operations ====================
+
+    /**
+     * Generate PTX for F32 to I32 conversion.
+     *
+     * <p>Converts floating-point values to signed 32-bit integers using
+     * round-toward-zero (truncation) semantics.
+     *
+     * @param salt Instrumentation level
+     * @return PTX source code
+     */
+    public static String generateConvertF32toI32(int salt) {
+        StringBuilder ptx = new StringBuilder();
+
+        ptx.append("""
+            //
+            // convert_f32_to_i32: Convert float to int (truncate)
+            // Salt level: %d
+            //
+            .version 7.0
+            .target sm_50
+            .address_size 64
+
+            .visible .entry convert_f32_to_i32(
+                .param .u64 in_ptr,
+                .param .u64 out_ptr,
+                .param .u32 n
+            """.formatted(salt));
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("    ,.param .u64 timing_ptr\n");
+        }
+
+        ptx.append("""
+            )
+            {
+                .reg .pred  %p<2>;
+                .reg .f32   %f<2>;
+                .reg .b32   %r<8>;
+                .reg .b64   %rd<8>;
+            """);
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("    .reg .b64   %rd_t0, %rd_t1, %rd_delta;\n");
+        }
+
+        ptx.append("""
+
+                // Calculate global thread index
+                mov.u32         %r1, %ctaid.x;
+                mov.u32         %r2, %ntid.x;
+                mov.u32         %r3, %tid.x;
+                mad.lo.s32      %r4, %r1, %r2, %r3;
+
+                // Bounds check
+                ld.param.u32    %r5, [n];
+                setp.ge.s32     %p1, %r4, %r5;
+                @%p1 bra        EXIT;
+
+                // Load pointers
+                ld.param.u64    %rd1, [in_ptr];
+                ld.param.u64    %rd2, [out_ptr];
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("    mov.u64         %rd_t0, %globaltimer;\n\n");
+        }
+
+        ptx.append("""
+                // Calculate offset
+                cvt.s64.s32     %rd3, %r4;
+                shl.b64         %rd3, %rd3, 2;      // * 4 bytes
+
+                // Load float from input
+                add.s64         %rd4, %rd1, %rd3;
+                ld.global.f32   %f1, [%rd4];
+
+                // Convert to int (round toward zero)
+                cvt.rzi.s32.f32 %r6, %f1;
+
+                // Store int to output
+                add.s64         %rd5, %rd2, %rd3;
+                st.global.s32   [%rd5], %r6;
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("""
+                    mov.u64         %rd_t1, %globaltimer;
+                    sub.u64         %rd_delta, %rd_t1, %rd_t0;
+                    ld.param.u64    %rd7, [timing_ptr];
+                    atom.global.add.u64 [%rd7], %rd_delta;
+
+            """);
+        }
+
+        ptx.append("""
+            EXIT:
+                ret;
+            }
+            """);
+
+        return ptx.toString();
+    }
+
+    /**
+     * Generate PTX for I32 to F32 conversion.
+     *
+     * <p>Converts signed 32-bit integers to floating-point values.
+     *
+     * @param salt Instrumentation level
+     * @return PTX source code
+     */
+    public static String generateConvertI32toF32(int salt) {
+        StringBuilder ptx = new StringBuilder();
+
+        ptx.append("""
+            //
+            // convert_i32_to_f32: Convert int to float
+            // Salt level: %d
+            //
+            .version 7.0
+            .target sm_50
+            .address_size 64
+
+            .visible .entry convert_i32_to_f32(
+                .param .u64 in_ptr,
+                .param .u64 out_ptr,
+                .param .u32 n
+            """.formatted(salt));
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("    ,.param .u64 timing_ptr\n");
+        }
+
+        ptx.append("""
+            )
+            {
+                .reg .pred  %p<2>;
+                .reg .f32   %f<2>;
+                .reg .b32   %r<8>;
+                .reg .b64   %rd<8>;
+            """);
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("    .reg .b64   %rd_t0, %rd_t1, %rd_delta;\n");
+        }
+
+        ptx.append("""
+
+                // Calculate global thread index
+                mov.u32         %r1, %ctaid.x;
+                mov.u32         %r2, %ntid.x;
+                mov.u32         %r3, %tid.x;
+                mad.lo.s32      %r4, %r1, %r2, %r3;
+
+                // Bounds check
+                ld.param.u32    %r5, [n];
+                setp.ge.s32     %p1, %r4, %r5;
+                @%p1 bra        EXIT;
+
+                // Load pointers
+                ld.param.u64    %rd1, [in_ptr];
+                ld.param.u64    %rd2, [out_ptr];
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("    mov.u64         %rd_t0, %globaltimer;\n\n");
+        }
+
+        ptx.append("""
+                // Calculate offset
+                cvt.s64.s32     %rd3, %r4;
+                shl.b64         %rd3, %rd3, 2;      // * 4 bytes
+
+                // Load int from input
+                add.s64         %rd4, %rd1, %rd3;
+                ld.global.s32   %r6, [%rd4];
+
+                // Convert to float (round to nearest even)
+                cvt.rn.f32.s32  %f1, %r6;
+
+                // Store float to output
+                add.s64         %rd5, %rd2, %rd3;
+                st.global.f32   [%rd5], %f1;
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("""
+                    mov.u64         %rd_t1, %globaltimer;
+                    sub.u64         %rd_delta, %rd_t1, %rd_t0;
+                    ld.param.u64    %rd7, [timing_ptr];
+                    atom.global.add.u64 [%rd7], %rd_delta;
+
+            """);
+        }
+
+        ptx.append("""
+            EXIT:
+                ret;
+            }
+            """);
+
+        return ptx.toString();
+    }
+
+    /**
+     * Generate PTX for F32 to F32 (no-op copy, for identity conversions).
+     *
+     * @param salt Instrumentation level
+     * @return PTX source code
+     */
+    public static String generateConvertF32toF32(int salt) {
+        // Same as reshape - just a copy
+        return generateReshapeF32(salt);
+    }
+
+    /**
+     * Generate PTX for I32 to I32 (no-op copy, for identity conversions).
+     *
+     * @param salt Instrumentation level
+     * @return PTX source code
+     */
+    public static String generateConvertI32toI32(int salt) {
+        StringBuilder ptx = new StringBuilder();
+
+        ptx.append("""
+            //
+            // convert_i32_to_i32: Copy int to int (identity)
+            // Salt level: %d
+            //
+            .version 7.0
+            .target sm_50
+            .address_size 64
+
+            .visible .entry convert_i32_to_i32(
+                .param .u64 in_ptr,
+                .param .u64 out_ptr,
+                .param .u32 n
+            """.formatted(salt));
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("    ,.param .u64 timing_ptr\n");
+        }
+
+        ptx.append("""
+            )
+            {
+                .reg .pred  %p<2>;
+                .reg .b32   %r<8>;
+                .reg .b64   %rd<8>;
+            """);
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("    .reg .b64   %rd_t0, %rd_t1, %rd_delta;\n");
+        }
+
+        ptx.append("""
+
+                // Calculate global thread index
+                mov.u32         %r1, %ctaid.x;
+                mov.u32         %r2, %ntid.x;
+                mov.u32         %r3, %tid.x;
+                mad.lo.s32      %r4, %r1, %r2, %r3;
+
+                // Bounds check
+                ld.param.u32    %r5, [n];
+                setp.ge.s32     %p1, %r4, %r5;
+                @%p1 bra        EXIT;
+
+                // Load pointers
+                ld.param.u64    %rd1, [in_ptr];
+                ld.param.u64    %rd2, [out_ptr];
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("    mov.u64         %rd_t0, %globaltimer;\n\n");
+        }
+
+        ptx.append("""
+                // Calculate offset
+                cvt.s64.s32     %rd3, %r4;
+                shl.b64         %rd3, %rd3, 2;      // * 4 bytes
+
+                // Load from input
+                add.s64         %rd4, %rd1, %rd3;
+                ld.global.s32   %r6, [%rd4];
+
+                // Store to output
+                add.s64         %rd5, %rd2, %rd3;
+                st.global.s32   [%rd5], %r6;
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            ptx.append("""
+                    mov.u64         %rd_t1, %globaltimer;
+                    sub.u64         %rd_delta, %rd_t1, %rd_t0;
+                    ld.param.u64    %rd7, [timing_ptr];
+                    atom.global.add.u64 [%rd7], %rd_delta;
+
+            """);
+        }
+
+        ptx.append("""
+            EXIT:
+                ret;
+            }
+            """);
+
+        return ptx.toString();
+    }
+
     // ==================== Utility Methods ====================
 
     /**

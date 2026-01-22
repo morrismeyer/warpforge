@@ -443,8 +443,14 @@ public final class CudaOpDispatcher {
         registerStub(StableHloAst.DynamicReshapeOp.class);
         registerStub(StableHloAst.DynamicConvOp.class);
 
-        // Type conversion
-        registerStub(StableHloAst.ConvertOp.class);
+        // Type conversion - Convert (IMPLEMENTED)
+        if (context != null) {
+            kernels.put(StableHloAst.ConvertOp.class, new ConvertKernel(context, salt));
+        } else {
+            registerStub(StableHloAst.ConvertOp.class);
+        }
+
+        // Type conversion (remaining stubs)
         registerStub(StableHloAst.BitcastConvertOp.class);
 
         // Quantization

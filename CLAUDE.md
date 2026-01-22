@@ -510,6 +510,48 @@ CI builds will grow longer over time. Catching compilation errors and test failu
 
 This discipline ensures CI remains a verification step, not a discovery step.
 
+## Post-Push CI Monitoring: Own Your Push
+
+**After every `git push`, you are responsible for monitoring CI and fixing any failures automatically.**
+
+When you push code, you must:
+1. Check CI status using `gh run list --limit 5`
+2. If a run is in progress, wait for it to complete or check back
+3. If CI fails, immediately investigate with `gh run view <run-id> --log-failed`
+4. Fix the issue and push the fix without waiting for human intervention
+
+**This is non-negotiable.** A push is not complete until CI is green. Do not:
+- Push and walk away assuming it will pass
+- Wait for a human to tell you CI failed
+- Leave the main branch broken for someone else to fix
+
+**Automated fix workflow:**
+```bash
+# 1. Push your changes
+git push
+
+# 2. Check CI status
+gh run list --limit 3
+
+# 3. If failed, investigate
+gh run view <run-id> --log-failed | tail -100
+
+# 4. Fix locally, test, commit, and push the fix
+./gradlew clean assemble test
+git add -A && git commit -m "Fix: <description of CI failure>"
+git push
+
+# 5. Repeat until CI is green
+```
+
+**Common CI-specific failures to watch for:**
+- Platform differences (macOS builds locally, Linux runs on CI)
+- Missing native libraries on CI that exist locally
+- Path differences between local dev and CI environment
+- Tests that pass in isolation but fail in full suite
+
+The goal is zero human intervention for routine CI failures. If you broke it, you fix it—immediately.
+
 ## Java Code Style
 
 - **Single blank line after package statement** before imports

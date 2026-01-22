@@ -284,6 +284,32 @@ PyTorch Model (nn.Module)
 - Tag tests with `@Tag("cpu")`, `@Tag("nvidia")`, or `@Tag("amd")` for hardware-specific execution
 - GPU tests have 60-second SSH/wake timeouts
 
+### Zero Tolerance for Test Failures
+
+**The build must fail if even a single test fails.** This is non-negotiable.
+
+Allowing test failures to accumulate is a dangerous development practice that leads to:
+- Silent regressions that compound over time
+- Loss of confidence in the test suite
+- "It's probably fine" mentality that masks real bugs
+- Technical debt that becomes impossible to pay down
+
+**Rules:**
+- A failing test is a build-breaking event—treat it with the same urgency as a compilation error
+- Never commit code that causes test failures
+- Never disable or skip tests to make the build pass (fix the test or fix the code)
+- CI enforces minimum test counts per module to detect accidentally skipped tests
+
+**If a test is flaky:**
+- Fix the flakiness immediately—flaky tests are worse than no tests
+- If the test cannot be fixed quickly, delete it and file an issue
+- Never leave flaky tests in the suite "for now"
+
+**Module test minimums (enforced by CI):**
+- `snakeburger-core`: 300+ tests
+- `warpforge-io`: 150+ tests
+- `warpforge-core`: 100+ tests
+
 ## CI/CD
 
 GitHub Actions workflow (`holmes-mark1-ci.yml`) orchestrates:

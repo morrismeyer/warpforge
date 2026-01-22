@@ -166,13 +166,41 @@ import torch
 print('torch version:', torch.__version__)
 from torch.fx import symbolic_trace
 print('torch.fx.symbolic_trace: OK')
+from torch.fx.passes.shape_prop import ShapeProp
+print('torch.fx.passes.shape_prop.ShapeProp: OK')
 import torch.nn as nn
 print('torch.nn: OK')
+
+# Full pipeline test: trace a model and run shape propagation
+# This validates that all dependencies (including torch._decomp) are present
+class TestModel(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.fc = nn.Linear(4, 2)
+    def forward(self, x):
+        return self.fc(x)
+
+model = TestModel()
+traced = symbolic_trace(model)
+sample_input = torch.randn(1, 4)
+ShapeProp(traced).propagate(sample_input)
+print('ShapeProp.propagate: OK')
+print('Full FX tracing pipeline: OK')
 "
 
 if [ $? -eq 0 ]; then
     echo ""
     echo "SUCCESS: Venv pruned and verified."
+
+    # Write version marker for CI to detect stale venvs
+    MARKER_FILE="${VENV_DIR}/.prune-marker"
+    cat > "${MARKER_FILE}" << EOF
+GRAALPY_VERSION=${GRAALPY_VERSION}
+PYTHON_VERSION=${PYTHON_VERSION}
+PRUNE_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+PRUNE_SCRIPT_HASH=$(md5sum "${BASH_SOURCE[0]}" 2>/dev/null | cut -d' ' -f1 || md5 -q "${BASH_SOURCE[0]}" 2>/dev/null || echo "unknown")
+EOF
+    echo "Version marker written to ${MARKER_FILE}"
 else
     echo ""
     echo "ERROR: Verification failed. The venv may be corrupted."

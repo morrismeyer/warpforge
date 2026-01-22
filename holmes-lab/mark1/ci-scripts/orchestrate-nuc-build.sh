@@ -133,14 +133,29 @@ log "NUC build + tests SUCCESS"
 # 2b) SnakeGrinder distribution tests (requires pre-built PyTorch venv)
 log "Running snakegrinder-dist tests..."
 SNAKEGRINDER_VENV="$NUC_REPO_DIR/snakegrinder-dist/.pytorch-venv"
+PRUNE_MARKER="$SNAKEGRINDER_VENV/.prune-marker"
+
+# Check for stale venv (missing prune marker = pre-validation era venv)
+if [[ -d "$SNAKEGRINDER_VENV" && ! -f "$PRUNE_MARKER" ]]; then
+  log "WARNING: PyTorch venv exists but lacks prune marker (pre-validation era)"
+  log "Deleting stale venv to force rebuild with proper validation..."
+  rm -rf "$SNAKEGRINDER_VENV"
+  log "Stale venv deleted. Will skip tests this run."
+fi
+
 if [[ -d "$SNAKEGRINDER_VENV" ]]; then
   log "PyTorch venv found at $SNAKEGRINDER_VENV"
+  if [[ -f "$PRUNE_MARKER" ]]; then
+    log "Prune marker contents:"
+    cat "$PRUNE_MARKER" | tee -a "$LOG_FILE"
+  fi
   bash -lc "./gradlew :snakegrinder-dist:testDist --no-configuration-cache 2>&1" | tee -a "$LOG_FILE"
   log "snakegrinder-dist tests SUCCESS"
 else
   log "WARNING: PyTorch venv not found at $SNAKEGRINDER_VENV"
   log "Skipping snakegrinder-dist tests. To enable, run:"
   log "  cd $NUC_REPO_DIR && ./gradlew :snakegrinder-dist:buildPytorchVenv"
+  log "  cd $NUC_REPO_DIR && ./gradlew :snakegrinder-dist:prunePytorchVenv"
 fi
 
 # 3) NVIDIA tier

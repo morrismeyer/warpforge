@@ -128,6 +128,44 @@ else
   exit 1
 fi
 
+# Verify warpforge-core tests executed
+log "Verifying warpforge-core tests..."
+TEST_RESULTS_DIR="warpforge-core/build/test-results/test"
+if [[ -d "$TEST_RESULTS_DIR" ]]; then
+  TEST_COUNT=$(find "$TEST_RESULTS_DIR" -name "*.xml" -exec grep -h "tests=" {} \; 2>/dev/null | grep -oE 'tests="[0-9]+"' | grep -oE '[0-9]+' | awk '{sum+=$1} END {print sum}')
+  log "warpforge-core test count: ${TEST_COUNT:-0}"
+
+  if [[ "${TEST_COUNT:-0}" -lt 100 ]]; then
+    log "ERROR: Expected at least 100 warpforge-core tests but found ${TEST_COUNT:-0}"
+    exit 1
+  fi
+
+  log "SUCCESS: warpforge-core tests executed (${TEST_COUNT} tests)"
+else
+  log "ERROR: No test results found at $TEST_RESULTS_DIR"
+  exit 1
+fi
+
+# Verify warpforge-io tests executed (RDMA, Collective, VirtualThreads)
+log "Verifying warpforge-io tests..."
+TEST_RESULTS_DIR="warpforge-io/build/test-results/test"
+if [[ -d "$TEST_RESULTS_DIR" ]]; then
+  TEST_COUNT=$(find "$TEST_RESULTS_DIR" -name "*.xml" -exec grep -h "tests=" {} \; 2>/dev/null | grep -oE 'tests="[0-9]+"' | grep -oE '[0-9]+' | awk '{sum+=$1} END {print sum}')
+  log "warpforge-io test count: ${TEST_COUNT:-0}"
+
+  if [[ "${TEST_COUNT:-0}" -lt 150 ]]; then
+    log "ERROR: Expected at least 150 warpforge-io tests but found ${TEST_COUNT:-0}"
+    log "warpforge-io tests include RDMA, Collective, and VirtualThreads tests"
+    exit 1
+  fi
+
+  log "SUCCESS: warpforge-io tests executed (${TEST_COUNT} tests)"
+else
+  log "ERROR: No test results found at $TEST_RESULTS_DIR"
+  log "warpforge-io tests should run with standard JDK 25"
+  exit 1
+fi
+
 log "NUC build + tests SUCCESS"
 
 # 2b) SnakeGrinder distribution tests (requires pre-built PyTorch venv)

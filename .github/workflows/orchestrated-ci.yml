@@ -69,3 +69,58 @@ jobs:
             fi
             exit 1
           fi
+
+      - name: Verify warpforge-io test execution
+        run: |
+          set -euo pipefail
+          echo "=== Checking warpforge-io test results ==="
+
+          NUC_REPO="${HOME}/surfworks/warpforge"
+          TEST_RESULTS_DIR="${NUC_REPO}/warpforge-io/build/test-results/test"
+
+          echo "Checking test results in: ${TEST_RESULTS_DIR}"
+
+          if [[ -d "$TEST_RESULTS_DIR" ]]; then
+            TEST_COUNT=$(find "$TEST_RESULTS_DIR" -name "*.xml" -exec grep -h "tests=" {} \; | grep -oE 'tests="[0-9]+"' | grep -oE '[0-9]+' | awk '{sum+=$1} END {print sum}')
+            echo "warpforge-io test count: ${TEST_COUNT:-0}"
+
+            # warpforge-io should have at least 150 tests (RDMA, Collective, VirtualThreads, etc.)
+            if [[ "${TEST_COUNT:-0}" -lt 150 ]]; then
+              echo "ERROR: Expected at least 150 warpforge-io tests but found ${TEST_COUNT:-0}"
+              echo "This suggests tests were skipped or failed to compile."
+              exit 1
+            fi
+
+            echo "SUCCESS: warpforge-io tests executed (${TEST_COUNT} tests)"
+          else
+            echo "ERROR: No test results found at ${TEST_RESULTS_DIR}"
+            echo "warpforge-io tests should run with standard JDK 25."
+            exit 1
+          fi
+
+      - name: Verify warpforge-core test execution
+        run: |
+          set -euo pipefail
+          echo "=== Checking warpforge-core test results ==="
+
+          NUC_REPO="${HOME}/surfworks/warpforge"
+          TEST_RESULTS_DIR="${NUC_REPO}/warpforge-core/build/test-results/test"
+
+          echo "Checking test results in: ${TEST_RESULTS_DIR}"
+
+          if [[ -d "$TEST_RESULTS_DIR" ]]; then
+            TEST_COUNT=$(find "$TEST_RESULTS_DIR" -name "*.xml" -exec grep -h "tests=" {} \; | grep -oE 'tests="[0-9]+"' | grep -oE '[0-9]+' | awk '{sum+=$1} END {print sum}')
+            echo "warpforge-core test count: ${TEST_COUNT:-0}"
+
+            # warpforge-core should have at least 100 tests
+            if [[ "${TEST_COUNT:-0}" -lt 100 ]]; then
+              echo "ERROR: Expected at least 100 warpforge-core tests but found ${TEST_COUNT:-0}"
+              echo "This suggests tests were skipped or failed to compile."
+              exit 1
+            fi
+
+            echo "SUCCESS: warpforge-core tests executed (${TEST_COUNT} tests)"
+          else
+            echo "ERROR: No test results found at ${TEST_RESULTS_DIR}"
+            exit 1
+          fi

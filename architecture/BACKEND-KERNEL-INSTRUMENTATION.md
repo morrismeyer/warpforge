@@ -11,30 +11,32 @@ This document describes WarpForge's approach to GPU kernel instrumentation, desi
 WarpForge provides three execution tiers that balance performance against observability:
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                     WarpForge Kernel Tiers                                  │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│  PRODUCTION          ████████████████████████████████████████  100% perf   │
-│  (cuBLAS/rocBLAS)    │ Vendor libraries, external timing only │            │
-│                                                                             │
-│  OPTIMIZED_          ██████████████████████████████████████    ~93% perf   │
-│  OBSERVABLE          │ Boehm-style PTX/AMDGCN with salt        │           │
-│  (Custom ISA)        │ instrumentation                         │           │
-│                                                                             │
-│  CORRECTNESS         ████                                      ~1% perf    │
-│  (Naive ISA)         │ Full tracing, numerical verification   │            │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
++-----------------------------------------------------------------------------+
+|                          WarpForge Kernel Tiers                             |
++-----------------------------------------------------------------------------+
+|                                                                             |
+|  PRODUCTION        ##########################################    100% perf |
+|  (cuBLAS/rocBLAS)  Vendor libraries, external timing only                   |
+|                                                                             |
+|  OPTIMIZED_        ######################################        ~93% perf |
+|  OBSERVABLE        Boehm-style PTX/AMDGCN with salt instrumentation         |
+|  (Custom ISA)                                                               |
+|                                                                             |
+|  CORRECTNESS       ####                                           ~1% perf |
+|  (Naive ISA)       Full tracing, numerical verification                     |
+|                                                                             |
++-----------------------------------------------------------------------------+
 ```
 
 ### Tier Selection Guide
 
-| Tier | Performance | Observability | Use Case |
-|------|-------------|---------------|----------|
-| **PRODUCTION** | 100% | External timing (JFR + CUDA/HIP Events) | Training at scale, inference |
-| **OPTIMIZED_OBSERVABLE** | ~93% | Salt instrumentation (kernel internals) | Performance tuning, profiling |
-| **CORRECTNESS** | ~1% | Full tracing, step-by-step | Debugging numerical issues |
+|--------------------------|-------------|------------------------------------------|--------------------------------|
+| Tier                     | Performance | Observability                            | Use Case                       |
+|--------------------------|-------------|------------------------------------------|--------------------------------|
+| **PRODUCTION**           | 100%        | External timing (JFR + CUDA/HIP Events)  | Training at scale, inference   |
+| **OPTIMIZED_OBSERVABLE** | ~93%        | Salt instrumentation (kernel internals)  | Performance tuning, profiling  |
+| **CORRECTNESS**          | ~1%         | Full tracing, step-by-step               | Debugging numerical issues     |
+|--------------------------|-------------|------------------------------------------|--------------------------------|
 
 ### Why Three Tiers?
 
@@ -72,11 +74,13 @@ This avoids the fundamental Heisenbug problem: if you have separate "production"
 
 ## Salt Levels
 
-| Salt Level | Constant | Description | Overhead |
-|------------|----------|-------------|----------|
-| **SALT_NONE** | 0 | Production kernel, no instrumentation | Baseline |
-| **SALT_TIMING** | 1 | Cycle counters around compute sections | ~8 instructions |
-| **SALT_TRACE** | 2 | Memory access patterns, warp divergence | Higher (TBD) |
+|------------------|----------|------------------------------------------|------------------|
+| Salt Level       | Constant | Description                              | Overhead         |
+|------------------|----------|------------------------------------------|------------------|
+| **SALT_NONE**    | 0        | Production kernel, no instrumentation    | Baseline         |
+| **SALT_TIMING**  | 1        | Cycle counters around compute sections   | ~8 instructions  |
+| **SALT_TRACE**   | 2        | Memory access patterns, warp divergence  | Higher (TBD)     |
+|------------------|----------|------------------------------------------|------------------|
 
 ## Why "Salt"?
 
@@ -95,81 +99,83 @@ actual_performance ≈ measured_performance - known_overhead
 ## NVIDIA PTX Generation Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│  CudaKernels.generateAddF32(salt)                               │
-│                                                                 │
-│  ┌─────────────────────────────────────────────────────────┐   │
-│  │  PTX Template                                            │   │
-│  │  ┌─────────────────────────────────────────────────────┐ │   │
-│  │  │  // Header, registers                               │ │   │
-│  │  │  ld.global.f32 %f1, [%rd6];  // Load a[i]          │ │   │
-│  │  │  ld.global.f32 %f2, [%rd7];  // Load b[i]          │ │   │
-│  │  │                                                     │ │   │
-│  │  │  #if SALT >= SALT_TIMING                           │ │   │
-│  │  │  mov.u64 %rd_t0, %globaltimer;  // Start timer     │ │   │
-│  │  │  #endif                                             │ │   │
-│  │  │                                                     │ │   │
-│  │  │  add.f32 %f3, %f1, %f2;  // THE ACTUAL OPERATION   │ │   │
-│  │  │                                                     │ │   │
-│  │  │  #if SALT >= SALT_TIMING                           │ │   │
-│  │  │  mov.u64 %rd_t1, %globaltimer;  // End timer       │ │   │
-│  │  │  sub.u64 %rd_delta, %rd_t1, %rd_t0;                │ │   │
-│  │  │  atom.global.add.u64 [timing], %rd_delta;          │ │   │
-│  │  │  #endif                                             │ │   │
-│  │  │                                                     │ │   │
-│  │  │  st.global.f32 [%rd8], %f3;  // Store result       │ │   │
-│  │  └─────────────────────────────────────────────────────┘ │   │
-│  └─────────────────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────────────┘
++-----------------------------------------------------------------+
+|  CudaKernels.generateAddF32(salt)                               |
+|                                                                 |
+|  +-------------------------------------------------------------+|
+|  |  PTX Template                                               ||
+|  |  +---------------------------------------------------------+||
+|  |  |  // Header, registers                                   |||
+|  |  |  ld.global.f32 %f1, [%rd6];  // Load a[i]               |||
+|  |  |  ld.global.f32 %f2, [%rd7];  // Load b[i]               |||
+|  |  |                                                         |||
+|  |  |  #if SALT >= SALT_TIMING                                |||
+|  |  |  mov.u64 %rd_t0, %globaltimer;  // Start timer          |||
+|  |  |  #endif                                                 |||
+|  |  |                                                         |||
+|  |  |  add.f32 %f3, %f1, %f2;  // THE ACTUAL OPERATION        |||
+|  |  |                                                         |||
+|  |  |  #if SALT >= SALT_TIMING                                |||
+|  |  |  mov.u64 %rd_t1, %globaltimer;  // End timer            |||
+|  |  |  sub.u64 %rd_delta, %rd_t1, %rd_t0;                     |||
+|  |  |  atom.global.add.u64 [timing], %rd_delta;               |||
+|  |  |  #endif                                                 |||
+|  |  |                                                         |||
+|  |  |  st.global.f32 [%rd8], %f3;  // Store result            |||
+|  |  +---------------------------------------------------------+||
+|  +-------------------------------------------------------------+|
++-----------------------------------------------------------------+
 ```
 
 ## AMD AMDGCN Generation Architecture
 
 AMD GPUs use AMDGCN (AMD GCN ISA) assembly instead of PTX. Key architectural differences:
 
-| Concept | NVIDIA | AMD |
-|---------|--------|-----|
-| Thread group | Warp (32 threads) | Wavefront (32 or 64 threads) |
-| Execution unit | Streaming Multiprocessor (SM) | Compute Unit (CU) |
-| Register file | Unified | Separate SGPR (scalar) + VGPR (vector) |
-| ISA format | PTX (virtual) → SASS (native) | AMDGCN (native) |
-| Timer access | `%globaltimer` | `s_memrealtime` |
+|------------------|--------------------------------|----------------------------------------|
+| Concept          | NVIDIA                         | AMD                                    |
+|------------------|--------------------------------|----------------------------------------|
+| Thread group     | Warp (32 threads)              | Wavefront (32 or 64 threads)           |
+| Execution unit   | Streaming Multiprocessor (SM)  | Compute Unit (CU)                      |
+| Register file    | Unified                        | Separate SGPR (scalar) + VGPR (vector) |
+| ISA format       | PTX (virtual) -> SASS (native) | AMDGCN (native)                        |
+| Timer access     | `%globaltimer`                 | `s_memrealtime`                        |
+|------------------|--------------------------------|----------------------------------------|
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│  AmdKernels.generateAddF32(salt)                                │
-│                                                                 │
-│  ┌─────────────────────────────────────────────────────────┐   │
-│  │  AMDGCN Template                                         │   │
-│  │  ┌─────────────────────────────────────────────────────┐ │   │
-│  │  │  // Kernel setup, register allocation               │ │   │
-│  │  │  s_load_dwordx2 s[0:1], s[4:5], 0x0  // Load a_ptr │ │   │
-│  │  │  s_load_dwordx2 s[2:3], s[4:5], 0x8  // Load b_ptr │ │   │
-│  │  │  s_waitcnt lgkmcnt(0)                               │ │   │
-│  │  │                                                     │ │   │
-│  │  │  global_load_dword v1, v0, s[0:1]    // Load a[i]  │ │   │
-│  │  │  global_load_dword v2, v0, s[2:3]    // Load b[i]  │ │   │
-│  │  │  s_waitcnt vmcnt(0)                                 │ │   │
-│  │  │                                                     │ │   │
-│  │  │  #if SALT >= SALT_TIMING                           │ │   │
-│  │  │  s_memrealtime s[8:9]                // Start time │ │   │
-│  │  │  s_waitcnt lgkmcnt(0)                              │ │   │
-│  │  │  #endif                                             │ │   │
-│  │  │                                                     │ │   │
-│  │  │  v_add_f32 v3, v1, v2                // THE OP     │ │   │
-│  │  │                                                     │ │   │
-│  │  │  #if SALT >= SALT_TIMING                           │ │   │
-│  │  │  s_memrealtime s[10:11]              // End time   │ │   │
-│  │  │  s_waitcnt lgkmcnt(0)                              │ │   │
-│  │  │  s_sub_u32 s12, s10, s8              // Delta low  │ │   │
-│  │  │  s_subb_u32 s13, s11, s9             // Delta high │ │   │
-│  │  │  global_atomic_add_x2 v[4:5], v0, s[12:13], ... // Acc │ │
-│  │  │  #endif                                             │ │   │
-│  │  │                                                     │ │   │
-│  │  │  global_store_dword v0, v3, s[6:7]   // Store out  │ │   │
-│  │  └─────────────────────────────────────────────────────┘ │   │
-│  └─────────────────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────────────┘
++-----------------------------------------------------------------+
+|  AmdKernels.generateAddF32(salt)                                |
+|                                                                 |
+|  +-------------------------------------------------------------+|
+|  |  AMDGCN Template                                            ||
+|  |  +---------------------------------------------------------+||
+|  |  |  // Kernel setup, register allocation                   |||
+|  |  |  s_load_dwordx2 s[0:1], s[4:5], 0x0  // Load a_ptr      |||
+|  |  |  s_load_dwordx2 s[2:3], s[4:5], 0x8  // Load b_ptr      |||
+|  |  |  s_waitcnt lgkmcnt(0)                                   |||
+|  |  |                                                         |||
+|  |  |  global_load_dword v1, v0, s[0:1]    // Load a[i]       |||
+|  |  |  global_load_dword v2, v0, s[2:3]    // Load b[i]       |||
+|  |  |  s_waitcnt vmcnt(0)                                     |||
+|  |  |                                                         |||
+|  |  |  #if SALT >= SALT_TIMING                                |||
+|  |  |  s_memrealtime s[8:9]                // Start time      |||
+|  |  |  s_waitcnt lgkmcnt(0)                                   |||
+|  |  |  #endif                                                 |||
+|  |  |                                                         |||
+|  |  |  v_add_f32 v3, v1, v2                // THE OP          |||
+|  |  |                                                         |||
+|  |  |  #if SALT >= SALT_TIMING                                |||
+|  |  |  s_memrealtime s[10:11]              // End time        |||
+|  |  |  s_waitcnt lgkmcnt(0)                                   |||
+|  |  |  s_sub_u32 s12, s10, s8              // Delta low       |||
+|  |  |  s_subb_u32 s13, s11, s9             // Delta high      |||
+|  |  |  global_atomic_add_x2 v[4:5], v0, s[12:13], ... // Acc  |||
+|  |  |  #endif                                                 |||
+|  |  |                                                         |||
+|  |  |  global_store_dword v0, v3, s[6:7]   // Store out       |||
+|  |  +---------------------------------------------------------+||
+|  +-------------------------------------------------------------+|
++-----------------------------------------------------------------+
 ```
 
 ### AMD Register Architecture
@@ -177,37 +183,39 @@ AMD GPUs use AMDGCN (AMD GCN ISA) assembly instead of PTX. Key architectural dif
 AMD GCN/RDNA uses a **split register file**:
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│  AMD Compute Unit Register Files                                 │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                 │
-│  SGPR (Scalar General Purpose Registers)                        │
-│  ├── s0-s103: 104 registers per wavefront (RDNA3)              │
-│  ├── Used for: addresses, constants, control flow              │
-│  └── Shared across all lanes in wavefront                       │
-│                                                                 │
-│  VGPR (Vector General Purpose Registers)                        │
-│  ├── v0-v255: 256 registers per work-item                      │
-│  ├── Used for: per-lane data, ALU operands                     │
-│  └── Each lane has its own copy                                │
-│                                                                 │
-│  Special Registers                                              │
-│  ├── exec: Execution mask (which lanes are active)             │
-│  ├── vcc: Vector condition code (comparison results)           │
-│  └── scc: Scalar condition code                                │
-│                                                                 │
-└─────────────────────────────────────────────────────────────────┘
++-----------------------------------------------------------------+
+|  AMD Compute Unit Register Files                                |
++-----------------------------------------------------------------+
+|                                                                 |
+|  SGPR (Scalar General Purpose Registers)                        |
+|  +-- s0-s103: 104 registers per wavefront (RDNA3)               |
+|  +-- Used for: addresses, constants, control flow               |
+|  +-- Shared across all lanes in wavefront                       |
+|                                                                 |
+|  VGPR (Vector General Purpose Registers)                        |
+|  +-- v0-v255: 256 registers per work-item                       |
+|  +-- Used for: per-lane data, ALU operands                      |
+|  +-- Each lane has its own copy                                 |
+|                                                                 |
+|  Special Registers                                              |
+|  +-- exec: Execution mask (which lanes are active)              |
+|  +-- vcc: Vector condition code (comparison results)            |
+|  +-- scc: Scalar condition code                                 |
+|                                                                 |
++-----------------------------------------------------------------+
 ```
 
 ### AMD Wait Count Semantics
 
 AMD requires explicit wait instructions for memory operations:
 
-| Wait Instruction | Purpose |
-|------------------|---------|
-| `s_waitcnt vmcnt(N)` | Wait until N or fewer vector memory ops pending |
-| `s_waitcnt lgkmcnt(N)` | Wait until N or fewer LDS/GDS/scalar-memory ops pending |
-| `s_waitcnt expcnt(N)` | Wait until N or fewer exports pending |
+|--------------------------|-------------------------------------------------------------|
+| Wait Instruction         | Purpose                                                     |
+|--------------------------|-------------------------------------------------------------|
+| `s_waitcnt vmcnt(N)`     | Wait until N or fewer vector memory ops pending             |
+| `s_waitcnt lgkmcnt(N)`   | Wait until N or fewer LDS/GDS/scalar-memory ops pending     |
+| `s_waitcnt expcnt(N)`    | Wait until N or fewer exports pending                       |
+|--------------------------|-------------------------------------------------------------|
 
 **Critical difference from NVIDIA**: PTX memory operations have implicit ordering; AMDGCN requires explicit waits. The salt instrumentation must respect these semantics.
 
@@ -342,10 +350,12 @@ Vendor libraries (cuBLAS, cuDNN, rocBLAS, MIOpen) are used in the **PRODUCTION**
 
 While vendor libraries provide maximum performance, they lack observability:
 
-| Approach | Overhead | Reason |
-|----------|----------|--------|
-| NVBit (NVIDIA) | 1.5-5x | Dynamic binary instrumentation |
-| rocprofiler (AMD) | 1.2-3x | Counter collection overhead |
+|---------------------|----------|-----------------------------------|
+| Approach            | Overhead | Reason                            |
+|---------------------|----------|-----------------------------------|
+| NVBit (NVIDIA)      | 1.5-5x   | Dynamic binary instrumentation    |
+| rocprofiler (AMD)   | 1.2-3x   | Counter collection overhead       |
+|---------------------|----------|-----------------------------------|
 
 The OPTIMIZED_OBSERVABLE tier exists because:
 
@@ -373,20 +383,20 @@ By implementing custom PTX with salt-based instrumentation alongside vendor libr
 The CPU backend (`warpforge-backend-cpu`) is the source of truth for correctness. All GPU backends are validated against CPU backend within floating-point tolerance.
 
 ```
-                            ┌───────────────────────────────────┐
-                            │   CPU Backend (reference)         │
-                            │   warpforge-backend-cpu           │
-                            └───────────────┬───────────────────┘
-                                            │
-                    ┌───────────────────────┼───────────────────────┐
-                    │ Compare               │ Compare               │
-                    │ (tolerance)           │ (tolerance)           │
-                    ▼                       ▼                       │
-┌───────────────────────────┐   ┌───────────────────────────┐      │
-│ NVIDIA Backend            │   │ AMD Backend               │      │
-│ (custom PTX)              │   │ (custom AMDGCN)           │      │
-│ warpforge-backend-nvidia  │   │ warpforge-backend-amd     │      │
-└───────────────────────────┘   └───────────────────────────┘      │
+                            +-----------------------------------+
+                            |   CPU Backend (reference)         |
+                            |   warpforge-backend-cpu           |
+                            +-----------------+-----------------+
+                                              |
+                    +-------------------------+-------------------------+
+                    | Compare                 | Compare                 |
+                    | (tolerance)             | (tolerance)             |
+                    v                         v                         |
++---------------------------+   +---------------------------+           |
+| NVIDIA Backend            |   | AMD Backend               |           |
+| (custom PTX)              |   | (custom AMDGCN)           |           |
+| warpforge-backend-nvidia  |   | warpforge-backend-amd     |           |
++---------------------------+   +---------------------------+           |
 ```
 
 We do NOT validate GPU backends against vendor libraries because:
@@ -405,48 +415,58 @@ We do NOT validate NVIDIA against AMD because:
 
 #### PRODUCTION Tier (Vendor Libraries)
 
-| File | Purpose |
-|------|---------|
-| `.../nvidia/cublas/CublasRuntime.java` | FFM bindings to cuBLAS library |
-| `.../nvidia/ops/CublasDotKernel.java` | cuBLAS SGEMM implementation |
+|--------------------------------------------|-------------------------------------------|
+| File                                       | Purpose                                   |
+|--------------------------------------------|-------------------------------------------|
+| `.../nvidia/cublas/CublasRuntime.java`     | FFM bindings to cuBLAS library            |
+| `.../nvidia/ops/CublasDotKernel.java`      | cuBLAS SGEMM implementation               |
+|--------------------------------------------|-------------------------------------------|
 
 #### OPTIMIZED_OBSERVABLE / CORRECTNESS Tiers (Custom PTX)
 
-| File | Purpose |
-|------|---------|
-| `.../nvidia/cuda/CudaKernels.java` | PTX generation with salt |
-| `.../nvidia/cuda/CudaRuntime.java` | FFM bindings to CUDA Driver API |
-| `.../nvidia/cuda/CudaContext.java` | Context, kernel, and cuBLAS handle management |
-| `.../nvidia/ops/DotKernel.java` | PTX-based matrix multiply (salted) |
-| `.../nvidia/ops/AddKernel.java` | PTX-based elementwise add (salted) |
+|--------------------------------------------|-------------------------------------------|
+| File                                       | Purpose                                   |
+|--------------------------------------------|-------------------------------------------|
+| `.../nvidia/cuda/CudaKernels.java`         | PTX generation with salt                  |
+| `.../nvidia/cuda/CudaRuntime.java`         | FFM bindings to CUDA Driver API           |
+| `.../nvidia/cuda/CudaContext.java`         | Context, kernel, and cuBLAS handle mgmt   |
+| `.../nvidia/ops/DotKernel.java`            | PTX-based matrix multiply (salted)        |
+| `.../nvidia/ops/AddKernel.java`            | PTX-based elementwise add (salted)        |
+|--------------------------------------------|-------------------------------------------|
 
 ### AMD Backend
 
 #### PRODUCTION Tier (Vendor Libraries)
 
-| File | Purpose |
-|------|---------|
-| `.../amd/rocblas/RocblasRuntime.java` | FFM bindings to rocBLAS library |
-| `.../amd/ops/RocblasDotKernel.java` | rocBLAS SGEMM implementation |
+|--------------------------------------------|-------------------------------------------|
+| File                                       | Purpose                                   |
+|--------------------------------------------|-------------------------------------------|
+| `.../amd/rocblas/RocblasRuntime.java`      | FFM bindings to rocBLAS library           |
+| `.../amd/ops/RocblasDotKernel.java`        | rocBLAS SGEMM implementation              |
+|--------------------------------------------|-------------------------------------------|
 
 #### OPTIMIZED_OBSERVABLE / CORRECTNESS Tiers (Custom AMDGCN)
 
-| File | Purpose |
-|------|---------|
-| `.../amd/hip/AmdKernels.java` | AMDGCN generation with salt |
-| `.../amd/hip/HipRuntime.java` | FFM bindings to HIP Runtime API |
-| `.../amd/hip/HipContext.java` | Context, kernel, and rocBLAS handle management |
-| `.../amd/ops/DotKernel.java` | AMDGCN-based matrix multiply (salted) |
-| `.../amd/ops/AddKernel.java` | AMDGCN-based elementwise add (salted) |
+|--------------------------------------------|-------------------------------------------|
+| File                                       | Purpose                                   |
+|--------------------------------------------|-------------------------------------------|
+| `.../amd/hip/AmdKernels.java`              | AMDGCN generation with salt               |
+| `.../amd/hip/HipRuntime.java`              | FFM bindings to HIP Runtime API           |
+| `.../amd/hip/HipContext.java`              | Context, kernel, and rocBLAS handle mgmt  |
+| `.../amd/ops/DotKernel.java`               | AMDGCN-based matrix multiply (salted)     |
+| `.../amd/ops/AddKernel.java`               | AMDGCN-based elementwise add (salted)     |
+|--------------------------------------------|-------------------------------------------|
 
 ### Tests
 
-| File | Purpose |
-|------|---------|
-| `.../nvidia/AddKernelTest.java` | Unit tests for NVIDIA Add kernel |
-| `.../nvidia/CpuNvidiaComparisonTest.java` | CPU vs NVIDIA integration tests |
-| `.../amd/AddKernelTest.java` | Unit tests for AMD Add kernel |
-| `.../amd/CpuAmdComparisonTest.java` | CPU vs AMD integration tests |
+|--------------------------------------------|-----------------------------------|
+| File                                       | Purpose                           |
+|--------------------------------------------|-----------------------------------|
+| `.../nvidia/AddKernelTest.java`            | Unit tests for NVIDIA Add kernel  |
+| `.../nvidia/CpuNvidiaComparisonTest.java`  | CPU vs NVIDIA integration tests   |
+| `.../amd/AddKernelTest.java`               | Unit tests for AMD Add kernel     |
+| `.../amd/CpuAmdComparisonTest.java`        | CPU vs AMD integration tests      |
+|--------------------------------------------|-----------------------------------|
 
 ## Testing Strategy
 
@@ -515,12 +535,14 @@ Ensure ROCm is installed and `libamdhip64.so` is accessible. The test automatica
 
 ### Required Libraries
 
-| Vendor | Library | Typical Location |
-|--------|---------|------------------|
-| NVIDIA | libcuda.so | /usr/local/cuda/lib64 |
-| NVIDIA | libcublas.so | /usr/local/cuda/lib64 |
-| AMD | libamdhip64.so | /opt/rocm/lib |
-| AMD | librocblas.so | /opt/rocm/lib |
+|--------|------------------|---------------------------|
+| Vendor | Library          | Typical Location          |
+|--------|------------------|---------------------------|
+| NVIDIA | libcuda.so       | /usr/local/cuda/lib64     |
+| NVIDIA | libcublas.so     | /usr/local/cuda/lib64     |
+| AMD    | libamdhip64.so   | /opt/rocm/lib             |
+| AMD    | librocblas.so    | /opt/rocm/lib             |
+|--------|------------------|---------------------------|
 
 ## AMD-Specific Considerations
 
@@ -551,11 +573,13 @@ buffer_gl0_inv          ; Invalidate GL0 (RDNA)
 
 ### Occupancy Differences
 
-| Metric | NVIDIA (Ada) | AMD (RDNA3) |
-|--------|--------------|-------------|
-| Max waves per CU/SM | 64 warps | 32 wavefronts |
-| Registers per CU/SM | 65536 | 65536 |
-| Shared mem per CU/SM | 100KB | 64KB LDS |
-| Typical occupancy target | 50-75% | 50-75% |
+|---------------------------|---------------|----------------|
+| Metric                    | NVIDIA (Ada)  | AMD (RDNA3)    |
+|---------------------------|---------------|----------------|
+| Max waves per CU/SM       | 64 warps      | 32 wavefronts  |
+| Registers per CU/SM       | 65536         | 65536          |
+| Shared mem per CU/SM      | 100KB         | 64KB LDS       |
+| Typical occupancy target  | 50-75%        | 50-75%         |
+|---------------------------|---------------|----------------|
 
 Salt instrumentation register usage must stay within occupancy-friendly limits on both architectures.

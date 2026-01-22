@@ -7,28 +7,28 @@ This document describes the distributed job submission and execution infrastruct
 WarpForge Launch provides a unified interface for submitting ML compilation and execution jobs to heterogeneous compute infrastructure:
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│                        warpforge-launch-cli                         │
-│                                                                     │
-│   warpforge-launch submit --source model.py --gpu NVIDIA            │
-│   warpforge-launch status <job-id>                                  │
-│   warpforge-launch cluster-info                                     │
-└─────────────────────────────────────────────────────────────────────┘
-                                  │
-                                  ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│                       warpforge-launch-core                         │
-│                                                                     │
-│   ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌───────────┐ │
-│   │ RayScheduler│  │SlurmScheduler│  │  K8sScheduler│  │  Local   │ │
-│   └─────────────┘  └─────────────┘  └─────────────┘  └───────────┘ │
-└─────────────────────────────────────────────────────────────────────┘
-          │                  │                  │
-          ▼                  ▼                  ▼
-    ┌───────────┐     ┌───────────┐     ┌───────────┐
-    │ Ray Cluster│    │ Slurm HPC │    │ Kubernetes │
-    │ (SCP bins) │    │(Singularity)│   │ (Docker)   │
-    └───────────┘     └───────────┘     └───────────┘
++---------------------------------------------------------------------+
+|                        warpforge-launch-cli                         |
+|                                                                     |
+|   warpforge-launch submit --source model.py --gpu NVIDIA            |
+|   warpforge-launch status <job-id>                                  |
+|   warpforge-launch cluster-info                                     |
++---------------------------------------------------------------------+
+                                  |
+                                  v
++---------------------------------------------------------------------+
+|                       warpforge-launch-core                         |
+|                                                                     |
+|   +-------------+  +--------------+  +--------------+  +---------+  |
+|   | RayScheduler|  |SlurmScheduler|  | K8sScheduler |  |  Local  |  |
+|   +-------------+  +--------------+  +--------------+  +---------+  |
++---------------------------------------------------------------------+
+          |                  |                  |
+          v                  v                  v
+    +-----------+     +-------------+     +------------+
+    | Ray Cluster|    |  Slurm HPC  |    | Kubernetes |
+    | (SCP bins) |    |(Singularity)|    |  (Docker)  |
+    +-----------+     +-------------+     +------------+
 ```
 
 ## Scheduler Implementations
@@ -58,8 +58,8 @@ public interface Scheduler extends AutoCloseable {
 
 ```
 NUC (Build Server)                    GPU Boxes (Ray Workers)
-─────────────────                     ─────────────────────────
-snakegrinder binary  ───SCP───►      /opt/warpforge/bin/snakegrinder
+-----------------                     -------------------------
+snakegrinder binary  ---SCP--->      /opt/warpforge/bin/snakegrinder
 ```
 
 **How it works:**
@@ -92,10 +92,10 @@ public record RayConfig(
 
 ```
 NUC (Build Server)                    Slurm Cluster
-─────────────────                     ──────────────
-warpforge:nvidia.sif  ───Push───►    Shared storage / registry
-                                              │
-                                              ▼
+-----------------                     --------------
+warpforge:nvidia.sif  ---Push--->    Shared storage / registry
+                                              |
+                                              v
                                      singularity run --nv warpforge.sif
 ```
 
@@ -133,10 +133,10 @@ singularity run --nv /shared/containers/warpforge-nvidia.sif \
 
 ```
 NUC (Build Server)                    Kubernetes Cluster
-─────────────────                     ──────────────────
-docker build + push  ───►   nuc.local:5000/warpforge:nvidia
-                                              │
-                                              ▼
+-----------------                     ------------------
+docker build + push  --->   nuc.local:5000/warpforge:nvidia
+                                              |
+                                              v
                                      Pod with GPU resource request
 ```
 
@@ -179,11 +179,13 @@ spec:
 
 Different schedulers have different deployment patterns. WarpForge uses a **hybrid model** that matches each scheduler's natural distribution mechanism:
 
-| Scheduler | Distribution | Registry | Rationale |
-|-----------|-------------|----------|-----------|
-| **Ray** | SCP to known path | None | Fast iteration, controlled workers |
-| **Slurm** | Singularity container | Local or shared FS | HPC standard |
-| **Kubernetes** | Docker container | Local registry | Cloud-native standard |
+|----------------|------------------------|-------------------|-------------------------------------|
+| Scheduler      | Distribution           | Registry          | Rationale                           |
+|----------------|------------------------|-------------------|-------------------------------------|
+| **Ray**        | SCP to known path      | None              | Fast iteration, controlled workers  |
+| **Slurm**      | Singularity container  | Local or shared FS | HPC standard                       |
+| **Kubernetes** | Docker container       | Local registry    | Cloud-native standard               |
+|----------------|------------------------|-------------------|-------------------------------------|
 
 ### Why Not Cloud Registry?
 
@@ -196,21 +198,21 @@ For Holmes Mark 1 (home lab CI), cloud registries add cost and latency:
 **Solution:** Local registry on NUC
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│  NUC (192.168.1.x)                                              │
-│  ├── Docker Registry on port 5000                               │
-│  ├── Builds NVIDIA + AMD container images                       │
-│  └── Pushes to nuc.local:5000/warpforge:*                      │
-└─────────────────────────────────────────────────────────────────┘
-                    │ LAN only (gigabit, free)
-        ┌───────────┴───────────┐
-        ▼                       ▼
-┌───────────────┐       ┌───────────────┐
-│  NVIDIA Box   │       │   AMD Box     │
-│  docker pull  │       │  docker pull  │
-│  nuc.local:   │       │  nuc.local:   │
-│  5000/...     │       │  5000/...     │
-└───────────────┘       └───────────────┘
++-----------------------------------------------------------------+
+|  NUC (192.168.1.x)                                              |
+|  +-- Docker Registry on port 5000                               |
+|  +-- Builds NVIDIA + AMD container images                       |
+|  +-- Pushes to nuc.local:5000/warpforge:*                       |
++-----------------------------------------------------------------+
+                    | LAN only (gigabit, free)
+        +-----------+-----------+
+        v                       v
++---------------+       +---------------+
+|  NVIDIA Box   |       |   AMD Box     |
+|  docker pull  |       |  docker pull  |
+|  nuc.local:   |       |  nuc.local:   |
+|  5000/...     |       |  5000/...     |
++---------------+       +---------------+
 ```
 
 Benefits:
@@ -223,13 +225,15 @@ Benefits:
 
 The NUC build server produces:
 
-| Artifact | Format | Distribution Target |
-|----------|--------|---------------------|
-| `snakegrinder` | Native binary (Linux x86_64) | Ray workers via SCP |
-| `warpforge:nvidia` | Docker image | K8s via local registry |
-| `warpforge:amd` | Docker image | K8s via local registry |
-| `warpforge-nvidia.sif` | Singularity image | Slurm via shared FS |
-| `warpforge-amd.sif` | Singularity image | Slurm via shared FS |
+|------------------------|------------------------------|-------------------------|
+| Artifact               | Format                       | Distribution Target     |
+|------------------------|------------------------------|-------------------------|
+| `snakegrinder`         | Native binary (Linux x86_64) | Ray workers via SCP     |
+| `warpforge:nvidia`     | Docker image                 | K8s via local registry  |
+| `warpforge:amd`        | Docker image                 | K8s via local registry  |
+| `warpforge-nvidia.sif` | Singularity image            | Slurm via shared FS     |
+| `warpforge-amd.sif`    | Singularity image            | Slurm via shared FS     |
+|------------------------|------------------------------|-------------------------|
 
 ### Build Commands
 
@@ -262,33 +266,35 @@ public record ResourceRequirements(
 
 Each scheduler maps this to platform-specific format:
 
-| Scheduler | NVIDIA GPU Request | AMD GPU Request |
-|-----------|-------------------|-----------------|
-| **Ray** | `{"GPU": N}` | `{"GPU": N}` |
-| **Slurm** | `#SBATCH --gres=gpu:nvidia:N` | `#SBATCH --gres=gpu:amd:N` |
-| **Kubernetes** | `nvidia.com/gpu: N` + nodeSelector | `amd.com/gpu: N` + nodeSelector |
+|----------------|--------------------------------|-----------------------------------|
+| Scheduler      | NVIDIA GPU Request             | AMD GPU Request                   |
+|----------------|--------------------------------|-----------------------------------|
+| **Ray**        | `{"GPU": N}`                   | `{"GPU": N}`                      |
+| **Slurm**      | `#SBATCH --gres=gpu:nvidia:N`  | `#SBATCH --gres=gpu:amd:N`        |
+| **Kubernetes** | `nvidia.com/gpu: N` + nodeSel  | `amd.com/gpu: N` + nodeSelector   |
+|----------------|--------------------------------|-----------------------------------|
 
 ## Holmes Mark 1 Integration
 
 The Holmes Mark 1 lab uses the Ray + SCP path for CI:
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│  GitHub Actions                                                 │
-│  └── Triggers orchestrate-nuc-build.sh on NUC                  │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────────┐
-│  NUC Orchestrator                                               │
-│  1. Build WarpForge (./gradlew clean assemble)                 │
-│  2. Run tests (./gradlew test)                                 │
-│  3. Build snakegrinder-dist                                    │
-│  4. Run smoke-test-gpu-binaries.sh ◄── NEW                     │
-│     - SCP binaries to GPU boxes                                │
-│     - Verify execution on each box                             │
-│  5. Trigger NVIDIA/AMD box tests                               │
-└─────────────────────────────────────────────────────────────────┘
++-----------------------------------------------------------------+
+|  GitHub Actions                                                 |
+|  +-- Triggers orchestrate-nuc-build.sh on NUC                   |
++-----------------------------------------------------------------+
+                              |
+                              v
++-----------------------------------------------------------------+
+|  NUC Orchestrator                                               |
+|  1. Build WarpForge (./gradlew clean assemble)                  |
+|  2. Run tests (./gradlew test)                                  |
+|  3. Build snakegrinder-dist                                     |
+|  4. Run smoke-test-gpu-binaries.sh <-- NEW                      |
+|     - SCP binaries to GPU boxes                                 |
+|     - Verify execution on each box                              |
+|  5. Trigger NVIDIA/AMD box tests                                |
++-----------------------------------------------------------------+
 ```
 
 ### Smoke Test Script
@@ -322,14 +328,16 @@ SKIP_IF_UNREACHABLE=0 ./holmes-lab/mark1/ci-scripts/smoke-test-gpu-binaries.sh
 ```
 
 **Configuration:**
-| Variable | Default | Purpose |
-|----------|---------|---------|
-| `DIST_DIR_OVERRIDE` | Auto-detected | Path to snakegrinder-dist build |
-| `INSTALL_DIR_OVERRIDE` | `/opt/warpforge` | Install location on GPU boxes |
-| `NVIDIA_HOST_OVERRIDE` | `nvidia` | SSH hostname for NVIDIA box |
-| `AMD_HOST_OVERRIDE` | `amd` | SSH hostname for AMD box |
-| `WAKE_BOXES` | `1` | Send Wake-on-LAN before testing |
-| `SKIP_IF_UNREACHABLE` | `1` | Skip vs fail on unreachable boxes |
+|------------------------|------------------|---------------------------------------|
+| Variable               | Default          | Purpose                               |
+|------------------------|------------------|---------------------------------------|
+| `DIST_DIR_OVERRIDE`    | Auto-detected    | Path to snakegrinder-dist build       |
+| `INSTALL_DIR_OVERRIDE` | `/opt/warpforge` | Install location on GPU boxes         |
+| `NVIDIA_HOST_OVERRIDE` | `nvidia`         | SSH hostname for NVIDIA box           |
+| `AMD_HOST_OVERRIDE`    | `amd`            | SSH hostname for AMD box              |
+| `WAKE_BOXES`           | `1`              | Send Wake-on-LAN before testing       |
+| `SKIP_IF_UNREACHABLE`  | `1`              | Skip vs fail on unreachable boxes     |
+|------------------------|------------------|---------------------------------------|
 
 ## Job Submission Flow
 

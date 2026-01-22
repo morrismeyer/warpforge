@@ -6,56 +6,58 @@ This document describes WarpForge's GPU kernel benchmarking framework, designed 
 
 The three-tier kernel architecture (see [BACKEND-KERNEL-INSTRUMENTATION.md](BACKEND-KERNEL-INSTRUMENTATION.md)) makes specific performance claims:
 
-| Tier | Claimed Performance |
-|------|---------------------|
-| PRODUCTION | 100% (baseline) |
-| OPTIMIZED_OBSERVABLE | ~93% of PRODUCTION |
-| CORRECTNESS | ~1% of PRODUCTION |
+|------------------------|----------------------|
+| Tier                   | Claimed Performance  |
+|------------------------|----------------------|
+| PRODUCTION             | 100% (baseline)      |
+| OPTIMIZED_OBSERVABLE   | ~93% of PRODUCTION   |
+| CORRECTNESS            | ~1% of PRODUCTION    |
+|------------------------|----------------------|
 
 **Trust but verify.** The benchmark framework proves these claims through systematic measurement, ensuring the OPTIMIZED_OBSERVABLE tier can truly be trusted as "near-production" speed.
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                    WarpForge GPU Benchmark Framework                         │
-│                                                                             │
-│  ┌───────────────────────────────────────────────────────────────────────┐  │
-│  │  @GpuBenchmark Annotations                                            │  │
-│  │  ┌─────────────────────────────────────────────────────────────────┐  │  │
-│  │  │  @GpuBenchmark(                                                 │  │  │
-│  │  │      operation = "GEMM",                                        │  │  │
-│  │  │      shape = "4096x4096",                                       │  │  │
-│  │  │      tiers = {PRODUCTION, OPTIMIZED_OBSERVABLE, CORRECTNESS}    │  │  │
-│  │  │  )                                                              │  │  │
-│  │  │  void benchmarkGemm(KernelTier tier) { ... }                    │  │  │
-│  │  └─────────────────────────────────────────────────────────────────┘  │  │
-│  └───────────────────────────────────────────────────────────────────────┘  │
-│                                    │                                        │
-│                                    ▼                                        │
-│  ┌───────────────────────────────────────────────────────────────────────┐  │
-│  │  GpuBenchmarkRunner                                                   │  │
-│  │  ┌───────────────────┐  ┌───────────────────┐  ┌───────────────────┐  │  │
-│  │  │  Warmup Phase     │  │  Measurement      │  │  Statistical      │  │  │
-│  │  │  (JIT, cache,     │──│  Phase            │──│  Analysis         │  │  │
-│  │  │   GPU init)       │  │  (N iterations)   │  │  (mean, stddev,   │  │  │
-│  │  │                   │  │                   │  │   percentiles)    │  │  │
-│  │  └───────────────────┘  └───────────────────┘  └───────────────────┘  │  │
-│  └───────────────────────────────────────────────────────────────────────┘  │
-│                                    │                                        │
-│                     ┌──────────────┼──────────────┐                         │
-│                     ▼              ▼              ▼                         │
-│  ┌─────────────────────┐ ┌─────────────────┐ ┌─────────────────────────┐   │
-│  │  JFR Events         │ │ Console Output  │ │ TierComparisonReport    │   │
-│  │  ┌───────────────┐  │ │ (Real-time)     │ │ ┌─────────────────────┐ │   │
-│  │  │ GpuKernelEvent│  │ │                 │ │ │ Overhead Analysis   │ │   │
-│  │  │ GpuBenchmark- │  │ │                 │ │ │ Pass/Fail Status    │ │   │
-│  │  │   Event       │  │ │                 │ │ │ Recommendations     │ │   │
-│  │  │ GpuTierComp-  │  │ │                 │ │ │ JSON Export         │ │   │
-│  │  │   arisonEvent │  │ │                 │ │ └─────────────────────┘ │   │
-│  │  └───────────────┘  │ │                 │ │                         │   │
-│  └─────────────────────┘ └─────────────────┘ └─────────────────────────┘   │
-└─────────────────────────────────────────────────────────────────────────────┘
++-----------------------------------------------------------------------------+
+|                    WarpForge GPU Benchmark Framework                        |
+|                                                                             |
+|  +-----------------------------------------------------------------------+  |
+|  |  @GpuBenchmark Annotations                                            |  |
+|  |  +-----------------------------------------------------------------+  |  |
+|  |  |  @GpuBenchmark(                                                 |  |  |
+|  |  |      operation = "GEMM",                                        |  |  |
+|  |  |      shape = "4096x4096",                                       |  |  |
+|  |  |      tiers = {PRODUCTION, OPTIMIZED_OBSERVABLE, CORRECTNESS}    |  |  |
+|  |  |  )                                                              |  |  |
+|  |  |  void benchmarkGemm(KernelTier tier) { ... }                    |  |  |
+|  |  +-----------------------------------------------------------------+  |  |
+|  +-----------------------------------------------------------------------+  |
+|                                    |                                        |
+|                                    v                                        |
+|  +-----------------------------------------------------------------------+  |
+|  |  GpuBenchmarkRunner                                                   |  |
+|  |  +-------------------+  +-------------------+  +-------------------+  |  |
+|  |  |  Warmup Phase     |  |  Measurement      |  |  Statistical      |  |  |
+|  |  |  (JIT, cache,     |--|  Phase            |--|  Analysis         |  |  |
+|  |  |   GPU init)       |  |  (N iterations)   |  |  (mean, stddev,   |  |  |
+|  |  |                   |  |                   |  |   percentiles)    |  |  |
+|  |  +-------------------+  +-------------------+  +-------------------+  |  |
+|  +-----------------------------------------------------------------------+  |
+|                                    |                                        |
+|                     +--------------+--------------+                         |
+|                     v              v              v                         |
+|  +---------------------+ +-----------------+ +-------------------------+    |
+|  |  JFR Events         | | Console Output  | | TierComparisonReport    |    |
+|  |  +---------------+  | | (Real-time)     | | +---------------------+ |    |
+|  |  | GpuKernelEvent|  | |                 | | | Overhead Analysis   | |    |
+|  |  | GpuBenchmark- |  | |                 | | | Pass/Fail Status    | |    |
+|  |  |   Event       |  | |                 | | | Recommendations     | |    |
+|  |  | GpuTierComp-  |  | |                 | | | JSON Export         | |    |
+|  |  |   arisonEvent |  | |                 | | +---------------------+ |    |
+|  |  +---------------+  | |                 | |                         |    |
+|  +---------------------+ +-----------------+ +-------------------------+    |
++-----------------------------------------------------------------------------+
 ```
 
 ## JMH-Style Methodology
@@ -194,27 +196,27 @@ if (!report.allPassed()) {
 The report validates overhead claims:
 
 ```
-╔════════════════════════════════════════════════════════════════════════════╗
-║                    GPU KERNEL TIER COMPARISON REPORT                       ║
-╠════════════════════════════════════════════════════════════════════════════╣
-║  Total Benchmarks: 4                                                       ║
-║  Total Comparisons: 2                                                      ║
-║  Tolerance: ±3.0%                                                          ║
-║  Status: ✓ ALL PASSED                                                      ║
-╚════════════════════════════════════════════════════════════════════════════╝
++============================================================================+
+|                    GPU KERNEL TIER COMPARISON REPORT                       |
++============================================================================+
+|  Total Benchmarks: 4                                                       |
+|  Total Comparisons: 2                                                      |
+|  Tolerance: +/-3.0%                                                        |
+|  Status: ALL PASSED                                                        |
++============================================================================+
 
-┌──────────────────────────────────────────────────────────────────────────────┐
-│              OPTIMIZED_OBSERVABLE TIER OVERHEAD ANALYSIS                     │
-├──────────────────────────────────────────────────────────────────────────────┤
-│  Expected overhead: ~7% (achieving ~93% of PRODUCTION performance)          │
-│  ────────────────────────────────────────────────────────────────────────    │
-│  Observed Mean:    +6.85%                                                   │
-│  Observed Min:     +5.92%                                                   │
-│  Observed Max:     +7.78%                                                   │
-│  Sample Count:         2                                                     │
-│  ────────────────────────────────────────────────────────────────────────    │
-│  Assessment: ✓ EXCELLENT: Overhead matches theoretical prediction           │
-└──────────────────────────────────────────────────────────────────────────────┘
++----------------------------------------------------------------------------+
+|              OPTIMIZED_OBSERVABLE TIER OVERHEAD ANALYSIS                   |
++----------------------------------------------------------------------------+
+|  Expected overhead: ~7% (achieving ~93% of PRODUCTION performance)         |
+|  --------------------------------------------------------------------------|
+|  Observed Mean:    +6.85%                                                  |
+|  Observed Min:     +5.92%                                                  |
+|  Observed Max:     +7.78%                                                  |
+|  Sample Count:         2                                                   |
+|  --------------------------------------------------------------------------|
+|  Assessment: EXCELLENT: Overhead matches theoretical prediction            |
++----------------------------------------------------------------------------+
 ```
 
 ## Integration with CI
@@ -252,23 +254,27 @@ When running with `--jfr`:
 
 ### warpforge-benchmark
 
-| File | Purpose |
-|------|---------|
-| `KernelTier.java` | Enum defining three execution tiers |
-| `GpuBenchmarkRunner.java` | Main benchmark execution engine |
-| `BenchmarkResult.java` | Statistical analysis of timing data |
-| `TierComparisonReport.java` | Report generation (text + JSON), validation |
-| `annotation/GpuBenchmark.java` | Benchmark method annotation |
-| `annotation/Setup.java` | Setup method annotation |
-| `annotation/TearDown.java` | Teardown method annotation |
+|---------------------------------|------------------------------------------------|
+| File                            | Purpose                                        |
+|---------------------------------|------------------------------------------------|
+| `KernelTier.java`               | Enum defining three execution tiers            |
+| `GpuBenchmarkRunner.java`       | Main benchmark execution engine                |
+| `BenchmarkResult.java`          | Statistical analysis of timing data            |
+| `TierComparisonReport.java`     | Report generation (text + JSON), validation    |
+| `annotation/GpuBenchmark.java`  | Benchmark method annotation                    |
+| `annotation/Setup.java`         | Setup method annotation                        |
+| `annotation/TearDown.java`      | Teardown method annotation                     |
+|---------------------------------|------------------------------------------------|
 
 ### warpforge-core (JFR Profiler Events)
 
-| File | Purpose |
-|------|---------|
-| `jfr/GpuKernelEvent.java` | JFR profiler event for kernel executions |
-| `jfr/GpuMemoryEvent.java` | JFR profiler event for memory transfers |
-| `jfr/GpuCompilationEvent.java` | JFR profiler event for kernel compilation |
+|---------------------------------|------------------------------------------------|
+| File                            | Purpose                                        |
+|---------------------------------|------------------------------------------------|
+| `jfr/GpuKernelEvent.java`       | JFR profiler event for kernel executions       |
+| `jfr/GpuMemoryEvent.java`       | JFR profiler event for memory transfers        |
+| `jfr/GpuCompilationEvent.java`  | JFR profiler event for kernel compilation      |
+|---------------------------------|------------------------------------------------|
 
 ## Relationship to Other Documents
 

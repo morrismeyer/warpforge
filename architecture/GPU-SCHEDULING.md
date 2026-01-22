@@ -7,51 +7,51 @@ This document describes WarpForge's approach to GPU resource scheduling, leverag
 Traditional GPU programming treats the GPU as a black box: submit work, wait for completion. WarpForge aims to bring the sophistication of modern CPU schedulers to GPU resource management, using Java 21+ concurrency primitives:
 
 ```
-┌─────────────────────────────────────────────────────────────────────────┐
-│  Java Structured Concurrency (Virtual Threads)                          │
-│  ┌───────────────────────────────────────────────────────────────────┐  │
-│  │  StructuredTaskScope.ShutdownOnFailure                            │  │
-│  │  ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐     │  │
-│  │  │VThread 1│ │VThread 2│ │VThread 3│ │VThread 4│ │VThread N│     │  │
-│  │  │Model A  │ │Model B  │ │Batch 1  │ │Batch 2  │ │  ...    │     │  │
-│  │  └────┬────┘ └────┬────┘ └────┬────┘ └────┬────┘ └────┬────┘     │  │
-│  └───────┼──────────┼──────────┼──────────┼──────────┼───────────────┘  │
-│          │          │          │          │          │                  │
-│  ┌───────▼──────────▼──────────▼──────────▼──────────▼───────────────┐  │
-│  │  GpuScheduler (Capacity-Aware)                                    │  │
-│  │  ┌─────────────────────────────────────────────────────────────┐  │  │
-│  │  │  Resource Model:                                            │  │  │
-│  │  │  - SM allocation tracking                                   │  │  │
-│  │  │  - Memory pressure monitoring                               │  │  │
-│  │  │  - Stream pool management                                   │  │  │
-│  │  │  - Occupancy estimation per kernel type                     │  │  │
-│  │  │  - Real-time utilization feedback (NVML/SMI)                │  │  │
-│  │  └─────────────────────────────────────────────────────────────┘  │  │
-│  │                                                                   │  │
-│  │  acquireResources(kernelType, shape) → GpuLease | BLOCK           │  │
-│  │  releaseResources(lease)                                          │  │
-│  └───────────────────────────────────────────────────────────────────┘  │
-│                                                                         │
-│  ┌───────────────────────────────────────────────────────────────────┐  │
-│  │  CUDA/HIP Streams (Concurrent Execution Channels)                 │  │
-│  │  ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐          │  │
-│  │  │Stream 0│ │Stream 1│ │Stream 2│ │Stream 3│ │  ...   │          │  │
-│  │  │[GEMM]  │ │[Conv]  │ │[Add]   │ │[idle]  │ │        │          │  │
-│  │  └────────┘ └────────┘ └────────┘ └────────┘ └────────┘          │  │
-│  └───────────────────────────────────────────────────────────────────┘  │
-│                                                                         │
-│  ┌───────────────────────────────────────────────────────────────────┐  │
-│  │  GPU Hardware                                                     │  │
-│  │  ┌─────────────────────────────────────────────────────────────┐  │  │
-│  │  │  Streaming Multiprocessors (SMs)                            │  │  │
-│  │  │  [SM0][SM1][SM2]...[SM131]  (H100: 132 SMs)                 │  │  │
-│  │  └─────────────────────────────────────────────────────────────┘  │  │
-│  │  ┌─────────────────────────────────────────────────────────────┐  │  │
-│  │  │  HBM Memory: 80GB (H100)                                    │  │  │
-│  │  │  Memory Bandwidth: 3.35 TB/s                                │  │  │
-│  │  └─────────────────────────────────────────────────────────────┘  │  │
-│  └───────────────────────────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────────────────┘
++-------------------------------------------------------------------------+
+|  Java Structured Concurrency (Virtual Threads)                          |
+|  +-------------------------------------------------------------------+  |
+|  |  StructuredTaskScope.ShutdownOnFailure                            |  |
+|  |  +---------+ +---------+ +---------+ +---------+ +---------+      |  |
+|  |  |VThread 1| |VThread 2| |VThread 3| |VThread 4| |VThread N|      |  |
+|  |  |Model A  | |Model B  | |Batch 1  | |Batch 2  | |  ...    |      |  |
+|  |  +----+----+ +----+----+ +----+----+ +----+----+ +----+----+      |  |
+|  +-------+----------+----------+----------+----------+---------------+  |
+|          |          |          |          |          |                  |
+|  +-------v----------v----------v----------v----------v---------------+  |
+|  |  GpuScheduler (Capacity-Aware)                                    |  |
+|  |  +-------------------------------------------------------------+  |  |
+|  |  |  Resource Model:                                            |  |  |
+|  |  |  - SM allocation tracking                                   |  |  |
+|  |  |  - Memory pressure monitoring                               |  |  |
+|  |  |  - Stream pool management                                   |  |  |
+|  |  |  - Occupancy estimation per kernel type                     |  |  |
+|  |  |  - Real-time utilization feedback (NVML/SMI)                |  |  |
+|  |  +-------------------------------------------------------------+  |  |
+|  |                                                                   |  |
+|  |  acquireResources(kernelType, shape) -> GpuLease | BLOCK          |  |
+|  |  releaseResources(lease)                                          |  |
+|  +-------------------------------------------------------------------+  |
+|                                                                         |
+|  +-------------------------------------------------------------------+  |
+|  |  CUDA/HIP Streams (Concurrent Execution Channels)                 |  |
+|  |  +--------+ +--------+ +--------+ +--------+ +--------+           |  |
+|  |  |Stream 0| |Stream 1| |Stream 2| |Stream 3| |  ...   |           |  |
+|  |  |[GEMM]  | |[Conv]  | |[Add]   | |[idle]  | |        |           |  |
+|  |  +--------+ +--------+ +--------+ +--------+ +--------+           |  |
+|  +-------------------------------------------------------------------+  |
+|                                                                         |
+|  +-------------------------------------------------------------------+  |
+|  |  GPU Hardware                                                     |  |
+|  |  +-------------------------------------------------------------+  |  |
+|  |  |  Streaming Multiprocessors (SMs)                            |  |  |
+|  |  |  [SM0][SM1][SM2]...[SM131]  (H100: 132 SMs)                  |  |  |
+|  |  +-------------------------------------------------------------+  |  |
+|  |  +-------------------------------------------------------------+  |  |
+|  |  |  HBM Memory: 80GB (H100)                                    |  |  |
+|  |  |  Memory Bandwidth: 3.35 TB/s                                |  |  |
+|  |  +-------------------------------------------------------------+  |  |
+|  +-------------------------------------------------------------------+  |
++-------------------------------------------------------------------------+
 ```
 
 ## GPU Resource Model
@@ -62,11 +62,13 @@ Understanding GPU resources is essential for intelligent scheduling.
 
 The SM is the fundamental compute unit. Modern GPUs have many SMs:
 
-| GPU | SMs | Warps/SM | Threads/SM | Total Threads |
-|-----|-----|----------|------------|---------------|
-| A100 | 108 | 64 | 2048 | 221,184 |
-| H100 | 132 | 64 | 2048 | 270,336 |
-| MI300X | 304 CUs | 64 | 2048 | 622,592 |
+|--------|---------|----------|------------|---------------|
+| GPU    | SMs     | Warps/SM | Threads/SM | Total Threads |
+|--------|---------|----------|------------|---------------|
+| A100   | 108     | 64       | 2048       | 221,184       |
+| H100   | 132     | 64       | 2048       | 270,336       |
+| MI300X | 304 CUs | 64       | 2048       | 622,592       |
+|--------|---------|----------|------------|---------------|
 
 Each SM has:
 - **Warp schedulers** (4 per SM on modern NVIDIA)
@@ -94,13 +96,15 @@ float occupancy = (float)(maxActiveBlocksPerSM * blockSize) / maxThreadsPerSM;
 
 ### Memory Hierarchy
 
-| Level | Capacity | Latency | Bandwidth |
-|-------|----------|---------|-----------|
-| Registers | 256KB/SM | 0 cycles | - |
-| L1/Shared | 228KB/SM | ~30 cycles | ~19 TB/s aggregate |
-| L2 Cache | 50MB (H100) | ~200 cycles | ~12 TB/s |
-| HBM | 80GB (H100) | ~400 cycles | 3.35 TB/s |
-| PCIe/NVLink | Host RAM | ~10μs | 64-900 GB/s |
+|-------------|--------------|--------------|---------------------|
+| Level       | Capacity     | Latency      | Bandwidth           |
+|-------------|--------------|--------------|---------------------|
+| Registers   | 256KB/SM     | 0 cycles     | -                   |
+| L1/Shared   | 228KB/SM     | ~30 cycles   | ~19 TB/s aggregate  |
+| L2 Cache    | 50MB (H100)  | ~200 cycles  | ~12 TB/s            |
+| HBM         | 80GB (H100)  | ~400 cycles  | 3.35 TB/s           |
+| PCIe/NVLink | Host RAM     | ~10us        | 64-900 GB/s         |
+|-------------|--------------|--------------|---------------------|
 
 Memory bandwidth is often the bottleneck for ML workloads, not compute.
 
@@ -111,23 +115,23 @@ Memory bandwidth is often the bottleneck for ML workloads, not compute.
 [MIG](https://docs.nvidia.com/datacenter/tesla/mig-user-guide/) provides hardware-level isolation on A100/H100:
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│  H100 GPU (132 SMs, 80GB HBM)                                   │
-├─────────────────────────────────────────────────────────────────┤
-│  MIG Profiles:                                                  │
-│  ┌─────────────┐ ┌─────────────┐ ┌─────────────┐               │
-│  │ 1g.10gb     │ │ 1g.10gb     │ │ 1g.10gb     │  ... (7x)     │
-│  │ ~19 SMs     │ │ ~19 SMs     │ │ ~19 SMs     │               │
-│  │ 10GB HBM    │ │ 10GB HBM    │ │ 10GB HBM    │               │
-│  └─────────────┘ └─────────────┘ └─────────────┘               │
-│                                                                 │
-│  Or:                                                            │
-│  ┌─────────────────────────┐ ┌─────────────────────────┐       │
-│  │ 3g.40gb                 │ │ 3g.40gb                 │       │
-│  │ ~56 SMs                 │ │ ~56 SMs                 │       │
-│  │ 40GB HBM                │ │ 40GB HBM                │       │
-│  └─────────────────────────┘ └─────────────────────────┘       │
-└─────────────────────────────────────────────────────────────────┘
++-----------------------------------------------------------------+
+|  H100 GPU (132 SMs, 80GB HBM)                                   |
++-----------------------------------------------------------------+
+|  MIG Profiles:                                                  |
+|  +-------------+ +-------------+ +-------------+                |
+|  | 1g.10gb     | | 1g.10gb     | | 1g.10gb     |  ... (7x)      |
+|  | ~19 SMs     | | ~19 SMs     | | ~19 SMs     |                |
+|  | 10GB HBM    | | 10GB HBM    | | 10GB HBM    |                |
+|  +-------------+ +-------------+ +-------------+                |
+|                                                                 |
+|  Or:                                                            |
+|  +-------------------------+ +-------------------------+        |
+|  | 3g.40gb                 | | 3g.40gb                 |        |
+|  | ~56 SMs                 | | ~56 SMs                 |        |
+|  | 40GB HBM                | | 40GB HBM                |        |
+|  +-------------------------+ +-------------------------+        |
++-----------------------------------------------------------------+
 ```
 
 **Benefits**:
@@ -145,18 +149,18 @@ Memory bandwidth is often the bottleneck for ML workloads, not compute.
 [MPS](https://docs.nvidia.com/deploy/mps/index.html) enables software-level sharing:
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│  MPS Server (Single CUDA Context)                               │
-│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐           │
-│  │ Client 1 │ │ Client 2 │ │ Client 3 │ │ Client 4 │  ...      │
-│  │ (20% SM) │ │ (30% SM) │ │ (25% SM) │ │ (25% SM) │           │
-│  └──────────┘ └──────────┘ └──────────┘ └──────────┘           │
-│                     │                                           │
-│                     ▼                                           │
-│  ┌─────────────────────────────────────────────────────────────┐│
-│  │  GPU Hardware (shared context, concurrent execution)        ││
-│  └─────────────────────────────────────────────────────────────┘│
-└─────────────────────────────────────────────────────────────────┘
++-----------------------------------------------------------------+
+|  MPS Server (Single CUDA Context)                               |
+|  +----------+ +----------+ +----------+ +----------+            |
+|  | Client 1 | | Client 2 | | Client 3 | | Client 4 |  ...       |
+|  | (20% SM) | | (30% SM) | | (25% SM) | | (25% SM) |            |
+|  +----------+ +----------+ +----------+ +----------+            |
+|                     |                                           |
+|                     v                                           |
+|  +-------------------------------------------------------------+|
+|  |  GPU Hardware (shared context, concurrent execution)        ||
+|  +-------------------------------------------------------------+|
++-----------------------------------------------------------------+
 ```
 
 **Key capability**: `CUDA_MPS_ACTIVE_THREAD_PERCENTAGE` controls SM allocation per client.
@@ -204,19 +208,19 @@ launchKernel(softmax, stream3, ...);     // Uses ~20% of SMs
 [CUDA Graphs](https://developer.nvidia.com/blog/cuda-graphs/) reduce launch overhead by batching operations:
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│  CUDA Graph (captured workflow)                                 │
-│                                                                 │
-│  ┌──────┐     ┌──────┐     ┌──────┐                            │
-│  │ H2D  │────▶│ GEMM │────▶│ D2H  │                            │
-│  └──────┘     └──────┘     └──────┘                            │
-│      │            │            │                                │
-│      │        ┌──────┐         │                                │
-│      └───────▶│ Add  │─────────┘                                │
-│               └──────┘                                          │
-│                                                                 │
-│  Single launch: ~2.5μs + ~1ns/node (vs ~10μs per kernel)       │
-└─────────────────────────────────────────────────────────────────┘
++-----------------------------------------------------------------+
+|  CUDA Graph (captured workflow)                                 |
+|                                                                 |
+|  +------+     +------+     +------+                             |
+|  | H2D  |---->| GEMM |---->| D2H  |                             |
+|  +------+     +------+     +------+                             |
+|      |            |            |                                |
+|      |        +------+         |                                |
+|      +------->| Add  |---------+                                |
+|               +------+                                          |
+|                                                                 |
+|  Single launch: ~2.5us + ~1ns/node (vs ~10us per kernel)        |
++-----------------------------------------------------------------+
 ```
 
 **Benefits**:
@@ -228,11 +232,13 @@ launchKernel(softmax, stream3, ...);     // Uses ~20% of SMs
 
 Recent research enables fine-grained GPU preemption:
 
-| System | Preemption Granularity | Approach |
-|--------|------------------------|----------|
-| [LithOS](https://www.cs.cmu.edu/~csd-phd-blog/2025/lithos/) | 500μs quantum | Kernel slicing |
-| [Hummingbird](https://arxiv.org/html/2601.04071v1) | Microseconds | SLO-aware scheduling |
-| [GCAPS](https://arxiv.org/html/2406.05221v1) | Context-based | Driver-level |
+|-------------------------------------------------------------|------------------------|-----------------|
+| System                                                      | Preemption Granularity | Approach        |
+|-------------------------------------------------------------|------------------------|-----------------|
+| [LithOS](https://www.cs.cmu.edu/~csd-phd-blog/2025/lithos/) | 500us quantum          | Kernel slicing  |
+| [Hummingbird](https://arxiv.org/html/2601.04071v1)          | Microseconds           | SLO-aware sched |
+| [GCAPS](https://arxiv.org/html/2406.05221v1)                | Context-based          | Driver-level    |
+|-------------------------------------------------------------|------------------------|-----------------|
 
 **WarpForge opportunity**: Implement kernel slicing for long-running operations to enable responsive preemption.
 
@@ -276,12 +282,14 @@ rsmi_dev_memory_total_get(device, RSMI_MEM_TYPE_VRAM, &total);
 
 For deeper insight, [CUPTI](https://docs.nvidia.com/cupti/main/main.html) provides hardware counters:
 
-| Counter Category | Examples | Use Case |
-|-----------------|----------|----------|
-| SM Occupancy | active_warps, theoretical_warps | Capacity estimation |
-| Memory | dram_read_transactions, l2_hit_rate | Bandwidth analysis |
-| Compute | sm_efficiency, achieved_occupancy | Utilization analysis |
-| Stalls | stall_memory_dependency, stall_barrier | Bottleneck identification |
+|------------------|------------------------------------------|---------------------------|
+| Counter Category | Examples                                 | Use Case                  |
+|------------------|------------------------------------------|---------------------------|
+| SM Occupancy     | active_warps, theoretical_warps          | Capacity estimation       |
+| Memory           | dram_read_transactions, l2_hit_rate      | Bandwidth analysis        |
+| Compute          | sm_efficiency, achieved_occupancy        | Utilization analysis      |
+| Stalls           | stall_memory_dependency, stall_barrier   | Bottleneck identification |
+|------------------|------------------------------------------|---------------------------|
 
 **Warp stall reasons** reveal why performance is lost:
 - **Memory dependency**: Waiting for memory operations

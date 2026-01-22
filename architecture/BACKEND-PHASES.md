@@ -48,30 +48,32 @@ WarpForge aims to achieve similar fusion, but implemented in Java via Babylon Co
 
 ```
 StableHLO Op Graph
-       │
-       ▼
-┌──────────────────────────────────┐
-│  warpforge-backend-nvidia        │
-│  ┌────────────────────────────┐  │
-│  │ For each op in graph:      │  │
-│  │   - Allocate output tensor │  │
-│  │   - Call cuBLAS/cuDNN      │  │
-│  │   - Synchronize            │  │
-│  └────────────────────────────┘  │
-└──────────────────────────────────┘
+       |
+       v
++----------------------------------+
+|  warpforge-backend-nvidia        |
+|  +----------------------------+  |
+|  | For each op in graph:      |  |
+|  |   - Allocate output tensor |  |
+|  |   - Call cuBLAS/cuDNN      |  |
+|  |   - Synchronize            |  |
+|  +----------------------------+  |
++----------------------------------+
 ```
 
 ### Implementation
 
 Each StableHLO operation maps to a vendor library call:
 
-| StableHLO Op | NVIDIA (cuBLAS/cuDNN) | AMD (hipBLAS/MIOpen) |
-|--------------|----------------------|----------------------|
-| `dot_general` | `cublasSgemm` | `hipblasSgemm` |
-| `convolution` | `cudnnConvolutionForward` | `miopenConvolutionForward` |
-| `add` | Custom CUDA kernel | Custom HIP kernel |
-| `multiply` | Custom CUDA kernel | Custom HIP kernel |
-| `reduce` | `cublasSasum` / custom | `hipblasSasum` / custom |
+|----------------|---------------------------|----------------------------|
+| StableHLO Op   | NVIDIA (cuBLAS/cuDNN)     | AMD (hipBLAS/MIOpen)       |
+|----------------|---------------------------|----------------------------|
+| `dot_general`  | `cublasSgemm`             | `hipblasSgemm`             |
+| `convolution`  | `cudnnConvolutionForward` | `miopenConvolutionForward` |
+| `add`          | Custom CUDA kernel        | Custom HIP kernel          |
+| `multiply`     | Custom CUDA kernel        | Custom HIP kernel          |
+| `reduce`       | `cublasSasum` / custom    | `hipblasSasum` / custom    |
+|----------------|---------------------------|----------------------------|
 
 ### Java FFM Bindings
 
@@ -127,28 +129,28 @@ Becomes a single kernel that:
 
 ```
 StableHLO Op Graph
-       │
-       ▼
-┌──────────────────────────────────┐
-│  Fusion Analysis (Java)          │
-│  - Identify elementwise chains   │
-│  - Group into FusionClusters     │
-└──────────────┬───────────────────┘
-               │
-       ┌───────┴───────┐
-       ▼               ▼
+       |
+       v
++----------------------------------+
+|  Fusion Analysis (Java)          |
+|  - Identify elementwise chains   |
+|  - Group into FusionClusters     |
++--------------+-------------------+
+               |
+       +-------+-------+
+       v               v
    Unfused Ops    FusionClusters
-       │               │
-       ▼               ▼
+       |               |
+       v               v
    cuBLAS calls   Babylon Codegen
-                       │
-                       ▼
-               ┌───────────────────┐
-               │ warpforge-backend-│
-               │ babylon-ptx       │
-               │                   │
-               │ Code Model → PTX  │
-               └───────────────────┘
+                       |
+                       v
+               +-------------------+
+               | warpforge-backend-|
+               | babylon-ptx       |
+               |                   |
+               | Code Model -> PTX |
+               +-------------------+
 ```
 
 ### Babylon Code Generation
@@ -260,24 +262,26 @@ Option 3 is pragmatic: cuBLAS GEMM is highly optimized, and we add value by fusi
 Orthogonal to the development phases, WarpForge provides three execution **tiers** that balance performance against observability. These tiers apply across all phases.
 
 ```
-┌───────────────────────────────────────────────────────────────────────┐
-│  Tier              │ Performance │ Observability │ Implementation     │
-├───────────────────────────────────────────────────────────────────────┤
-│  PRODUCTION        │    100%     │ External only │ cuBLAS/rocBLAS     │
-│  OPTIMIZED_        │    ~93%     │ Salt instr.   │ Optimized PTX/HIP  │
-│   OBSERVABLE       │             │               │                    │
-│  CORRECTNESS       │    ~1%      │ Full tracing  │ Naive PTX/HIP      │
-└───────────────────────────────────────────────────────────────────────┘
++-----------------------------------------------------------------------+
+|  Tier              | Performance | Observability | Implementation     |
++-----------------------------------------------------------------------+
+|  PRODUCTION        |    100%     | External only | cuBLAS/rocBLAS     |
+|  OPTIMIZED_        |    ~93%     | Salt instr.   | Optimized PTX/HIP  |
+|   OBSERVABLE       |             |               |                    |
+|  CORRECTNESS       |    ~1%      | Full tracing  | Naive PTX/HIP      |
++-----------------------------------------------------------------------+
 ```
 
 ### Use Case Selection
 
-| Scenario | Tier | Rationale |
-|----------|------|-----------|
-| Training at scale | PRODUCTION | Maximum throughput |
-| "Which op is slow?" | PRODUCTION + JFR | External timing sufficient |
-| "Why is this GEMM slow?" | OPTIMIZED_OBSERVABLE | Need kernel internals |
-| "Results don't match" | CORRECTNESS | Full numerical trace |
+|---------------------------|----------------------|----------------------------|
+| Scenario                  | Tier                 | Rationale                  |
+|---------------------------|----------------------|----------------------------|
+| Training at scale         | PRODUCTION           | Maximum throughput         |
+| "Which op is slow?"       | PRODUCTION + JFR     | External timing sufficient |
+| "Why is this GEMM slow?"  | OPTIMIZED_OBSERVABLE | Need kernel internals      |
+| "Results don't match"     | CORRECTNESS          | Full numerical trace       |
+|---------------------------|----------------------|----------------------------|
 
 The OPTIMIZED_OBSERVABLE tier is inspired by [Simon Boehm's work](https://siboehm.com/articles/22/CUDA-MMM) showing 93.7% of cuBLAS performance is achievable with optimized CUDA using coalescing, shared memory tiling, register blocking, and warptiling. This allows salt instrumentation while maintaining near-production speed.
 

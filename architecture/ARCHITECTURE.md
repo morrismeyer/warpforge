@@ -16,32 +16,32 @@ The key insight: by using Babylon's Code Reflection API, we can treat GPU kernel
 
 ```
 PyTorch Model (nn.Module)
-         │
-         ▼
-┌─────────────────────────────────────┐
-│  SnakeGrinder                       │
-│  - GraalPy 25 + PyTorch 2.7         │
-│  - torch.fx.symbolic_trace          │
-│  - FX Graph → StableHLO MLIR        │
-│  - Native executable distribution   │
-└──────────────┬──────────────────────┘
-               │ .mlir file (StableHLO text)
-               ▼
-┌─────────────────────────────────────┐
-│  SnakeBurger                        │
-│  - Babylon JDK (Java 26)            │
-│  - StableHLO Parser                 │
-│  - Babylon Code Reflection IR       │
-│  - jlink/jpackage distribution      │
-└──────────────┬──────────────────────┘
-               │ Code Model
-               ▼
-┌─────────────────────────────────────┐
-│  WarpForge Backend                  │
-│  - Op-by-op execution (Phase 1)     │
-│  - Fused kernel generation (Phase 2+)│
-│  - NVIDIA (CUDA/PTX) + AMD (ROCm)   │
-└─────────────────────────────────────┘
+         |
+         v
++-------------------------------------+
+|  SnakeGrinder                       |
+|  - GraalPy 25 + PyTorch 2.7         |
+|  - torch.fx.symbolic_trace          |
+|  - FX Graph -> StableHLO MLIR       |
+|  - Native executable distribution   |
++--------------+----------------------+
+               | .mlir file (StableHLO text)
+               v
++-------------------------------------+
+|  SnakeBurger                        |
+|  - Babylon JDK (Java 26)            |
+|  - StableHLO Parser                 |
+|  - Babylon Code Reflection IR       |
+|  - jlink/jpackage distribution      |
++--------------+----------------------+
+               | Code Model
+               v
++-------------------------------------+
+|  WarpForge Backend                  |
+|  - Op-by-op execution (Phase 1)     |
+|  - Fused kernel generation (Phase 2+)|
+|  - NVIDIA (CUDA/PTX) + AMD (ROCm)   |
++-------------------------------------+
 ```
 
 ## Key Architectural Decisions
@@ -76,20 +76,22 @@ When implementation choices are equivalent, prefer Java. This means:
 
 ## Module Map
 
-| Module | Purpose | JDK |
-|--------|---------|-----|
-| `snakegrinder-core` | GraalPy polyglot context | GraalVM 25 |
-| `snakegrinder-cli` | CLI for model tracing | GraalVM 25 |
-| `snakegrinder-dist` | Native distribution build | GraalVM 25 |
-| `snakeburger-core` | StableHLO → Babylon IR | Babylon (Java 26) |
-| `snakeburger-cli` | CLI for IR operations | Babylon (Java 26) |
-| `warpforge-core` | Core IR and analysis | Java 25 |
-| `warpforge-backend-cpu` | CPU reference backend | Java 25 |
-| `warpforge-backend-nvidia` | NVIDIA GPU backend | Java 25 |
-| `warpforge-backend-amd` | AMD GPU backend | Java 25 |
-| `warpforge-codegen-api` | Kernel codegen interfaces | Java 25 |
-| `warpforge-launch-core` | Scheduler integration (Ray, Slurm, K8s) | Java 25 |
-| `warpforge-launch-cli` | CLI for job submission | Java 25 |
+|---------------------------|------------------------------------------|-------------------|
+| Module                    | Purpose                                  | JDK               |
+|---------------------------|------------------------------------------|-------------------|
+| `snakegrinder-core`       | GraalPy polyglot context                 | GraalVM 25        |
+| `snakegrinder-cli`        | CLI for model tracing                    | GraalVM 25        |
+| `snakegrinder-dist`       | Native distribution build                | GraalVM 25        |
+| `snakeburger-core`        | StableHLO -> Babylon IR                  | Babylon (Java 26) |
+| `snakeburger-cli`         | CLI for IR operations                    | Babylon (Java 26) |
+| `warpforge-core`          | Core IR and analysis                     | Java 25           |
+| `warpforge-backend-cpu`   | CPU reference backend                    | Java 25           |
+| `warpforge-backend-nvidia` | NVIDIA GPU backend                      | Java 25           |
+| `warpforge-backend-amd`   | AMD GPU backend                          | Java 25           |
+| `warpforge-codegen-api`   | Kernel codegen interfaces                | Java 25           |
+| `warpforge-launch-core`   | Scheduler integration (Ray, Slurm, K8s)  | Java 25           |
+| `warpforge-launch-cli`    | CLI for job submission                   | Java 25           |
+|---------------------------|------------------------------------------|-------------------|
 
 ## Related Documents
 

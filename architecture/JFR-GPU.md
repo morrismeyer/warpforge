@@ -13,46 +13,50 @@ The existing salt-based instrumentation (see `BACKEND-KERNEL-INSTRUMENTATION.md`
 ## Solution: GPU Events + JFR Custom Events
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│                    WarpForge GPU Operation                          │
-│  ┌───────────────────────────────────────────────────────────────┐  │
-│  │  GpuKernelEvent (JFR Custom Event)                            │  │
-│  │    - operation: "GEMM"                                        │  │
-│  │    - shape: "4096x4096 * 4096x4096"                           │  │
-│  │    - gpuTimeMicros: 1234                                      │  │
-│  │    - teraflops: 27.3                                          │  │
-│  │    - backend: "cuBLAS"                                        │  │
-│  └───────────────────────────────────────────────────────────────┘  │
-│                                                                     │
-│  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐             │
-│  │ CUDA Event  │    │   cuBLAS    │    │ CUDA Event  │             │
-│  │   start     │───▶│   SGEMM     │───▶│    stop     │             │
-│  └─────────────┘    └─────────────┘    └─────────────┘             │
-│         │                                      │                    │
-│         └──────── cudaEventElapsedTime() ──────┘                    │
-│                           │                                         │
-│                           ▼                                         │
-│                   GpuKernelEvent.commit()                           │
-└─────────────────────────────────────────────────────────────────────┘
++---------------------------------------------------------------------+
+|                    WarpForge GPU Operation                          |
+|  +---------------------------------------------------------------+  |
+|  |  GpuKernelEvent (JFR Custom Event)                            |  |
+|  |    - operation: "GEMM"                                        |  |
+|  |    - shape: "4096x4096 * 4096x4096"                           |  |
+|  |    - gpuTimeMicros: 1234                                      |  |
+|  |    - teraflops: 27.3                                          |  |
+|  |    - backend: "cuBLAS"                                        |  |
+|  +---------------------------------------------------------------+  |
+|                                                                     |
+|  +-------------+    +-------------+    +-------------+              |
+|  | CUDA Event  |    |   cuBLAS    |    | CUDA Event  |              |
+|  |   start     |--->|   SGEMM     |--->|    stop     |              |
+|  +-------------+    +-------------+    +-------------+              |
+|         |                                      |                    |
+|         +-------- cudaEventElapsedTime() ------+                    |
+|                           |                                         |
+|                           v                                         |
+|                   GpuKernelEvent.commit()                           |
++---------------------------------------------------------------------+
 ```
 
 ## Profiling API Landscape
 
 ### NVIDIA
 
-| Approach | Granularity | Overhead | JFR Integration | Complexity |
-|----------|-------------|----------|-----------------|------------|
-| **CUDA Events** | Per-kernel | ~0.5μs resolution | Easy | Low |
-| **CUPTI Activity API** | Per-kernel + transfers | Low | Medium | High |
-| **NVTX Ranges** | Code regions | Very low | Via Nsight | Low |
+|------------------------|------------------------|-------------------|-----------------|------------|
+| Approach               | Granularity            | Overhead          | JFR Integration | Complexity |
+|------------------------|------------------------|-------------------|-----------------|------------|
+| **CUDA Events**        | Per-kernel             | ~0.5us resolution | Easy            | Low        |
+| **CUPTI Activity API** | Per-kernel + transfers | Low               | Medium          | High       |
+| **NVTX Ranges**        | Code regions           | Very low          | Via Nsight      | Low        |
+|------------------------|------------------------|-------------------|-----------------|------------|
 
 ### AMD
 
-| Approach | Granularity | Overhead | JFR Integration | Complexity |
-|----------|-------------|----------|-----------------|------------|
-| **HIP Events** | Per-kernel | Similar to CUDA | Easy | Low |
-| **roctracer** | Per-kernel + transfers | Low | Medium | High |
-| **roctx** | Code regions | Very low | Via rocprof | Low |
+|------------------------|------------------------|-------------------|-----------------|------------|
+| Approach               | Granularity            | Overhead          | JFR Integration | Complexity |
+|------------------------|------------------------|-------------------|-----------------|------------|
+| **HIP Events**         | Per-kernel             | Similar to CUDA   | Easy            | Low        |
+| **roctracer**          | Per-kernel + transfers | Low               | Medium          | High       |
+| **roctx**              | Code regions           | Very low          | Via rocprof     | Low        |
+|------------------------|------------------------|-------------------|-----------------|------------|
 
 ## Recommended Approach: GPU Events
 
@@ -201,45 +205,47 @@ public class CublasGemmKernel implements CudaOpKernel {
 With JFR events, GPU operations appear in standard Java profiling tools:
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│  JDK Mission Control - GPU Kernel Events                        │
-├─────────────────────────────────────────────────────────────────┤
-│  Time        Operation  Shape           GPU(μs)  TFLOPS Backend │
-│  ──────────  ─────────  ──────────────  ───────  ────── ─────── │
-│  10:23:01.1  GEMM       4096x4096       1,234    27.3   cuBLAS  │
-│  10:23:01.2  Add        4096x4096       12       -      PTX     │
-│  10:23:01.2  GEMM       4096x4096       1,198    28.1   cuBLAS  │
-│  10:23:01.3  Softmax    4096x128        45       -      cuDNN   │
-│  10:23:01.3  GEMM       4096x4096       1,201    28.0   cuBLAS  │
-│  ...                                                            │
-├─────────────────────────────────────────────────────────────────┤
-│  [Histogram: GPU Time by Operation]  [Timeline View]            │
-└─────────────────────────────────────────────────────────────────┘
++-----------------------------------------------------------------+
+|  JDK Mission Control - GPU Kernel Events                        |
++-----------------------------------------------------------------+
+|  Time        Operation  Shape           GPU(us)  TFLOPS Backend |
+|  ----------  ---------  --------------  -------  ------ ------- |
+|  10:23:01.1  GEMM       4096x4096       1,234    27.3   cuBLAS  |
+|  10:23:01.2  Add        4096x4096       12       -      PTX     |
+|  10:23:01.2  GEMM       4096x4096       1,198    28.1   cuBLAS  |
+|  10:23:01.3  Softmax    4096x128        45       -      cuDNN   |
+|  10:23:01.3  GEMM       4096x4096       1,201    28.0   cuBLAS  |
+|  ...                                                            |
++-----------------------------------------------------------------+
+|  [Histogram: GPU Time by Operation]  [Timeline View]            |
++-----------------------------------------------------------------+
 ```
 
 ## Integration with Salt-Based Instrumentation
 
 The JFR approach complements, not replaces, the existing salt-based instrumentation:
 
-| Use Case | Approach |
-|----------|----------|
-| **Vendor library ops** (cuBLAS, MIOpen) | CUDA/HIP Events → JFR |
-| **Generated kernel wall-clock time** | CUDA/HIP Events → JFR |
-| **Generated kernel internal timing** | Salt instrumentation (SALT_TIMING) |
-| **Memory transfer timing** | CUDA/HIP Events → JFR |
-| **Kernel compilation timing** | Host-side timing → JFR |
+|------------------------------------------|------------------------------------|
+| Use Case                                 | Approach                           |
+|------------------------------------------|------------------------------------|
+| **Vendor library ops** (cuBLAS, MIOpen)  | CUDA/HIP Events -> JFR             |
+| **Generated kernel wall-clock time**     | CUDA/HIP Events -> JFR             |
+| **Generated kernel internal timing**     | Salt instrumentation (SALT_TIMING) |
+| **Memory transfer timing**               | CUDA/HIP Events -> JFR             |
+| **Kernel compilation timing**            | Host-side timing -> JFR            |
+|------------------------------------------|------------------------------------|
 
 ### Unified Event Flow
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│  Heavy Ops (cuBLAS/MIOpen)    │  Light Ops (Generated Kernels)  │
-├───────────────────────────────┼─────────────────────────────────┤
-│  • CUDA/HIP Events for timing │  • CUDA/HIP Events for timing   │
-│  • JFR events with TFLOPS     │  • Salt instrumentation for     │
-│  • NVTX/roctx for Nsight      │    internal visibility          │
-│                               │  • JFR events for consistency   │
-└───────────────────────────────┴─────────────────────────────────┘
++-----------------------------------------------------------------+
+|  Heavy Ops (cuBLAS/MIOpen)    |  Light Ops (Generated Kernels)  |
++-------------------------------+---------------------------------+
+|  - CUDA/HIP Events for timing |  - CUDA/HIP Events for timing   |
+|  - JFR events with TFLOPS     |  - Salt instrumentation for     |
+|  - NVTX/roctx for Nsight      |    internal visibility          |
+|                               |  - JFR events for consistency   |
++-------------------------------+---------------------------------+
 ```
 
 ## CUPTI/roctracer (Advanced)
@@ -325,15 +331,17 @@ warpforge-backend-amd/
 
 ## Comparison: Salt vs GPU Events vs CUPTI
 
-| Feature | PTX Salt | GPU Events | CUPTI/roctracer |
-|---------|----------|------------|-----------------|
-| Works with cuBLAS/MIOpen | ❌ | ✅ | ✅ |
-| Per-thread timing | ✅ | ❌ | ✅ (with effort) |
-| Memory transfer tracking | ❌ | Manual | ✅ Automatic |
-| Low overhead | ✅ | ✅ | Medium |
-| JFR integration | Custom | Easy | Medium |
-| Hardware counters | ❌ | ❌ | ✅ |
-| Implementation effort | Done | ~200 LOC | ~1000 LOC |
+|----------------------------|----------|------------|-------------------|
+| Feature                    | PTX Salt | GPU Events | CUPTI/roctracer   |
+|----------------------------|----------|------------|-------------------|
+| Works with cuBLAS/MIOpen   | No       | Yes        | Yes               |
+| Per-thread timing          | Yes      | No         | Yes (with effort) |
+| Memory transfer tracking   | No       | Manual     | Yes Automatic     |
+| Low overhead               | Yes      | Yes        | Medium            |
+| JFR integration            | Custom   | Easy       | Medium            |
+| Hardware counters          | No       | No         | Yes               |
+| Implementation effort      | Done     | ~200 LOC   | ~1000 LOC         |
+|----------------------------|----------|------------|-------------------|
 
 ## Implementation Phases
 

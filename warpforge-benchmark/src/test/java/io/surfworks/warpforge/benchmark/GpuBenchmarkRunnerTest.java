@@ -24,6 +24,12 @@ class GpuBenchmarkRunnerTest {
         private boolean teardownCalled = false;
         private int invocationCount = 0;
 
+        // Volatile sink to prevent JIT from optimizing away the workload.
+        // This is JMH's "blackhole" pattern - the computed value must be used
+        // somewhere that the JIT can't prove is dead code.
+        @SuppressWarnings("unused")
+        private volatile long blackhole;
+
         @Setup(level = Setup.Level.TRIAL)
         public void setup() {
             setupCalled = true;
@@ -43,12 +49,12 @@ class GpuBenchmarkRunnerTest {
         )
         public void benchmarkTest(KernelTier tier) {
             invocationCount++;
-            // Simulate some work
-            simulateWork(tier);
+            // Simulate some work and consume the result to prevent JIT elimination
+            blackhole = simulateWork(tier);
         }
 
-        private void simulateWork(KernelTier tier) {
-            // Just burn some CPU cycles
+        private long simulateWork(KernelTier tier) {
+            // Burn CPU cycles with work that cannot be optimized away
             long sum = 0;
             for (int i = 0; i < 10000; i++) {
                 sum += i;
@@ -59,6 +65,7 @@ class GpuBenchmarkRunnerTest {
                     sum += i;
                 }
             }
+            return sum;
         }
 
         public boolean isSetupCalled() { return setupCalled; }
@@ -149,9 +156,10 @@ class GpuBenchmarkRunnerTest {
 
         TierComparisonReport report = runner.generateReport();
 
-        // Verify tolerance was applied (report was generated with comparisons)
-        // Note: We don't assert allPassed() because CPU timing is non-deterministic
-        // and the simulated workload may not produce consistent overhead across platforms
+        // Verify tolerance was applied and test passes with high tolerance.
+        // The blackhole pattern prevents JIT from optimizing away the workload,
+        // so OPTIMIZED_OBSERVABLE should consistently be ~7% slower than PRODUCTION.
         assertFalse(report.optimizedObservableComparisons().isEmpty());
+        assertTrue(report.allPassed(), "With 50% tolerance, the ~7% overhead should pass");
     }
 }

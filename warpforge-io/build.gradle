@@ -143,6 +143,8 @@ tasks.register('rdmaPerfTest', Test) {
     // Performance test configuration
     systemProperty 'rdma.perf.iterations', System.getProperty('rdma.perf.iterations', '10000')
     systemProperty 'rdma.perf.message.size', System.getProperty('rdma.perf.message.size', '1048576')
+    systemProperty 'rdma.server.host', System.getProperty('rdma.server.host', 'gpu-node-2')
+    systemProperty 'rdma.server.port', System.getProperty('rdma.server.port', '18515')
 
     testLogging {
         events 'passed', 'skipped', 'failed'

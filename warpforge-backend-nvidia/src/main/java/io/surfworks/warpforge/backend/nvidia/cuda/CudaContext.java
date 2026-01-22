@@ -1,10 +1,13 @@
 package io.surfworks.warpforge.backend.nvidia.cuda;
 
+import io.surfworks.warpforge.backend.nvidia.cublas.CublasRuntime;
+
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Manages a CUDA context and provides convenient methods for device operations.
@@ -23,6 +26,7 @@ public final class CudaContext implements AutoCloseable {
     private final ConcurrentHashMap<String, Long> moduleCache;
     private final ConcurrentHashMap<String, Long> functionCache;
     private final AtomicBoolean closed;
+    private final AtomicLong cublasHandle;  // Lazily initialized cuBLAS handle
 
     /**
      * Create a CUDA context for the default device (device 0).
@@ -54,6 +58,7 @@ public final class CudaContext implements AutoCloseable {
         this.moduleCache = new ConcurrentHashMap<>();
         this.functionCache = new ConcurrentHashMap<>();
         this.closed = new AtomicBoolean(false);
+        this.cublasHandle = new AtomicLong(0);  // 0 = not initialized
     }
 
     /**
@@ -249,6 +254,141 @@ public final class CudaContext implements AutoCloseable {
         }
     }
 
+    // ==================== cuBLAS Operations ====================
+
+    /**
+     * Get the cuBLAS handle for this context, creating it lazily if needed.
+     *
+     * <p>The cuBLAS handle is created on first use and destroyed when the
+     * context is closed.
+     *
+     * @return cuBLAS handle
+     */
+    public long getCublasHandle() {
+        checkNotClosed();
+        long handle = cublasHandle.get();
+        if (handle == 0) {
+            synchronized (this) {
+                handle = cublasHandle.get();
+                if (handle == 0) {
+                    try {
+                        handle = CublasRuntime.create(arena);
+                        cublasHandle.set(handle);
+                    } catch (Throwable t) {
+                        throw new CudaRuntime.CudaException("Failed to create cuBLAS handle", t);
+                    }
+                }
+            }
+        }
+        return handle;
+    }
+
+    /**
+     * Check if cuBLAS is available.
+     */
+    public boolean isCublasAvailable() {
+        return CublasRuntime.isAvailable();
+    }
+
+    /**
+     * Perform single-precision matrix multiplication using cuBLAS.
+     *
+     * <p>Computes C = A * B where A is MxK and B is KxN, producing MxN result.
+     *
+     * <p>This method handles the row-major to column-major conversion automatically.
+     * Input matrices are assumed to be in row-major order (C-style), and the output
+     * will also be in row-major order.
+     *
+     * @param dA Device pointer to matrix A (MxK, row-major)
+     * @param dB Device pointer to matrix B (KxN, row-major)
+     * @param dC Device pointer to result matrix C (MxN, row-major)
+     * @param M Number of rows in A and C
+     * @param N Number of columns in B and C
+     * @param K Number of columns in A and rows in B
+     */
+    public void sgemm(long dA, long dB, long dC, int M, int N, int K) {
+        sgemmWithAlphaBeta(dA, dB, dC, M, N, K, 1.0f, 0.0f);
+    }
+
+    /**
+     * Perform single-precision matrix multiplication with alpha and beta scalars.
+     *
+     * <p>Computes C = alpha * A * B + beta * C
+     *
+     * @param dA Device pointer to matrix A (MxK, row-major)
+     * @param dB Device pointer to matrix B (KxN, row-major)
+     * @param dC Device pointer to result matrix C (MxN, row-major)
+     * @param M Number of rows in A and C
+     * @param N Number of columns in B and C
+     * @param K Number of columns in A and rows in B
+     * @param alpha Scalar multiplier for A*B
+     * @param beta Scalar multiplier for C
+     */
+    public void sgemmWithAlphaBeta(long dA, long dB, long dC, int M, int N, int K,
+                                    float alpha, float beta) {
+        checkNotClosed();
+        long handle = getCublasHandle();
+
+        try (Arena gemmArena = Arena.ofConfined()) {
+            // cuBLAS uses column-major. For row-major C = A * B:
+            // We compute C^T = B^T * A^T using cuBLAS, which gives us C in row-major.
+            // In cuBLAS terms: C(col-major) = B * A with dimensions (N,M) = (N,K) * (K,M)
+            // But since our data is row-major, we can treat:
+            //   A_row[M,K] as A_col[K,M] (transposed view)
+            //   B_row[K,N] as B_col[N,K] (transposed view)
+            // So: C_col[N,M] = B_col[N,K] * A_col[K,M]
+            // Which means: C_row[M,N] = A_row[M,K] * B_row[K,N] (what we want!)
+            //
+            // Call: sgemm(OP_N, OP_N, N, M, K, alpha, B, N, A, K, beta, C, N)
+            CublasRuntime.sgemm(gemmArena, handle,
+                CublasRuntime.CUBLAS_OP_N, CublasRuntime.CUBLAS_OP_N,
+                N, M, K,
+                alpha,
+                dB, N,   // B is KxN row-major, treat as NxK col-major
+                dA, K,   // A is MxK row-major, treat as KxM col-major
+                beta,
+                dC, N    // C is MxN row-major, treat as NxM col-major
+            );
+        } catch (Throwable t) {
+            throw new CudaRuntime.CudaException("cuBLAS sgemm failed", t);
+        }
+    }
+
+    /**
+     * Perform double-precision matrix multiplication using cuBLAS.
+     *
+     * @see #sgemm(long, long, long, int, int, int)
+     */
+    public void dgemm(long dA, long dB, long dC, int M, int N, int K) {
+        dgemmWithAlphaBeta(dA, dB, dC, M, N, K, 1.0, 0.0);
+    }
+
+    /**
+     * Perform double-precision matrix multiplication with alpha and beta scalars.
+     *
+     * @see #sgemmWithAlphaBeta(long, long, long, int, int, int, float, float)
+     */
+    public void dgemmWithAlphaBeta(long dA, long dB, long dC, int M, int N, int K,
+                                    double alpha, double beta) {
+        checkNotClosed();
+        long handle = getCublasHandle();
+
+        try (Arena gemmArena = Arena.ofConfined()) {
+            // Same row-major to column-major trick as sgemm
+            CublasRuntime.dgemm(gemmArena, handle,
+                CublasRuntime.CUBLAS_OP_N, CublasRuntime.CUBLAS_OP_N,
+                N, M, K,
+                alpha,
+                dB, N,
+                dA, K,
+                beta,
+                dC, N
+            );
+        } catch (Throwable t) {
+            throw new CudaRuntime.CudaException("cuBLAS dgemm failed", t);
+        }
+    }
+
     // ==================== Lifecycle ====================
 
     private void checkNotClosed() {
@@ -260,6 +400,17 @@ public final class CudaContext implements AutoCloseable {
     @Override
     public void close() {
         if (closed.compareAndSet(false, true)) {
+            // Destroy cuBLAS handle if it was created
+            long handle = cublasHandle.get();
+            if (handle != 0) {
+                try {
+                    CublasRuntime.destroy(handle);
+                } catch (Throwable t) {
+                    // Ignore errors during cleanup
+                }
+                cublasHandle.set(0);
+            }
+
             // Unload all cached modules
             for (Long module : moduleCache.values()) {
                 try {

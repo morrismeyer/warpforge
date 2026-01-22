@@ -255,6 +255,34 @@ Option 3 is pragmatic: cuBLAS GEMM is highly optimized, and we add value by fusi
 - [ ] Integration with cuBLAS epilogue APIs (where available)
 - [ ] Custom epilogue fusion for unsupported patterns
 
+## Three-Tier Kernel Architecture
+
+Orthogonal to the development phases, WarpForge provides three execution **tiers** that balance performance against observability. These tiers apply across all phases.
+
+```
+┌───────────────────────────────────────────────────────────────────────┐
+│  Tier              │ Performance │ Observability │ Implementation     │
+├───────────────────────────────────────────────────────────────────────┤
+│  PRODUCTION        │    100%     │ External only │ cuBLAS/rocBLAS     │
+│  OPTIMIZED_        │    ~93%     │ Salt instr.   │ Optimized PTX/HIP  │
+│   OBSERVABLE       │             │               │                    │
+│  CORRECTNESS       │    ~1%      │ Full tracing  │ Naive PTX/HIP      │
+└───────────────────────────────────────────────────────────────────────┘
+```
+
+### Use Case Selection
+
+| Scenario | Tier | Rationale |
+|----------|------|-----------|
+| Training at scale | PRODUCTION | Maximum throughput |
+| "Which op is slow?" | PRODUCTION + JFR | External timing sufficient |
+| "Why is this GEMM slow?" | OPTIMIZED_OBSERVABLE | Need kernel internals |
+| "Results don't match" | CORRECTNESS | Full numerical trace |
+
+The OPTIMIZED_OBSERVABLE tier is inspired by [Simon Boehm's work](https://siboehm.com/articles/22/CUDA-MMM) showing 93.7% of cuBLAS performance is achievable with optimized CUDA using coalescing, shared memory tiling, register blocking, and warptiling. This allows salt instrumentation while maintaining near-production speed.
+
+See [BACKEND-KERNEL-INSTRUMENTATION.md](BACKEND-KERNEL-INSTRUMENTATION.md) for detailed implementation.
+
 ## The Two-Tier Backend Structure
 
 After Phase 2+, we have two categories of backends:

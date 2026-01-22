@@ -2,9 +2,67 @@
 
 This document describes WarpForge's approach to GPU kernel instrumentation, designed to provide meaningful performance observability without introducing Heisenbug scenarios.
 
+## Three-Tier Kernel Architecture
+
+WarpForge provides three execution tiers that balance performance against observability:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                     WarpForge Kernel Tiers                                  │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  PRODUCTION          ████████████████████████████████████████  100% perf   │
+│  (cuBLAS/rocBLAS)    │ Vendor libraries, external timing only │            │
+│                                                                             │
+│  OPTIMIZED_          ██████████████████████████████████████    ~93% perf   │
+│  OBSERVABLE          │ Boehm-style PTX with salt instrumentation│          │
+│  (Optimized PTX)                                                            │
+│                                                                             │
+│  CORRECTNESS         ████                                      ~1% perf    │
+│  (Naive PTX)         │ Full tracing, numerical verification   │            │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Tier Selection Guide
+
+| Tier | Performance | Observability | Use Case |
+|------|-------------|---------------|----------|
+| **PRODUCTION** | 100% | External timing (JFR + CUDA Events) | Training at scale, inference |
+| **OPTIMIZED_OBSERVABLE** | ~93% | Salt instrumentation (kernel internals) | Performance tuning, profiling |
+| **CORRECTNESS** | ~1% | Full tracing, step-by-step | Debugging numerical issues |
+
+### Why Three Tiers?
+
+Current ML tooling has a fundamental visibility gap:
+
+- **PyTorch Profiler**: Shows operator times, but not kernel internals
+- **Nsight Compute**: Shows everything, but with 2-10x overhead
+
+The OPTIMIZED_OBSERVABLE tier fills this gap: **kernel-internal visibility at near-production performance**.
+
+This architecture is inspired by [Simon Boehm's work](https://siboehm.com/articles/22/CUDA-MMM) showing that
+optimized CUDA (with coalescing, shared memory, register blocking, warptiling) can achieve 93.7% of cuBLAS performance.
+By implementing this optimization level ourselves, we can add salt instrumentation while maintaining performance.
+
+### Tier Implementation
+
+```java
+public enum KernelTier {
+    /** Maximum performance via vendor libraries. External timing only. */
+    PRODUCTION,
+
+    /** Near-production performance with salt instrumentation for kernel internals. */
+    OPTIMIZED_OBSERVABLE,
+
+    /** Full observability at any cost. For debugging numerical issues. */
+    CORRECTNESS
+}
+```
+
 ## Core Principle: One Implementation, Instrumentation as Salt
 
-**There is exactly ONE implementation of each kernel operation.** Instrumentation variants are generated from the same code template with conditional sections enabled based on the "salt level."
+**Within each tier, there is exactly ONE implementation of each kernel operation.** Instrumentation variants are generated from the same code template with conditional sections enabled based on the "salt level."
 
 This avoids the fundamental Heisenbug problem: if you have separate "production" and "debug" implementations, measuring the debug path tells you nothing about production performance. The performance characteristics of different code are non-determinative.
 
@@ -112,20 +170,49 @@ backend.withInstrumentation(SALT_TIMING, () -> {
 });
 ```
 
-## Why Not cuBLAS/cuDNN?
+## Vendor Libraries in the Three-Tier Architecture
 
-Vendor libraries (cuBLAS, cuDNN) are black boxes. We can wrap them in JFR events to measure call latency, but:
+Vendor libraries (cuBLAS, cuDNN, rocBLAS, MIOpen) are used in the **PRODUCTION** tier for maximum performance. They are black boxes - we can only observe them externally via CUDA/HIP Events and JFR.
 
-- No visibility into internal kernel behavior
-- No ability to instrument the actual computation
-- No path to fusion (Phase 2+)
-- Different code path = Heisenbug potential if we have both
+### What We CAN Measure (PRODUCTION Tier)
 
-By implementing all operations as custom PTX with salt-based instrumentation, we get:
-- Full observability at any granularity
-- Single code path for production and profiling
-- Foundation for Babylon-based kernel fusion
-- Consistent, comparable measurements
+- Wall-clock execution time via CUDA/HIP Events (~0.5μs resolution)
+- TFLOPS throughput (computed from dimensions and time)
+- Memory transfer bandwidth
+- JFR integration for unified Java+GPU observability
+
+### What We CANNOT Measure (Vendor Libraries)
+
+- Per-thread timing
+- Memory stall cycles
+- Warp divergence
+- Register pressure
+- Internal algorithmic choices
+
+### Why Not Just Use cuBLAS for Everything?
+
+While cuBLAS provides maximum performance, it lacks observability. We investigated using NVBit to instrument cuBLAS kernels, but the overhead (1.5-5x) defeats the purpose.
+
+The OPTIMIZED_OBSERVABLE tier exists because:
+
+1. **Kernel-internal visibility** - Salt instrumentation shows exactly where cycles are spent
+2. **Near-production performance** - Boehm-style optimizations achieve ~93% of cuBLAS
+3. **Same code path** - Measurements are directly applicable to tuning
+4. **Foundation for fusion** - Custom kernels can be fused; cuBLAS calls cannot
+
+### When to Use Each Tier
+
+```
+"My training is slow"           → Start with PRODUCTION (baseline)
+"Which op is the bottleneck?"   → PRODUCTION + JFR events
+"Why is this GEMM slow?"        → OPTIMIZED_OBSERVABLE (kernel internals)
+"Results don't match expected"  → CORRECTNESS (full numerical trace)
+```
+
+By implementing custom PTX with salt-based instrumentation alongside vendor library calls, we get:
+- Maximum performance when needed (PRODUCTION)
+- Full observability when needed (OPTIMIZED_OBSERVABLE)
+- Numerical verification when needed (CORRECTNESS)
 
 ## Validation Strategy
 
@@ -147,14 +234,29 @@ We do NOT validate NVIDIA against cuBLAS because:
 
 ## File Locations
 
+### PRODUCTION Tier (Vendor Libraries)
+
 | File | Purpose |
 |------|---------|
-| `warpforge-backend-nvidia/src/main/java/.../cuda/CudaKernels.java` | PTX generation with salt |
-| `warpforge-backend-nvidia/src/main/java/.../cuda/CudaRuntime.java` | FFM bindings to CUDA Driver API |
-| `warpforge-backend-nvidia/src/main/java/.../cuda/CudaContext.java` | Context and kernel management |
-| `warpforge-backend-nvidia/src/main/java/.../ops/AddKernel.java` | Add operation implementation |
-| `warpforge-backend-nvidia/src/test/java/.../AddKernelTest.java` | Unit tests for Add kernel |
-| `warpforge-backend-nvidia/src/test/java/.../CpuNvidiaComparisonTest.java` | CPU vs NVIDIA integration tests |
+| `.../cublas/CublasRuntime.java` | FFM bindings to cuBLAS library |
+| `.../ops/CublasDotKernel.java` | cuBLAS SGEMM implementation |
+
+### OPTIMIZED_OBSERVABLE / CORRECTNESS Tiers (Custom PTX)
+
+| File | Purpose |
+|------|---------|
+| `.../cuda/CudaKernels.java` | PTX generation with salt |
+| `.../cuda/CudaRuntime.java` | FFM bindings to CUDA Driver API |
+| `.../cuda/CudaContext.java` | Context, kernel, and cuBLAS handle management |
+| `.../ops/DotKernel.java` | PTX-based matrix multiply (salted) |
+| `.../ops/AddKernel.java` | PTX-based elementwise add (salted) |
+
+### Tests
+
+| File | Purpose |
+|------|---------|
+| `.../AddKernelTest.java` | Unit tests for Add kernel |
+| `.../CpuNvidiaComparisonTest.java` | CPU vs NVIDIA integration tests |
 
 ## Testing Strategy
 

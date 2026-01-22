@@ -987,61 +987,698 @@ The Babylon-MCP-Claude Code backchannel enables optimization suggestions beyond 
 
 ## Session Log: Optimization Attempts
 
-### Starting State
-- **Previous best**: 4,283 cycles (from prior optimization session)
-- **Current file**: Reverted to baseline at 147,734 cycles
+### Session 2: Reconstruction and Further Optimization (January 2026)
 
-### Analysis Results
+**Starting State**: Baseline at 147,734 cycles (fresh clone)
 
-**Instruction Distribution (from 4,283 cycle version)**:
+**Final State**: 6,349 cycles (23.3x speedup)
+
+**Instruction Distribution (current version)**:
 ```
-alu:   3,399 ops
-valu:  13,464 ops (13464 / 6 = 2,244 cycles minimum)
-load:  3,460 ops (3460 / 2 = 1,730 cycles minimum)
-store: 64 ops
-flow:  130 ops (vselects + pauses)
+alu:   5,120 ops
+valu:  12,304 ops (12304 / 6 = 2,050 cycles minimum)
+load:  5,179 ops (5179 / 2 = 2,589 cycles minimum)  <- BOTTLENECK
+store: 1,024 ops (1024 / 2 = 512 cycles minimum)
+flow:  514 ops (514 / 1 = 514 cycles minimum)
 ```
 
-**Key Insight**: The theoretical minimum is ~2,244 cycles (VALU-limited). At 4,283 cycles, we're at ~52% VALU slot utilization. The gap to 2,164 cycles target requires near-perfect packing.
+**Key Insight**: The kernel is **load-bound** at 2,589 cycles theoretical minimum, not VALU-bound. Current implementation at 6,349 cycles achieves ~41% of theoretical maximum throughput.
 
-### Attempted Optimizations
+### Optimizations Implemented
 
-#### Attempt 1: Round 1 vselect/hash overlap
-- **Approach**: Overlap vselect (flow engine) with XOR and hash start (valu engine)
-- **Result**: FAILED - incorrect output
-- **Root cause**: Hash pipelining dependencies were incorrectly tracked when interleaving with vselect
+1. **SIMD Vectorization** (147K → ~18K cycles)
+   - Use vload/vstore/valu for VLEN=8 element operations
+   - Single vload replaces 8 scalar loads
 
-#### Attempt 2: Round 2 vselect/hash overlap
-- **Approach**: More aggressive overlap of 12 vselects with XOR and hash stages
-- **Result**: FAILED - incorrect output
-- **Root cause**: Complex staggered pipeline with 4 vectors at different stages introduced ordering bugs
+2. **4-Way Batch Pipelining** (~18K → ~7K cycles)
+   - Process vectors A, B, C, D in parallel
+   - Interleave operations to maximize slot utilization
+
+3. **Gather/Compute Overlap** (~7K → ~6.5K cycles)
+   - Start hash computation for A while gathering B
+   - Continue A/B hash while gathering C
+   - Continue all hashes while gathering D
+
+4. **Hash/Index Overlap** (~6.5K → ~6.3K cycles)
+   - Start A's index computation while C/D still hashing
+   - Pipeline: A index overlaps with C hash stage 4-5, D hash stages 2-5
+
+### Per-Iteration Cycle Breakdown
+
+| Phase | Description | Cycles |
+|-------|-------------|--------|
+| 1 | Address computation + vloads | 5 |
+| 2 | Gather address computation | 3 |
+| 3 | Gather A | 4 |
+| 4 | Gather B + A XOR/hash 0-1 | 4 |
+| 5 | Gather C + A hash 2-5, B XOR/hash 0-3 | 4 |
+| 6 | Gather D + hash tail | 4 |
+| 7 | Finish hash + index computation | ~15 |
+| 9 | vselects | 4 |
+| 10 | Stores | 4 |
+| **Total** | | **~47** |
+
+With 16 rounds × 8 vector groups: 47 × 128 = 6,016 cycles + overhead ≈ 6,349 cycles
+
+### Remaining Optimization Opportunities
+
+1. **Cross-Round Gather Overlap** (~300 cycles savings)
+   - Start round N+1's address computation during round N's stores
+   - Start round N+1's vloads during round N's final vselects
+
+2. **Deeper Hash Pipelining** (~200 cycles savings)
+   - Run A/B two stages ahead of C/D instead of one
+   - Requires careful dependency tracking
+
+3. **Store/Load Overlap** (~256 cycles savings)
+   - Overlap current stores with next iteration's vloads
+   - Requires double-buffering of addresses
+
+### Session 1: Earlier Optimization Attempts (Archived)
+
+**Previous best**: 4,283 cycles (now lost to git revert)
+
+**Attempted but failed optimizations**:
+
+1. **vselect/hash overlap**: Attempted to overlap vselects with XOR and hash start
+   - **Result**: FAILED - incorrect output
+   - **Root cause**: Hash pipelining dependencies incorrectly tracked
+
+2. **Aggressive 12-vselect overlap**: Attempted to overlap all vselects with hash stages
+   - **Result**: FAILED - incorrect output
+   - **Root cause**: Complex staggered pipeline introduced ordering bugs
 
 ### Lessons Learned
 
-1. **Correctness is paramount**: Each optimization must preserve exact output. The reference kernel `reference_kernel2` is the ground truth.
+1. **Correctness is paramount**: Each optimization must preserve exact output.
 
-2. **Dependency tracking is critical**: When pipelining across multiple vectors at different stages, tracking which operation depends on which result becomes complex.
+2. **Dependency tracking is critical**: When pipelining across multiple vectors at different stages, tracking dependencies becomes complex.
 
-3. **vselect is a bottleneck**: 130 flow operations at 1/cycle is significant. But overlapping them with valu requires careful dependency analysis.
+3. **Load-bound vs compute-bound**: The kernel is load-bound (2,589 cycle minimum) not compute-bound (2,050 cycle minimum). Optimization focus should be on memory access patterns.
 
-4. **Theoretical vs practical limits**: Even with 52% VALU utilization, reaching 100% is extremely difficult due to:
-   - Dependency chains forcing serialization
-   - Memory latency (gather = 4 cycles)
-   - Flow bottleneck (1 vselect/cycle)
+4. **vselect bottleneck**: 514 flow operations at 1/cycle (514 cycles) is ~20% of total runtime.
 
-### Recommendations for Future Work
+### Files Modified
 
-1. **Automated verification**: Build incremental tests that validate each cycle's intermediate state against reference.
+- `/Users/morris/surfworks/original_performance_takehome/perf_takehome.py` - Optimized kernel (6,349 cycles)
+- `/Users/morris/surfworks/warpforge/architecture/CLAUDE-OPTIMIZATION.md` - This document
 
-2. **Dependency graph visualization**: Generate a DAG of all operations and their dependencies to guide manual optimization.
+---
 
-3. **JFR instrumentation**: Implement `SlotUtilizationEvent` and `PipelineStallEvent` to identify exactly where cycles are wasted.
+## Real GPU Microarchitecture: NVIDIA and AMD
 
-4. **Babylon code model**: Encode the optimization transformations in Babylon IR so they can be:
-   - Verified for correctness via symbolic execution
-   - Applied automatically with dependency checking
-   - Composed to find optimal schedules
+This section maps the VLIW optimization patterns to real GPU hardware, enabling industrial-strength JFR instrumentation.
 
-### Files Created
+### NVIDIA Architecture (Ampere/Ada Lovelace/Hopper)
 
-- `/Users/morris/surfworks/original_performance_takehome/architecture/CLAUDE-OPTIMIZATION.md` - This document
+#### Streaming Multiprocessor (SM) Structure
+
+```
+┌──────────────────────────────────────────────────────────────────────┐
+│  NVIDIA Streaming Multiprocessor (SM)                                 │
+│                                                                       │
+│  ┌────────────────────┐  ┌────────────────────┐                      │
+│  │  Warp Scheduler 0  │  │  Warp Scheduler 1  │   (4 schedulers/SM)  │
+│  │  Dispatch Unit     │  │  Dispatch Unit     │                      │
+│  └────────────────────┘  └────────────────────┘                      │
+│                                                                       │
+│  ┌────────────────────────────────────────────────────────────────┐  │
+│  │  Processing Block (4 per SM)                                    │  │
+│  │  ┌────────────────┐ ┌────────────────┐ ┌────────────────┐      │  │
+│  │  │  16 FP32 Cores │ │  16 FP32 Cores │ │  Tensor Core   │      │  │
+│  │  └────────────────┘ └────────────────┘ └────────────────┘      │  │
+│  │  ┌────────────────┐ ┌────────────────┐ ┌────────────────┐      │  │
+│  │  │  16 INT32 Cores│ │  Load/Store    │ │  SFU (4)       │      │  │
+│  │  └────────────────┘ └────────────────┘ └────────────────┘      │  │
+│  └────────────────────────────────────────────────────────────────┘  │
+│                                                                       │
+│  ┌────────────────────────────────────────────────────────────────┐  │
+│  │  Register File: 65536 32-bit registers per SM                   │  │
+│  └────────────────────────────────────────────────────────────────┘  │
+│                                                                       │
+│  ┌────────────────────────────────────────────────────────────────┐  │
+│  │  Shared Memory / L1 Cache: 128 KB (configurable split)          │  │
+│  └────────────────────────────────────────────────────────────────┘  │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+#### Instruction Latencies (SASS)
+
+| Instruction Class | Latency (cycles) | Notes |
+|-------------------|------------------|-------|
+| FP32 arithmetic | 4 | FFMA, FADD, FMUL |
+| INT32 arithmetic | 4 | IADD3, IMAD |
+| FP64 arithmetic | 8 | DFMA (2x FP32) |
+| Shared memory load | 23 | Ampere, ~19ns at 1.2GHz |
+| Shared memory store | 19 | |
+| Global memory | 200-400+ | Depends on cache hit |
+| L2 cache hit | ~100-200 | ~80-160ns |
+| Tensor Core (IMMA) | 4-8 | Matrix multiply-accumulate |
+| SFU (sin, cos, etc.) | 16 | Special function unit |
+
+**Source**: [Demystifying the Nvidia Ampere Architecture](https://arxiv.org/pdf/2208.11174), [Dissecting the NVIDIA Hopper Architecture](https://arxiv.org/pdf/2402.13499)
+
+#### Warp Scheduling
+
+- **Warp**: 32 threads executing in lockstep (SIMT)
+- **Schedulers per SM**: 4 (can issue to 4 warps per cycle)
+- **Issue rate**: 1-2 instructions per warp per cycle
+- **Dual issue**: One ALU + one memory operation can issue together
+- **Context switch**: Zero overhead (all warp state in registers)
+- **Latency hiding**: Scheduler switches warps while waiting for memory
+
+#### Mapping VLIW Concepts to NVIDIA
+
+| VLIW Concept | NVIDIA Equivalent |
+|--------------|-------------------|
+| VALU (6 slots) | FP32 cores (128 per SM on Ada) |
+| ALU (12 slots) | INT32 cores (64 per SM) |
+| Load (2 slots) | Load/Store units (32 per SM) |
+| Flow (1 slot) | Warp scheduler predication |
+| VLEN=8 | Warp size 32 (4x wider) |
+| Slot utilization | Warp occupancy / stall reasons |
+
+### AMD Architecture (GCN/RDNA3)
+
+#### Compute Unit (CU) Structure
+
+```
+┌──────────────────────────────────────────────────────────────────────┐
+│  AMD Compute Unit (CU) - RDNA3                                        │
+│                                                                       │
+│  ┌────────────────────────────────────────────────────────────────┐  │
+│  │  Scheduler + Branch Unit                                        │  │
+│  └────────────────────────────────────────────────────────────────┘  │
+│                                                                       │
+│  ┌────────────────────┐  ┌────────────────────┐                      │
+│  │  SIMD32 (32 ALUs)  │  │  SIMD32 (32 ALUs)  │  (2 SIMDs per CU)   │
+│  │  + 512 VGPRs       │  │  + 512 VGPRs       │                      │
+│  └────────────────────┘  └────────────────────┘                      │
+│                                                                       │
+│  ┌────────────────────────────────────────────────────────────────┐  │
+│  │  Scalar ALU (SALU) + 128 SGPRs                                  │  │
+│  └────────────────────────────────────────────────────────────────┘  │
+│                                                                       │
+│  ┌────────────────────────────────────────────────────────────────┐  │
+│  │  Matrix Core Unit (RDNA3 AI Accelerators)                       │  │
+│  └────────────────────────────────────────────────────────────────┘  │
+│                                                                       │
+│  ┌────────────────────────────────────────────────────────────────┐  │
+│  │  L0 Vector Cache: 32 KB | L0 Scalar Cache: 16 KB               │  │
+│  └────────────────────────────────────────────────────────────────┘  │
+│                                                                       │
+│  ┌────────────────────────────────────────────────────────────────┐  │
+│  │  Local Data Share (LDS): 64 KB per CU                          │  │
+│  └────────────────────────────────────────────────────────────────┘  │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+#### Instruction Latencies
+
+| Instruction Class | Latency (cycles) | Notes |
+|-------------------|------------------|-------|
+| VALU FP32 | 4-5 | v_add_f32, v_fma_f32 |
+| VALU INT32 | 4 | v_add_i32 |
+| SALU | 2-4 | Scalar operations |
+| LDS load | ~25 | Local data share |
+| L0 vector cache | ~15-20 | Cache hit |
+| L0 scalar cache | ~15 | Lower latency path |
+| Global memory | 400-700+ | HBM2/GDDR6 |
+
+**Source**: [RDNA3 ISA Reference Guide](https://docs.amd.com/v/u/en-US/rdna3-shader-instruction-set-architecture-feb-2023_0), [Microbenchmarking AMD's RDNA 3](https://chipsandcheese.com/2023/01/07/microbenchmarking-amds-rdna-3-graphics-architecture/)
+
+#### Wavefront Scheduling
+
+- **Wavefront (GCN)**: 64 threads
+- **Wavefront (RDNA)**: 32 or 64 threads (native 32)
+- **SIMDs per CU**: 2 (RDNA3), executing 32 threads per cycle
+- **Issue rate**: 1 instruction per SIMD per cycle
+- **Context switch**: Zero overhead (contexts resident)
+- **Dual issue (VOPD)**: RDNA3 can dual-issue certain VALU ops
+
+#### Mapping VLIW Concepts to AMD
+
+| VLIW Concept | AMD Equivalent |
+|--------------|----------------|
+| VALU (6 slots) | VALU (32-wide SIMD × 2) |
+| ALU (12 slots) | SALU (scalar path) |
+| Load (2 slots) | Vector memory + scalar memory |
+| Flow (1 slot) | Scalar branch unit |
+| VLEN=8 | Wave32 or Wave64 |
+| Slot utilization | Wave occupancy / stall cycles |
+
+### Optimization Pattern Mapping
+
+#### Pattern 1: SIMD Vectorization
+
+| VLIW | NVIDIA | AMD |
+|------|--------|-----|
+| VLEN=8 vectors | 32-wide warps | 32/64-wide waves |
+| vload/vstore | coalesced LD.E.128 | buffer_load_dwordx4 |
+| valu ops | FP32 ALU on all lanes | v_fma_f32 on wave |
+
+**Key difference**: Real GPUs have larger SIMD widths (32-64 vs 8), so memory coalescing is even more critical.
+
+#### Pattern 2: Batch Pipelining
+
+| VLIW | NVIDIA | AMD |
+|------|--------|-----|
+| 4-way interleave | Multiple warps in flight | Multiple waves per CU |
+| ILP within vector group | ILP across warp instructions | ILP across wave instructions |
+| Hide memory latency | Warp scheduler switches | Wavefront scheduler switches |
+
+**Key insight**: Real GPUs hide latency through massive parallelism (thousands of threads), not explicit software pipelining. The scheduler handles latency hiding automatically.
+
+#### Pattern 3: Gather/Compute Overlap
+
+| VLIW | NVIDIA | AMD |
+|------|--------|-----|
+| Explicit overlap | Implicit via warp switching | Implicit via wave switching |
+| 2 loads/cycle limit | ~32 loads/cycle (coalesced) | ~32 loads/cycle (coalesced) |
+| Gather = 4 cycles | Gather = 1 instruction | Gather = 1 instruction |
+
+**Key insight**: Scatter/gather in real GPUs is handled by hardware address generation. The optimization focus shifts from explicit scheduling to memory access pattern optimization (coalescing, bank conflicts).
+
+#### Pattern 4: Hash Pipelining
+
+| VLIW | NVIDIA | AMD |
+|------|--------|-----|
+| op1/op3 parallel | ILP detected by hardware | ILP via dual-issue (VOPD) |
+| op2 dependent | Dependency scoreboard | Dependency handling in scheduler |
+| 6 VALU slots | 128 FP32 cores | 64 ALUs per CU |
+
+**Key insight**: Modern GPUs have enough compute throughput that hash-like patterns are rarely compute-bound. The bottleneck is usually memory bandwidth.
+
+### Industrial JFR Events for Real GPUs
+
+Based on the microarchitecture analysis, here are revised JFR events applicable to real hardware:
+
+#### NVIDIA Events
+
+```java
+@Label("NVIDIA Warp Stall")
+@Category({"WarpForge", "NVIDIA", "Performance"})
+public class NvidiaWarpStallEvent extends Event {
+    @Label("SM ID")
+    public int smId;
+
+    @Label("Warp ID")
+    public int warpId;
+
+    @Label("Stall Reason")
+    public String stallReason;  // "memory_dependency", "execution_dependency", "barrier", "not_selected"
+
+    @Label("Stall Cycles")
+    public long stallCycles;
+
+    @Label("Active Warps")
+    public int activeWarps;
+
+    @Label("Achieved Occupancy")
+    public float achievedOccupancy;
+}
+
+@Label("NVIDIA Memory Access Pattern")
+@Category({"WarpForge", "NVIDIA", "Memory"})
+public class NvidiaMemoryAccessEvent extends Event {
+    @Label("Access Type")
+    public String accessType;  // "coalesced", "strided", "scattered"
+
+    @Label("Sectors Requested")
+    public int sectorsRequested;
+
+    @Label("Sectors Actual")
+    public int sectorsActual;
+
+    @Label("L1 Hit Rate")
+    public float l1HitRate;
+
+    @Label("L2 Hit Rate")
+    public float l2HitRate;
+
+    @Label("Memory Throughput GB/s")
+    public float throughputGBps;
+}
+```
+
+#### AMD Events
+
+```java
+@Label("AMD Wave Occupancy")
+@Category({"WarpForge", "AMD", "Performance"})
+public class AmdWaveOccupancyEvent extends Event {
+    @Label("CU ID")
+    public int cuId;
+
+    @Label("Active Waves")
+    public int activeWaves;
+
+    @Label("Max Waves")
+    public int maxWaves;
+
+    @Label("VGPR Usage")
+    public int vgprUsage;
+
+    @Label("LDS Usage KB")
+    public float ldsUsageKb;
+
+    @Label("Occupancy Limiter")
+    public String limiter;  // "vgpr", "sgpr", "lds", "waves_per_simd"
+}
+
+@Label("AMD VALU Utilization")
+@Category({"WarpForge", "AMD", "Performance"})
+public class AmdValuUtilizationEvent extends Event {
+    @Label("CU ID")
+    public int cuId;
+
+    @Label("VALU Busy Cycles")
+    public long valuBusyCycles;
+
+    @Label("SALU Busy Cycles")
+    public long saluBusyCycles;
+
+    @Label("LDS Busy Cycles")
+    public long ldsBusyCycles;
+
+    @Label("Vector Memory Busy Cycles")
+    public long vmemBusyCycles;
+}
+```
+
+### Key Differences: VLIW Emulator vs Real GPUs
+
+| Aspect | VLIW Emulator | Real GPUs |
+|--------|---------------|-----------|
+| Parallelism | Explicit slot packing | Implicit massive parallelism |
+| Latency hiding | Software pipelining | Hardware warp/wave scheduling |
+| Memory | 2 loads/cycle hard limit | ~32+ loads/cycle (coalesced) |
+| Register allocation | Manual scratch management | Hardware register file |
+| Control flow | Explicit select/branch | Predicated execution, divergence |
+| Optimization focus | Instruction scheduling | Memory access patterns |
+
+### Implications for Babylon/WarpForge
+
+1. **Code generation target**: Babylon should generate PTX/GCN assembly that maximizes:
+   - Memory coalescing (all threads access consecutive addresses)
+   - Register pressure management (to maintain occupancy)
+   - Avoiding bank conflicts in shared memory
+
+2. **JFR instrumentation**: Focus on:
+   - Warp/wave stall reasons (not slot utilization)
+   - Memory access patterns (coalescing efficiency)
+   - Occupancy metrics (registers, shared memory)
+   - Cache hit rates
+
+3. **MCP optimization hints**: Claude Code should suggest:
+   - Memory layout transformations for coalescing
+   - Loop tiling for cache locality
+   - Occupancy-aware kernel parameters
+
+**Sources**:
+- [Demystifying the Nvidia Ampere Architecture](https://arxiv.org/pdf/2208.11174)
+- [Dissecting the NVIDIA Hopper Architecture](https://arxiv.org/pdf/2402.13499)
+- [RDNA3 ISA Reference Guide](https://docs.amd.com/v/u/en-US/rdna3-shader-instruction-set-architecture-feb-2023_0)
+- [Microbenchmarking AMD's RDNA 3](https://chipsandcheese.com/2023/01/07/microbenchmarking-amds-rdna-3-graphics-architecture/)
+- [AMD GPU Architecture Programming Documentation](https://gpuopen.com/amd-gpu-architecture-programming-documentation/)
+- [ROCm Compute Profiler Documentation](https://rocm.docs.amd.com/projects/rocprofiler-compute/en/latest/conceptual/compute-unit.html)
+
+---
+
+## Generalized Babylon-MCP Optimization Framework
+
+This section describes the architecture for a production-ready optimization framework that bridges Babylon Code Reflection, Claude Code (via MCP), and real GPU hardware.
+
+### Framework Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        Babylon-MCP Optimization Framework                    │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │  Layer 1: Babylon Code Reflection (jdk.incubator.code)              │   │
+│  │                                                                      │   │
+│  │  PyTorch Model → FX Graph → StableHLO → Babylon IR                  │   │
+│  │                                                                      │   │
+│  │  Key classes:                                                        │   │
+│  │  - Op.java: Operation representation                                 │   │
+│  │  - Body.java: Control flow blocks with dataflow analysis            │   │
+│  │  - SSA.java: Static single assignment transformation                 │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                            │                                                │
+│                            ▼                                                │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │  Layer 2: WarpForge Optimization Passes                             │   │
+│  │                                                                      │   │
+│  │  ┌──────────────┐ ┌──────────────┐ ┌──────────────┐                │   │
+│  │  │ MemoryLayout │ │ LoopTiling   │ │ Occupancy    │                │   │
+│  │  │ Pass         │ │ Pass         │ │ Optimizer    │                │   │
+│  │  └──────────────┘ └──────────────┘ └──────────────┘                │   │
+│  │  ┌──────────────┐ ┌──────────────┐ ┌──────────────┐                │   │
+│  │  │ Coalescing   │ │ Bank         │ │ Register     │                │   │
+│  │  │ Analyzer     │ │ Conflict     │ │ Allocator    │                │   │
+│  │  └──────────────┘ └──────────────┘ └──────────────┘                │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                            │                                                │
+│                            ▼                                                │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │  Layer 3: Backend Code Generation (HAT-style)                       │   │
+│  │                                                                      │   │
+│  │  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐     │   │
+│  │  │ NVIDIA Backend  │  │ AMD Backend     │  │ CPU Backend     │     │   │
+│  │  │ (PTX/CUDA)      │  │ (GCN/HIP)       │  │ (Reference)     │     │   │
+│  │  │                 │  │                 │  │                 │     │   │
+│  │  │ Salt-based      │  │ Salt-based      │  │ No salt needed  │     │   │
+│  │  │ instrumentation │  │ instrumentation │  │ (full trace)    │     │   │
+│  │  └─────────────────┘  └─────────────────┘  └─────────────────┘     │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                            │                                                │
+│                            ▼                                                │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │  Layer 4: JFR Instrumentation & Telemetry                           │   │
+│  │                                                                      │   │
+│  │  ┌──────────────────────────────────────────────────────────────┐   │   │
+│  │  │ GPU Events:                                                   │   │   │
+│  │  │ - WarpStallEvent / WaveOccupancyEvent                        │   │   │
+│  │  │ - MemoryAccessPatternEvent                                    │   │   │
+│  │  │ - CacheEfficiencyEvent                                        │   │   │
+│  │  │ - KernelLaunchEvent                                           │   │   │
+│  │  └──────────────────────────────────────────────────────────────┘   │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                            │                                                │
+│                            ▼                                                │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │  Layer 5: Claude Code MCP Integration                               │   │
+│  │                                                                      │   │
+│  │  MCP Server exposes:                                                 │   │
+│  │  - /profile/kernel/{id}     - Get profiling data                    │   │
+│  │  - /analyze/memory-pattern  - Analyze memory access patterns        │   │
+│  │  - /optimize/suggest        - Get optimization suggestions          │   │
+│  │  - /transform/apply         - Apply transformation                  │   │
+│  │                                                                      │   │
+│  │  Claude Code can:                                                    │   │
+│  │  1. Read JFR telemetry                                              │   │
+│  │  2. Analyze bottlenecks                                             │   │
+│  │  3. Suggest code transformations                                     │   │
+│  │  4. Apply optimizations via MCP tools                               │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### MCP Tool Definitions
+
+```json
+{
+  "name": "warpforge-optimizer",
+  "version": "1.0.0",
+  "tools": [
+    {
+      "name": "profile_kernel",
+      "description": "Get profiling data for a kernel execution",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "kernelId": {"type": "string"},
+          "metrics": {
+            "type": "array",
+            "items": {"enum": ["warp_stalls", "memory_pattern", "cache_hits", "occupancy"]}
+          }
+        },
+        "required": ["kernelId"]
+      }
+    },
+    {
+      "name": "analyze_bottleneck",
+      "description": "Analyze performance bottlenecks in a kernel",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "kernelId": {"type": "string"},
+          "targetBackend": {"enum": ["nvidia", "amd", "cpu"]}
+        }
+      }
+    },
+    {
+      "name": "suggest_optimization",
+      "description": "Get optimization suggestions based on profiling data",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "kernelId": {"type": "string"},
+          "category": {
+            "enum": ["memory_coalescing", "occupancy", "bank_conflicts", "register_pressure"]
+          }
+        }
+      }
+    },
+    {
+      "name": "apply_transformation",
+      "description": "Apply a code transformation to optimize a kernel",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "kernelId": {"type": "string"},
+          "transformation": {
+            "enum": ["tile_loops", "transpose_memory", "unroll", "vectorize", "fuse_kernels"]
+          },
+          "parameters": {"type": "object"}
+        }
+      }
+    }
+  ]
+}
+```
+
+### Optimization Workflow
+
+```
+1. USER: "My matmul kernel is slow"
+
+2. CLAUDE CODE:
+   - Calls profile_kernel to get JFR events
+   - Calls analyze_bottleneck to identify issues
+
+3. MCP SERVER returns:
+   {
+     "bottleneck": "memory_coalescing",
+     "details": "75% non-coalesced global memory accesses",
+     "affected_regions": ["line 42-58: matrix A load"],
+     "warp_stalls": {"memory_dependency": 45%, "execution_dependency": 10%}
+   }
+
+4. CLAUDE CODE:
+   - Calls suggest_optimization(category="memory_coalescing")
+
+5. MCP SERVER returns:
+   {
+     "suggestions": [
+       {
+         "transformation": "transpose_memory",
+         "expected_improvement": "3.2x",
+         "code_changes": "Transpose matrix A in shared memory before compute"
+       },
+       {
+         "transformation": "tile_loops",
+         "expected_improvement": "2.8x",
+         "parameters": {"tile_size": 32}
+       }
+     ]
+   }
+
+6. CLAUDE CODE:
+   - Presents options to user
+   - User selects "transpose_memory"
+   - Calls apply_transformation
+
+7. MCP SERVER:
+   - Applies transformation via Babylon IR
+   - Regenerates optimized PTX/GCN
+   - Returns new kernel ID
+
+8. CLAUDE CODE:
+   - Re-profiles to verify improvement
+   - Reports results to user
+```
+
+### Hardware-Specific Optimization Passes
+
+#### NVIDIA Optimizations
+
+| Pass | Input | Output | Target Metric |
+|------|-------|--------|---------------|
+| CoalescingPass | Babylon IR | Babylon IR with AoS→SoA transforms | Memory efficiency |
+| SharedMemTiling | Babylon IR | Babylon IR with tiled loops | L1 cache utilization |
+| WarpShufflePass | Babylon IR | Babylon IR using warp shuffles | Reduce shared mem pressure |
+| TensorCoreMapping | Matrix ops | WMMA intrinsics | Tensor core utilization |
+
+#### AMD Optimizations
+
+| Pass | Input | Output | Target Metric |
+|------|-------|--------|---------------|
+| LDSOptimizer | Babylon IR | Babylon IR with LDS usage | LDS bandwidth |
+| WavefrontOccupancy | Babylon IR | Register-pressure-aware IR | Occupancy |
+| DualIssueVOPD | Babylon IR | Paired VALU ops | VALU throughput |
+| ScalarPromotion | Babylon IR | SALU-promoted uniform values | VGPR savings |
+
+### Integration with Mark 1 Holmes Lab
+
+The framework is designed to run on the Mark 1 Holmes Lab hardware:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                            Mark 1 Holmes Lab                                 │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  ┌─────────────────┐                                                        │
+│  │  NUC            │  Orchestrates:                                         │
+│  │  (Orchestrator) │  - Runs Claude Code + MCP Server                       │
+│  │                 │  - Coordinates GPU tests                               │
+│  │                 │  - Aggregates JFR telemetry                            │
+│  └────────┬────────┘                                                        │
+│           │                                                                  │
+│    ┌──────┴──────┐                                                          │
+│    │             │                                                          │
+│    ▼             ▼                                                          │
+│  ┌─────────────────┐  ┌─────────────────┐                                   │
+│  │  NVIDIA Box     │  │  AMD Box        │                                   │
+│  │  (RTX GPU)      │  │  (RDNA3 GPU)    │                                   │
+│  │                 │  │                 │                                   │
+│  │  - warpforge-   │  │  - warpforge-   │                                   │
+│  │    backend-     │  │    backend-     │                                   │
+│  │    nvidia       │  │    amd          │                                   │
+│  │  - CUDA runtime │  │  - ROCm runtime │                                   │
+│  │  - nvdisasm     │  │  - rocprofiler  │                                   │
+│  └─────────────────┘  └─────────────────┘                                   │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Next Steps
+
+1. **Implement JFR event generation** in warpforge-backend-nvidia and warpforge-backend-amd
+2. **Build MCP server** exposing optimization tools
+3. **Create optimization passes** based on Babylon IR transformations
+4. **Integrate with CI/CD** for automated performance regression testing
+5. **Validate on Mark 1** with real workloads
+
+---
+
+## Summary
+
+This document captured:
+
+1. **VLIW Optimization Journey**: From 147,734 to 6,349 cycles (23x speedup)
+2. **Optimization Patterns**: SIMD vectorization, batch pipelining, gather/compute overlap, hash pipelining
+3. **Babylon Integration Points**: Op.java, Body.java, SSA transformation, HAT backend model
+4. **Real GPU Microarchitecture**: NVIDIA SM/warp scheduling, AMD CU/wavefront scheduling
+5. **Industrial JFR Events**: Warp stalls, memory patterns, occupancy metrics
+6. **Babylon-MCP Framework**: Architecture for Claude Code-assisted GPU optimization
+
+The key insight is that while the VLIW emulator taught valuable lessons about instruction scheduling and pipelining, real GPU optimization focuses on:
+
+- **Memory access patterns** (coalescing, bank conflicts)
+- **Occupancy management** (registers, shared memory)
+- **Latency hiding through parallelism** (not explicit software pipelining)
+
+The Babylon-MCP framework bridges these concepts, enabling Claude Code to suggest real-world GPU optimizations based on JFR telemetry.

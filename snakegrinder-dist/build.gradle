@@ -52,48 +52,48 @@ def distDir = file("${buildDir}/dist")
 // GraalPy Download (prerequisite for venv and tests)
 // ============================================================================
 
-tasks.register('downloadGraalPy') {
+tasks.register('downloadGraalPy', Exec) {
     group = 'snakegrinder-dist'
     description = 'Download GraalPy if not present (required for PyTorch venv and tests)'
 
-    outputs.file(graalPyBinPath)
+    // Use a shell script to handle the conditional download and extraction
+    def scriptContent = """
+#!/bin/bash
+set -e
+GRAALPY_BIN="${graalPyBinPath}"
+GRAALPY_HOME="${graalPyHome}"
+GRAALPY_URL="${graalPyDownloadUrl}"
+TOOLS_DIR="${projectDir}/tools"
+TARBALL="/tmp/graalpy-${graalPyVersion}-${graalPyPlatform}.tar.gz"
 
-    doLast {
-        def graalPyBin = file(graalPyBinPath)
-        if (graalPyBin.exists()) {
-            println "GraalPy already exists at ${graalPyHome}"
-            return
-        }
+if [ -x "\$GRAALPY_BIN" ]; then
+    echo "GraalPy already exists at \$GRAALPY_HOME"
+    exit 0
+fi
 
-        println "Downloading GraalPy ${graalPyVersion} for ${graalPyPlatform}..."
-        println "URL: ${graalPyDownloadUrl}"
+echo "Downloading GraalPy ${graalPyVersion} for ${graalPyPlatform}..."
+echo "URL: \$GRAALPY_URL"
 
-        def toolsDir = file("${projectDir}/tools")
-        toolsDir.mkdirs()
+mkdir -p "\$TOOLS_DIR"
 
-        def tarball = file("/tmp/graalpy-${graalPyVersion}-${graalPyPlatform}.tar.gz")
+if [ ! -f "\$TARBALL" ]; then
+    curl -L --progress-bar -o "\$TARBALL" "\$GRAALPY_URL"
+else
+    echo "Using cached download: \$TARBALL"
+fi
 
-        // Download if not cached
-        if (!tarball.exists()) {
-            project.exec {
-                commandLine 'curl', '-L', '--progress-bar', '-o', tarball.absolutePath, graalPyDownloadUrl
-            }
-        } else {
-            println "Using cached download: ${tarball}"
-        }
+echo "Extracting to \$GRAALPY_HOME..."
+tar -xzf "\$TARBALL" -C "\$TOOLS_DIR"
 
-        // Extract
-        println "Extracting to ${graalPyHome}..."
-        project.exec {
-            commandLine 'tar', '-xzf', tarball.absolutePath, '-C', toolsDir.absolutePath
-        }
+if [ ! -x "\$GRAALPY_BIN" ]; then
+    echo "ERROR: GraalPy extraction failed. Expected: \$GRAALPY_BIN"
+    exit 1
+fi
 
-        if (!graalPyBin.exists()) {
-            throw new GradleException("GraalPy extraction failed. Expected: ${graalPyBinPath}")
-        }
+echo "GraalPy ${graalPyVersion} installed successfully"
+"""
 
-        println "GraalPy ${graalPyVersion} installed successfully"
-    }
+    commandLine 'bash', '-c', scriptContent
 }
 
 // ============================================================================

@@ -503,8 +503,11 @@ public class UccCollectiveImpl implements CollectiveApi {
             // Allocate output tensor
             Tensor result = Tensor.zeros(tensor.dtype(), tensor.shape());
 
-            // Copy input to result (will be overwritten if not root)
-            MemorySegment.copy(tensor.data(), 0, result.data(), 0, tensor.spec().byteSize());
+            // PERF: Only root copies input to result - non-root will receive data via UCC
+            // Avoids unnecessary 1MB+ memcpy on non-root ranks
+            if (config.rank() == root) {
+                MemorySegment.copy(tensor.data(), 0, result.data(), 0, tensor.spec().byteSize());
+            }
 
             // Set up collective args
             MemorySegment args = ucc_coll_args.allocate(opArena);

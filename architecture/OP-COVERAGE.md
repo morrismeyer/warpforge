@@ -34,7 +34,9 @@ This document tracks PyTorch ATen Core operation coverage for the PyTorch → St
 | Linear Algebra | 18 | 18 | 100% |
 | Tensor Creation | 12 | 12 | 100% |
 | Random | 13 | 13 | 100% |
-| **Total** | **407** | **407** | **100%** |
+| Window Functions | 8 | 8 | 100% |
+| Distance Functions | 8 | 8 | 100% |
+| **Total** | **423** | **423** | **100%** |
 
 ## Detailed Coverage by Category
 
@@ -1068,6 +1070,8 @@ WarpForge supports grid sampling operations via `stablehlo.custom_call`. Grid sa
 26. ✅ Linear algebra operations (SVD, QR, Cholesky, LU, eigendecomposition, solve, lstsq, etc.)
 27. ✅ Tensor creation operations (zeros, ones, full, *_like variants, arange, linspace, eye)
 28. ✅ Random operations (rand, randn, randint, randperm, bernoulli, multinomial, distributions)
+29. ✅ Window functions (hann, hamming, blackman, bartlett, kaiser, gaussian, cosine, exponential)
+30. ✅ Distance functions (cdist, pdist, pairwise_distance, cosine_similarity, euclidean, manhattan, chebyshev, minkowski)
 
 ## Tensor Creation Operations Support
 
@@ -1170,3 +1174,88 @@ rocrand_generate_normal(gen, devData, n, 0, 1);
 std::uniform_real_distribution<float> dist(0.0f, 1.0f);
 std::normal_distribution<float> normal(0.0f, 1.0f);
 ```
+
+## Window Functions Support
+
+### Overview
+
+WarpForge supports window functions used in signal processing and spectral analysis via `stablehlo.custom_call`. These functions generate tapering windows for FFT and filter design.
+
+### Implemented Operations
+
+| PyTorch Op | StableHLO Target | Description |
+|------------|------------------|-------------|
+| `torch.hann_window` | `custom_call @hann_window` | Hann (raised cosine) window |
+| `torch.hamming_window` | `custom_call @hamming_window` | Hamming window (α=0.54, β=0.46) |
+| `torch.blackman_window` | `custom_call @blackman_window` | Blackman window (3-term) |
+| `torch.bartlett_window` | `custom_call @bartlett_window` | Bartlett (triangular) window |
+| `torch.kaiser_window` | `custom_call @kaiser_window` | Kaiser window with β parameter |
+| gaussian_window | `custom_call @gaussian_window` | Gaussian window with σ parameter |
+| cosine_window | `custom_call @cosine_window` | Raised cosine window |
+| exponential_window | `custom_call @exponential_window` | Exponential (Poisson) window |
+
+### Test Models (8 total)
+
+| Model | Description |
+|-------|-------------|
+| `hann_window` | Basic Hann window |
+| `hamming_window` | Hamming window |
+| `blackman_window` | Blackman window |
+| `bartlett_window` | Bartlett window |
+| `kaiser_window` | Kaiser window (β=12) |
+| `kaiser_window_small_beta` | Kaiser window (β=0.5, near rectangular) |
+| `hann_window_periodic` | Hann window for FFT (periodic=True) |
+| `hann_window_symmetric` | Hann window for filter design (periodic=False) |
+
+### Usage Notes
+
+- **periodic=True**: For FFT analysis (N points, no redundancy at endpoints)
+- **periodic=False**: For FIR filter design (symmetric, N+1 effective points)
+- Kaiser β parameter controls sidelobe attenuation vs main lobe width
+
+## Distance Functions Support
+
+### Overview
+
+WarpForge supports distance and similarity functions via `stablehlo.custom_call`. These are essential for clustering, nearest neighbor search, and contrastive learning.
+
+### Implemented Operations
+
+| PyTorch Op | StableHLO Target | Description |
+|------------|------------------|-------------|
+| `torch.cdist` | `custom_call @cdist` | Pairwise distance between sets |
+| `torch.pdist` | `custom_call @pdist` | Pairwise distance within a set |
+| `F.pairwise_distance` | `custom_call @pairwise_distance` | Element-wise pairwise distance |
+| `F.cosine_similarity` | `custom_call @cosine_similarity` | Cosine similarity |
+| euclidean_distance | `custom_call @euclidean_distance` | L2 (Euclidean) distance |
+| manhattan_distance | `custom_call @manhattan_distance` | L1 (Manhattan) distance |
+| chebyshev_distance | `custom_call @chebyshev_distance` | L∞ (Chebyshev) distance |
+| minkowski_distance | `custom_call @minkowski_distance` | Lp (Minkowski) distance |
+
+### Test Models (11 total)
+
+| Model | Description |
+|-------|-------------|
+| `cdist` | Pairwise L2 distance between two point sets |
+| `cdist_l1` | Pairwise L1 distance |
+| `cdist_linf` | Pairwise L∞ distance |
+| `pdist` | Pairwise L2 distance within one set |
+| `pdist_l1` | Pairwise L1 within one set |
+| `pairwise_distance` | Element-wise L2 distance |
+| `pairwise_distance_l1` | Element-wise L1 distance |
+| `pairwise_distance_keepdim` | L2 with keepdim=True |
+| `cosine_similarity` | Cosine similarity (dim=1) |
+| `cosine_similarity_dim0` | Cosine similarity (dim=0) |
+| `cosine_similarity_3d` | Cosine similarity for 3D tensors |
+
+### Mathematical Definitions
+
+**Minkowski Distance (Lp)**:
+$$d_p(x, y) = \left( \sum_{i=1}^{n} |x_i - y_i|^p \right)^{1/p}$$
+
+- p=1: Manhattan (L1) distance
+- p=2: Euclidean (L2) distance
+- p=∞: Chebyshev (L∞) distance = max|xᵢ - yᵢ|
+
+**Cosine Similarity**:
+$$\text{similarity} = \frac{x \cdot y}{\|x\| \|y\|}$$

@@ -3764,6 +3764,149 @@ class FXToStableHLO:
             input_type = get_input_type(0)
             return [f'{result_ssa} = stablehlo.custom_call @poisson({input_ssa}) : ({input_type}) -> {result_type}']
 
+        # ===== WINDOW FUNCTIONS =====
+        elif target_name in ('hann_window',):
+            # torch.hann_window -> periodic Hann window
+            window_length = node.args[0] if node.args else node.kwargs.get('window_length', 10)
+            periodic = node.kwargs.get('periodic', True)
+            attrs = f'window_length = {window_length}, periodic = {str(periodic).lower()}'
+            return [f'{result_ssa} = stablehlo.custom_call @hann_window() {{{attrs}}} : () -> {result_type}']
+
+        elif target_name in ('hamming_window',):
+            # torch.hamming_window -> Hamming window
+            window_length = node.args[0] if node.args else node.kwargs.get('window_length', 10)
+            periodic = node.kwargs.get('periodic', True)
+            alpha = node.kwargs.get('alpha', 0.54)
+            beta = node.kwargs.get('beta', 0.46)
+            attrs = f'window_length = {window_length}, periodic = {str(periodic).lower()}, alpha = {alpha}, beta = {beta}'
+            return [f'{result_ssa} = stablehlo.custom_call @hamming_window() {{{attrs}}} : () -> {result_type}']
+
+        elif target_name in ('blackman_window',):
+            # torch.blackman_window -> Blackman window
+            window_length = node.args[0] if node.args else node.kwargs.get('window_length', 10)
+            periodic = node.kwargs.get('periodic', True)
+            attrs = f'window_length = {window_length}, periodic = {str(periodic).lower()}'
+            return [f'{result_ssa} = stablehlo.custom_call @blackman_window() {{{attrs}}} : () -> {result_type}']
+
+        elif target_name in ('bartlett_window',):
+            # torch.bartlett_window -> Bartlett (triangular) window
+            window_length = node.args[0] if node.args else node.kwargs.get('window_length', 10)
+            periodic = node.kwargs.get('periodic', True)
+            attrs = f'window_length = {window_length}, periodic = {str(periodic).lower()}'
+            return [f'{result_ssa} = stablehlo.custom_call @bartlett_window() {{{attrs}}} : () -> {result_type}']
+
+        elif target_name in ('kaiser_window',):
+            # torch.kaiser_window -> Kaiser window with beta parameter
+            window_length = node.args[0] if node.args else node.kwargs.get('window_length', 10)
+            periodic = node.kwargs.get('periodic', True)
+            beta = node.args[1] if len(node.args) > 1 else node.kwargs.get('beta', 12.0)
+            attrs = f'window_length = {window_length}, periodic = {str(periodic).lower()}, beta = {beta}'
+            return [f'{result_ssa} = stablehlo.custom_call @kaiser_window() {{{attrs}}} : () -> {result_type}']
+
+        elif target_name in ('gaussian_window',):
+            # Gaussian window function
+            window_length = node.args[0] if node.args else node.kwargs.get('window_length', 10)
+            std = node.args[1] if len(node.args) > 1 else node.kwargs.get('std', 1.0)
+            attrs = f'window_length = {window_length}, std = {std}'
+            return [f'{result_ssa} = stablehlo.custom_call @gaussian_window() {{{attrs}}} : () -> {result_type}']
+
+        elif target_name in ('cosine_window',):
+            # Cosine window function (raised cosine)
+            window_length = node.args[0] if node.args else node.kwargs.get('window_length', 10)
+            attrs = f'window_length = {window_length}'
+            return [f'{result_ssa} = stablehlo.custom_call @cosine_window() {{{attrs}}} : () -> {result_type}']
+
+        elif target_name in ('exponential_window',):
+            # Exponential (Poisson) window function
+            window_length = node.args[0] if node.args else node.kwargs.get('window_length', 10)
+            tau = node.args[1] if len(node.args) > 1 else node.kwargs.get('tau', 1.0)
+            attrs = f'window_length = {window_length}, tau = {tau}'
+            return [f'{result_ssa} = stablehlo.custom_call @exponential_window() {{{attrs}}} : () -> {result_type}']
+
+        # ===== DISTANCE FUNCTIONS =====
+        elif target_name in ('cdist',):
+            # torch.cdist -> pairwise distance between two sets of vectors
+            x1_ssa = get_input(0)
+            x2_ssa = get_input(1)
+            x1_type = get_input_type(0)
+            x2_type = get_input_type(1)
+            p = node.args[2] if len(node.args) > 2 else node.kwargs.get('p', 2.0)
+            compute_mode = node.kwargs.get('compute_mode', 'use_mm_for_euclid_dist_if_necessary')
+            attrs = f'p = {p}, compute_mode = "{compute_mode}"'
+            return [f'{result_ssa} = stablehlo.custom_call @cdist({x1_ssa}, {x2_ssa}) {{{attrs}}} : '
+                    f'({x1_type}, {x2_type}) -> {result_type}']
+
+        elif target_name in ('pdist',):
+            # torch.pdist -> pairwise distance within a single set of vectors
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            p = node.args[1] if len(node.args) > 1 else node.kwargs.get('p', 2.0)
+            attrs = f'p = {p}'
+            return [f'{result_ssa} = stablehlo.custom_call @pdist({input_ssa}) {{{attrs}}} : ({input_type}) -> {result_type}']
+
+        elif target_name in ('pairwise_distance',):
+            # torch.nn.functional.pairwise_distance -> element-wise distance
+            x1_ssa = get_input(0)
+            x2_ssa = get_input(1)
+            x1_type = get_input_type(0)
+            x2_type = get_input_type(1)
+            p = node.args[2] if len(node.args) > 2 else node.kwargs.get('p', 2.0)
+            eps = node.kwargs.get('eps', 1e-6)
+            keepdim = node.kwargs.get('keepdim', False)
+            attrs = f'p = {p}, eps = {eps}, keepdim = {str(keepdim).lower()}'
+            return [f'{result_ssa} = stablehlo.custom_call @pairwise_distance({x1_ssa}, {x2_ssa}) {{{attrs}}} : '
+                    f'({x1_type}, {x2_type}) -> {result_type}']
+
+        elif target_name in ('cosine_similarity',):
+            # torch.nn.functional.cosine_similarity -> cosine similarity
+            x1_ssa = get_input(0)
+            x2_ssa = get_input(1)
+            x1_type = get_input_type(0)
+            x2_type = get_input_type(1)
+            dim = node.args[2] if len(node.args) > 2 else node.kwargs.get('dim', 1)
+            eps = node.kwargs.get('eps', 1e-8)
+            attrs = f'dim = {dim}, eps = {eps}'
+            return [f'{result_ssa} = stablehlo.custom_call @cosine_similarity({x1_ssa}, {x2_ssa}) {{{attrs}}} : '
+                    f'({x1_type}, {x2_type}) -> {result_type}']
+
+        elif target_name in ('euclidean_distance', 'l2_distance'):
+            # Euclidean (L2) distance between vectors
+            x1_ssa = get_input(0)
+            x2_ssa = get_input(1)
+            x1_type = get_input_type(0)
+            x2_type = get_input_type(1)
+            return [f'{result_ssa} = stablehlo.custom_call @euclidean_distance({x1_ssa}, {x2_ssa}) : '
+                    f'({x1_type}, {x2_type}) -> {result_type}']
+
+        elif target_name in ('manhattan_distance', 'l1_distance'):
+            # Manhattan (L1) distance between vectors
+            x1_ssa = get_input(0)
+            x2_ssa = get_input(1)
+            x1_type = get_input_type(0)
+            x2_type = get_input_type(1)
+            return [f'{result_ssa} = stablehlo.custom_call @manhattan_distance({x1_ssa}, {x2_ssa}) : '
+                    f'({x1_type}, {x2_type}) -> {result_type}']
+
+        elif target_name in ('chebyshev_distance', 'linf_distance'):
+            # Chebyshev (L-infinity) distance between vectors
+            x1_ssa = get_input(0)
+            x2_ssa = get_input(1)
+            x1_type = get_input_type(0)
+            x2_type = get_input_type(1)
+            return [f'{result_ssa} = stablehlo.custom_call @chebyshev_distance({x1_ssa}, {x2_ssa}) : '
+                    f'({x1_type}, {x2_type}) -> {result_type}']
+
+        elif target_name in ('minkowski_distance',):
+            # Minkowski distance with configurable p
+            x1_ssa = get_input(0)
+            x2_ssa = get_input(1)
+            x1_type = get_input_type(0)
+            x2_type = get_input_type(1)
+            p = node.args[2] if len(node.args) > 2 else node.kwargs.get('p', 2.0)
+            attrs = f'p = {p}'
+            return [f'{result_ssa} = stablehlo.custom_call @minkowski_distance({x1_ssa}, {x2_ssa}) {{{attrs}}} : '
+                    f'({x1_type}, {x2_type}) -> {result_type}']
+
         else:
             return [f'// Unsupported function: {target_name}']
 

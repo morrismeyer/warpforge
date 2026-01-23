@@ -3725,6 +3725,179 @@ class PoissonOp(nn.Module):
 
 
 # =============================================================================
+# Window Functions
+# =============================================================================
+
+class HannWindowOp(nn.Module):
+    """Hann window function.
+    Produces: stablehlo.custom_call @hann_window
+    """
+    def forward(self, x):
+        n = x.shape[-1]
+        return torch.hann_window(n, dtype=x.dtype, device=x.device)
+
+
+class HammingWindowOp(nn.Module):
+    """Hamming window function.
+    Produces: stablehlo.custom_call @hamming_window
+    """
+    def forward(self, x):
+        n = x.shape[-1]
+        return torch.hamming_window(n, dtype=x.dtype, device=x.device)
+
+
+class BlackmanWindowOp(nn.Module):
+    """Blackman window function.
+    Produces: stablehlo.custom_call @blackman_window
+    """
+    def forward(self, x):
+        n = x.shape[-1]
+        return torch.blackman_window(n, dtype=x.dtype, device=x.device)
+
+
+class BartlettWindowOp(nn.Module):
+    """Bartlett (triangular) window function.
+    Produces: stablehlo.custom_call @bartlett_window
+    """
+    def forward(self, x):
+        n = x.shape[-1]
+        return torch.bartlett_window(n, dtype=x.dtype, device=x.device)
+
+
+class KaiserWindowOp(nn.Module):
+    """Kaiser window function with beta parameter.
+    Produces: stablehlo.custom_call @kaiser_window
+    """
+    def forward(self, x):
+        n = x.shape[-1]
+        return torch.kaiser_window(n, beta=12.0, dtype=x.dtype, device=x.device)
+
+
+class KaiserWindowSmallBetaOp(nn.Module):
+    """Kaiser window with small beta (approaches rectangular).
+    Produces: stablehlo.custom_call @kaiser_window
+    """
+    def forward(self, x):
+        n = x.shape[-1]
+        return torch.kaiser_window(n, beta=0.5, dtype=x.dtype, device=x.device)
+
+
+class HannWindowPeriodicOp(nn.Module):
+    """Hann window (periodic=True for FFT).
+    Produces: stablehlo.custom_call @hann_window
+    """
+    def forward(self, x):
+        n = x.shape[-1]
+        return torch.hann_window(n, periodic=True, dtype=x.dtype, device=x.device)
+
+
+class HannWindowSymmetricOp(nn.Module):
+    """Hann window (periodic=False, symmetric).
+    Produces: stablehlo.custom_call @hann_window
+    """
+    def forward(self, x):
+        n = x.shape[-1]
+        return torch.hann_window(n, periodic=False, dtype=x.dtype, device=x.device)
+
+
+# =============================================================================
+# Distance Functions
+# =============================================================================
+
+class CdistOp(nn.Module):
+    """Pairwise distance between two sets of vectors.
+    Produces: stablehlo.custom_call @cdist
+    """
+    def forward(self, x1, x2):
+        # x1: [batch, n, d], x2: [batch, m, d] -> [batch, n, m]
+        return torch.cdist(x1, x2, p=2.0)
+
+
+class CdistL1Op(nn.Module):
+    """Pairwise L1 (Manhattan) distance.
+    Produces: stablehlo.custom_call @cdist
+    """
+    def forward(self, x1, x2):
+        return torch.cdist(x1, x2, p=1.0)
+
+
+class CdistLinfOp(nn.Module):
+    """Pairwise L-infinity (Chebyshev) distance.
+    Produces: stablehlo.custom_call @cdist
+    """
+    def forward(self, x1, x2):
+        return torch.cdist(x1, x2, p=float('inf'))
+
+
+class PdistOp(nn.Module):
+    """Pairwise distance within a single set of vectors.
+    Produces: stablehlo.custom_call @pdist
+    """
+    def forward(self, x):
+        # x: [n, d] -> [(n*(n-1))/2] condensed distance vector
+        return torch.pdist(x, p=2.0)
+
+
+class PdistL1Op(nn.Module):
+    """Pairwise L1 distance within a single set.
+    Produces: stablehlo.custom_call @pdist
+    """
+    def forward(self, x):
+        return torch.pdist(x, p=1.0)
+
+
+class PairwiseDistanceOp(nn.Module):
+    """Element-wise pairwise distance between two tensors.
+    Produces: stablehlo.custom_call @pairwise_distance
+    """
+    def forward(self, x1, x2):
+        # x1, x2: [batch, d] -> [batch]
+        return F.pairwise_distance(x1, x2, p=2.0)
+
+
+class PairwiseDistanceL1Op(nn.Module):
+    """Element-wise L1 pairwise distance.
+    Produces: stablehlo.custom_call @pairwise_distance
+    """
+    def forward(self, x1, x2):
+        return F.pairwise_distance(x1, x2, p=1.0)
+
+
+class PairwiseDistanceKeepdimOp(nn.Module):
+    """Pairwise distance with keepdim=True.
+    Produces: stablehlo.custom_call @pairwise_distance
+    """
+    def forward(self, x1, x2):
+        return F.pairwise_distance(x1, x2, p=2.0, keepdim=True)
+
+
+class CosineSimilarityOp(nn.Module):
+    """Cosine similarity between two tensors.
+    Produces: stablehlo.custom_call @cosine_similarity
+    """
+    def forward(self, x1, x2):
+        # x1, x2: [batch, d] -> [batch]
+        return F.cosine_similarity(x1, x2, dim=1)
+
+
+class CosineSimilarityDim0Op(nn.Module):
+    """Cosine similarity along dimension 0.
+    Produces: stablehlo.custom_call @cosine_similarity
+    """
+    def forward(self, x1, x2):
+        return F.cosine_similarity(x1, x2, dim=0)
+
+
+class CosineSimilarity3DOp(nn.Module):
+    """Cosine similarity for 3D tensors.
+    Produces: stablehlo.custom_call @cosine_similarity
+    """
+    def forward(self, x1, x2):
+        # x1, x2: [batch, seq, d] -> [batch, seq]
+        return F.cosine_similarity(x1, x2, dim=2)
+
+
+# =============================================================================
 # Operation Registry
 # =============================================================================
 # Maps operation names to (ModelClass, input_specs) tuples
@@ -4289,6 +4462,29 @@ OPERATION_REGISTRY = {
     'uniform': (UniformOp, [([2, 8], 'f32')]),
     'exponential': (ExponentialOp, [([2, 8], 'f32')]),
     'poisson': (PoissonOp, [([2, 8], 'f32')]),
+
+    # ===== WINDOW FUNCTIONS =====
+    'hann_window': (HannWindowOp, [([16], 'f32')]),
+    'hamming_window': (HammingWindowOp, [([16], 'f32')]),
+    'blackman_window': (BlackmanWindowOp, [([16], 'f32')]),
+    'bartlett_window': (BartlettWindowOp, [([16], 'f32')]),
+    'kaiser_window': (KaiserWindowOp, [([16], 'f32')]),
+    'kaiser_window_small_beta': (KaiserWindowSmallBetaOp, [([16], 'f32')]),
+    'hann_window_periodic': (HannWindowPeriodicOp, [([16], 'f32')]),
+    'hann_window_symmetric': (HannWindowSymmetricOp, [([16], 'f32')]),
+
+    # ===== DISTANCE FUNCTIONS =====
+    'cdist': (CdistOp, [([2, 4, 8], 'f32'), ([2, 5, 8], 'f32')]),
+    'cdist_l1': (CdistL1Op, [([2, 4, 8], 'f32'), ([2, 5, 8], 'f32')]),
+    'cdist_linf': (CdistLinfOp, [([2, 4, 8], 'f32'), ([2, 5, 8], 'f32')]),
+    'pdist': (PdistOp, [([8, 4], 'f32')]),
+    'pdist_l1': (PdistL1Op, [([8, 4], 'f32')]),
+    'pairwise_distance': (PairwiseDistanceOp, [([4, 8], 'f32'), ([4, 8], 'f32')]),
+    'pairwise_distance_l1': (PairwiseDistanceL1Op, [([4, 8], 'f32'), ([4, 8], 'f32')]),
+    'pairwise_distance_keepdim': (PairwiseDistanceKeepdimOp, [([4, 8], 'f32'), ([4, 8], 'f32')]),
+    'cosine_similarity': (CosineSimilarityOp, [([4, 8], 'f32'), ([4, 8], 'f32')]),
+    'cosine_similarity_dim0': (CosineSimilarityDim0Op, [([8], 'f32'), ([8], 'f32')]),
+    'cosine_similarity_3d': (CosineSimilarity3DOp, [([2, 4, 8], 'f32'), ([2, 4, 8], 'f32')]),
 }
 
 # Registry of dynamic dimensions for models that need them

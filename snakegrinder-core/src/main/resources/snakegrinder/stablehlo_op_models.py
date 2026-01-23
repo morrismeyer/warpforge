@@ -975,6 +975,85 @@ class ArangeOp(nn.Module):
         return x + indices
 
 # =============================================================================
+# Backward / Gradient Operations (Training Support)
+# =============================================================================
+
+class ReluBackwardOp(nn.Module):
+    """relu_backward: grad * (input > 0)"""
+    def forward(self, grad, x):
+        return grad * (x > 0).float()
+
+class SigmoidBackwardOp(nn.Module):
+    """sigmoid_backward: grad * out * (1 - out)"""
+    def forward(self, grad, out):
+        return grad * out * (1 - out)
+
+class TanhBackwardOp(nn.Module):
+    """tanh_backward: grad * (1 - out^2)"""
+    def forward(self, grad, out):
+        return grad * (1 - out * out)
+
+class ExpBackwardOp(nn.Module):
+    """exp_backward: grad * exp_out"""
+    def forward(self, grad, out):
+        return grad * out
+
+class LogBackwardOp(nn.Module):
+    """log_backward: grad / x"""
+    def forward(self, grad, x):
+        return grad / x
+
+class SqrtBackwardOp(nn.Module):
+    """sqrt_backward: grad / (2 * sqrt_out)"""
+    def forward(self, grad, out):
+        return grad / (2 * out)
+
+class MulBackwardOp(nn.Module):
+    """mul_backward: grad * other"""
+    def forward(self, grad, other):
+        return grad * other
+
+class DivBackwardOp(nn.Module):
+    """div_backward: grad / denom"""
+    def forward(self, grad, denom):
+        return grad / denom
+
+class NegBackwardOp(nn.Module):
+    """neg_backward: -grad"""
+    def forward(self, grad):
+        return -grad
+
+class AbsBackwardOp(nn.Module):
+    """abs_backward: grad * sign(x)"""
+    def forward(self, grad, x):
+        return grad * torch.sign(x)
+
+class MatmulBackwardOp(nn.Module):
+    """matmul_backward: grad @ B^T"""
+    def forward(self, grad, other):
+        return torch.matmul(grad, other.transpose(-2, -1))
+
+class SumBackwardOp(nn.Module):
+    """sum_backward: broadcast grad"""
+    def forward(self, grad, template):
+        return grad.expand_as(template)
+
+class TransposeBackwardOp(nn.Module):
+    """transpose_backward: reverse transpose"""
+    def forward(self, grad):
+        return grad.transpose(-2, -1)
+
+class MSELossBackwardOp(nn.Module):
+    """mse_loss_backward: 2 * (pred - target)"""
+    def forward(self, grad, pred, target):
+        return grad * 2 * (pred - target) / pred.numel()
+
+class L1LossBackwardOp(nn.Module):
+    """l1_loss_backward: sign(pred - target)"""
+    def forward(self, grad, pred, target):
+        return grad * torch.sign(pred - target)
+
+# =============================================================================
 # Complex Multi-Op Models (for integration testing)
 # =============================================================================
 
@@ -1253,6 +1332,23 @@ OPERATION_REGISTRY = {
 
     # Additional Padding
     'pad_circular': (PadCircularOp, [([1, 1, 4, 4], 'f32')]),
+
+    # Backward / Gradient Operations (Training)
+    'relu_backward': (ReluBackwardOp, [([1, 8], 'f32'), ([1, 8], 'f32')]),
+    'sigmoid_backward': (SigmoidBackwardOp, [([1, 8], 'f32'), ([1, 8], 'f32')]),
+    'tanh_backward': (TanhBackwardOp, [([1, 8], 'f32'), ([1, 8], 'f32')]),
+    'exp_backward': (ExpBackwardOp, [([1, 8], 'f32'), ([1, 8], 'f32')]),
+    'log_backward': (LogBackwardOp, [([1, 8], 'f32'), ([1, 8], 'f32')]),
+    'sqrt_backward': (SqrtBackwardOp, [([1, 8], 'f32'), ([1, 8], 'f32')]),
+    'mul_backward': (MulBackwardOp, [([1, 8], 'f32'), ([1, 8], 'f32')]),
+    'div_backward': (DivBackwardOp, [([1, 8], 'f32'), ([1, 8], 'f32')]),
+    'neg_backward': (NegBackwardOp, [([1, 8], 'f32')]),
+    'abs_backward': (AbsBackwardOp, [([1, 8], 'f32'), ([1, 8], 'f32')]),
+    'matmul_backward': (MatmulBackwardOp, [([1, 4, 8], 'f32'), ([1, 8, 4], 'f32')]),
+    'sum_backward': (SumBackwardOp, [([1], 'f32'), ([1, 8], 'f32')]),
+    'transpose_backward': (TransposeBackwardOp, [([4, 8], 'f32')]),
+    'mse_loss_backward': (MSELossBackwardOp, [([1], 'f32'), ([1, 8], 'f32'), ([1, 8], 'f32')]),
+    'l1_loss_backward': (L1LossBackwardOp, [([1], 'f32'), ([1, 8], 'f32'), ([1, 8], 'f32')]),
 
     # Complex models
     'simple_mlp': (SimpleMLP, [([1, 8], 'f32')]),

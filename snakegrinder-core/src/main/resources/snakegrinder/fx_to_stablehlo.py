@@ -1441,6 +1441,154 @@ class FXToStableHLO:
             dims = node.args[2] if len(node.args) > 2 else 2
             return [f'{result_ssa} = stablehlo.custom_call @tensordot({lhs}, {rhs}) {{dims = {dims}}} : ({lhs_type}, {rhs_type}) -> {result_type}']
 
+        # === BACKWARD / GRADIENT OPERATIONS (Training Support) ===
+        elif target_name == 'relu_backward':
+            grad_ssa = get_input(0)
+            input_ssa = get_input(1)
+            zero_ssa = f'{result_ssa}_zero'
+            cond_ssa = f'{result_ssa}_cond'
+            return [
+                f'{zero_ssa} = stablehlo.constant dense<0.0> : {result_type}',
+                f'{cond_ssa} = stablehlo.compare GT, {input_ssa}, {zero_ssa} : ({result_type}, {result_type}) -> tensor<*xi1>',
+                f'{result_ssa} = stablehlo.select {cond_ssa}, {grad_ssa}, {zero_ssa} : (tensor<*xi1>, {result_type}, {result_type}) -> {result_type}'
+            ]
+
+        elif target_name == 'sigmoid_backward':
+            grad_ssa = get_input(0)
+            output_ssa = get_input(1)
+            one_ssa = f'{result_ssa}_one'
+            sub_ssa = f'{result_ssa}_sub'
+            mul1_ssa = f'{result_ssa}_mul1'
+            return [
+                f'{one_ssa} = stablehlo.constant dense<1.0> : {result_type}',
+                f'{sub_ssa} = stablehlo.subtract {one_ssa}, {output_ssa} : {result_type}',
+                f'{mul1_ssa} = stablehlo.multiply {output_ssa}, {sub_ssa} : {result_type}',
+                f'{result_ssa} = stablehlo.multiply {grad_ssa}, {mul1_ssa} : {result_type}'
+            ]
+
+        elif target_name == 'tanh_backward':
+            grad_ssa = get_input(0)
+            output_ssa = get_input(1)
+            one_ssa = f'{result_ssa}_one'
+            sq_ssa = f'{result_ssa}_sq'
+            sub_ssa = f'{result_ssa}_sub'
+            return [
+                f'{one_ssa} = stablehlo.constant dense<1.0> : {result_type}',
+                f'{sq_ssa} = stablehlo.multiply {output_ssa}, {output_ssa} : {result_type}',
+                f'{sub_ssa} = stablehlo.subtract {one_ssa}, {sq_ssa} : {result_type}',
+                f'{result_ssa} = stablehlo.multiply {grad_ssa}, {sub_ssa} : {result_type}'
+            ]
+
+        elif target_name in ('gelu_backward', 'softmax_backward', 'log_softmax_backward',
+                             'leaky_relu_backward', 'elu_backward', 'selu_backward'):
+            grad_ssa = get_input(0)
+            input_ssa = get_input(1)
+            grad_type = get_input_type(0)
+            input_type = get_input_type(1)
+            return [f'{result_ssa} = stablehlo.custom_call @{target_name}({grad_ssa}, {input_ssa}) : ({grad_type}, {input_type}) -> {result_type}']
+
+        elif target_name == 'exp_backward':
+            grad_ssa = get_input(0)
+            output_ssa = get_input(1)
+            return [f'{result_ssa} = stablehlo.multiply {grad_ssa}, {output_ssa} : {result_type}']
+
+        elif target_name == 'log_backward':
+            grad_ssa = get_input(0)
+            input_ssa = get_input(1)
+            return [f'{result_ssa} = stablehlo.divide {grad_ssa}, {input_ssa} : {result_type}']
+
+        elif target_name == 'sqrt_backward':
+            grad_ssa = get_input(0)
+            output_ssa = get_input(1)
+            two_ssa = f'{result_ssa}_two'
+            denom_ssa = f'{result_ssa}_denom'
+            return [
+                f'{two_ssa} = stablehlo.constant dense<2.0> : {result_type}',
+                f'{denom_ssa} = stablehlo.multiply {two_ssa}, {output_ssa} : {result_type}',
+                f'{result_ssa} = stablehlo.divide {grad_ssa}, {denom_ssa} : {result_type}'
+            ]
+
+        elif target_name == 'sin_backward':
+            grad_ssa = get_input(0)
+            input_ssa = get_input(1)
+            cos_ssa = f'{result_ssa}_cos'
+            return [
+                f'{cos_ssa} = stablehlo.cosine {input_ssa} : {result_type}',
+                f'{result_ssa} = stablehlo.multiply {grad_ssa}, {cos_ssa} : {result_type}'
+            ]
+
+        elif target_name == 'cos_backward':
+            grad_ssa = get_input(0)
+            input_ssa = get_input(1)
+            sin_ssa = f'{result_ssa}_sin'
+            neg_ssa = f'{result_ssa}_neg'
+            return [
+                f'{sin_ssa} = stablehlo.sine {input_ssa} : {result_type}',
+                f'{neg_ssa} = stablehlo.negate {sin_ssa} : {result_type}',
+                f'{result_ssa} = stablehlo.multiply {grad_ssa}, {neg_ssa} : {result_type}'
+            ]
+
+        elif target_name == 'mul_backward':
+            grad_ssa = get_input(0)
+            other_ssa = get_input(1)
+            return [f'{result_ssa} = stablehlo.multiply {grad_ssa}, {other_ssa} : {result_type}']
+
+        elif target_name == 'div_backward':
+            grad_ssa = get_input(0)
+            denom_ssa = get_input(1)
+            return [f'{result_ssa} = stablehlo.divide {grad_ssa}, {denom_ssa} : {result_type}']
+
+        elif target_name == 'neg_backward':
+            grad_ssa = get_input(0)
+            return [f'{result_ssa} = stablehlo.negate {grad_ssa} : {result_type}']
+
+        elif target_name == 'abs_backward':
+            grad_ssa = get_input(0)
+            input_ssa = get_input(1)
+            sign_ssa = f'{result_ssa}_sign'
+            return [
+                f'{sign_ssa} = stablehlo.sign {input_ssa} : {result_type}',
+                f'{result_ssa} = stablehlo.multiply {grad_ssa}, {sign_ssa} : {result_type}'
+            ]
+
+        elif target_name in ('matmul_backward', 'mm_backward', 'bmm_backward', 'linear_backward',
+                             'conv2d_backward', 'conv1d_backward', 'conv3d_backward',
+                             'max_pool2d_backward', 'avg_pool2d_backward',
+                             'batch_norm_backward', 'layer_norm_backward'):
+            grad_ssa = get_input(0)
+            input_ssa = get_input(1) if len(node.args) > 1 else '%input'
+            grad_type = get_input_type(0)
+            input_type = get_input_type(1) if len(node.args) > 1 else result_type
+            return [f'{result_ssa} = stablehlo.custom_call @{target_name}({grad_ssa}, {input_ssa}) : ({grad_type}, {input_type}) -> {result_type}']
+
+        elif target_name == 'sum_backward':
+            grad_ssa = get_input(0)
+            grad_type = get_input_type(0)
+            return [f'{result_ssa} = stablehlo.broadcast_in_dim {grad_ssa}, dims = [] : ({grad_type}) -> {result_type}']
+
+        elif target_name in ('mean_backward', 'max_backward', 'min_backward', 'expand_backward',
+                             'gather_backward', 'scatter_backward', 'index_select_backward',
+                             'mse_loss_backward', 'cross_entropy_backward', 'nll_loss_backward',
+                             'l1_loss_backward', 'smooth_l1_loss_backward', 'binary_cross_entropy_backward',
+                             'embedding_backward', 'dropout_backward', 'pow_backward'):
+            grad_ssa = get_input(0)
+            grad_type = get_input_type(0)
+            return [f'{result_ssa} = stablehlo.custom_call @{target_name}({grad_ssa}) : ({grad_type}) -> {result_type}']
+
+        elif target_name in ('reshape_backward', 'squeeze_backward', 'unsqueeze_backward'):
+            grad_ssa = get_input(0)
+            grad_type = get_input_type(0)
+            return [f'{result_ssa} = stablehlo.reshape {grad_ssa} : {grad_type} -> {result_type}']
+
+        elif target_name == 'transpose_backward':
+            grad_ssa = get_input(0)
+            grad_type = get_input_type(0)
+            return [f'{result_ssa} = stablehlo.transpose {grad_ssa}, dims = [1, 0] : {grad_type} -> {result_type}']
+
+        elif target_name in ('add_backward', 'sub_backward'):
+            grad_ssa = get_input(0)
+            return [f'{result_ssa} = stablehlo.reshape {grad_ssa} : {get_input_type(0)} -> {result_type}']
+
         else:
             return [f'// Unsupported function: {target_name}']
 

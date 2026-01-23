@@ -20,7 +20,8 @@ This document tracks PyTorch ATen Core operation coverage for the PyTorch → St
 | Normalization | 5 | 5 | 100% |
 | Padding | 4 | 4 | 100% |
 | Type Conversion | 8 | 8 | 100% |
-| **Total** | **173** | **173** | **100%** |
+| Training/Backward | 45 | 45 | 100% |
+| **Total** | **218** | **218** | **100%** |
 
 ## Detailed Coverage by Category
 

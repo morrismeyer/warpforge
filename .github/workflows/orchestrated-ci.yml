@@ -21,6 +21,23 @@ jobs:
           ls -la
           git rev-parse --short HEAD
 
+      - name: Pre-clean NUC repo to remove stale files
+        run: |
+          set -euo pipefail
+          NUC_REPO="${HOME}/surfworks/warpforge"
+          if [[ -d "$NUC_REPO/.git" ]]; then
+            echo "Pre-cleaning NUC repo at $NUC_REPO"
+            cd "$NUC_REPO"
+            git fetch origin
+            git reset --hard "origin/${GITHUB_REF_NAME:-main}"
+            # Remove ALL untracked/ignored files except venvs and gradle caches
+            git clean -fdx -e '.pytorch-venv' -e '.gradle'
+            echo "Pre-clean complete. Git status:"
+            git status
+          else
+            echo "NUC repo not found at $NUC_REPO, will be cloned by orchestrate script"
+          fi
+
       - name: Run orchestrate script from repo
         run: |
           set -euo pipefail

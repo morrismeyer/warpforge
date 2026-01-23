@@ -320,6 +320,15 @@ tasks.register('mellanoxClient', JavaExec) {
 
 // ===== Two-Node UCC Collective Test =====
 
+// UCC environment configuration for collective operations
+// UCC_CLS enables collective layer components
+// UCC_TLS enables transport layer components
+def uccEnv = [
+    'UCC_CLS': 'basic',           // Enable basic collective algorithms
+    'UCC_TLS': 'ucp',             // Use UCX point-to-point transport
+    'UCC_LOG_LEVEL': 'info'       // Show info-level logs for debugging
+]
+
 // Run two-node UCC collective test
 // Usage:
 //   On mark1nvidia: ./gradlew :warpforge-io:twoNodeTest --args='--rank 0'
@@ -332,6 +341,7 @@ tasks.register('twoNodeTest', JavaExec) {
     mainClass = 'io.surfworks.warpforge.io.test.TwoNodeCollectiveTest'
 
     jvmArgs '--enable-native-access=ALL-UNNAMED', '--enable-preview'
+    environment uccEnv
 
     // Default to showing help if no args
     args = project.hasProperty('args') ? project.property('args').split(' ') : ['--help']
@@ -345,6 +355,7 @@ tasks.register('twoNodeMaster', JavaExec) {
     classpath = sourceSets.main.runtimeClasspath
     mainClass = 'io.surfworks.warpforge.io.test.TwoNodeCollectiveTest'
     jvmArgs '--enable-native-access=ALL-UNNAMED', '--enable-preview'
+    environment uccEnv
 
     def master = project.hasProperty('master') ? project.property('master') : '10.0.0.1'
     def port = project.hasProperty('port') ? project.property('port') : '29500'
@@ -358,6 +369,7 @@ tasks.register('twoNodeWorker', JavaExec) {
     classpath = sourceSets.main.runtimeClasspath
     mainClass = 'io.surfworks.warpforge.io.test.TwoNodeCollectiveTest'
     jvmArgs '--enable-native-access=ALL-UNNAMED', '--enable-preview'
+    environment uccEnv
 
     def master = project.hasProperty('master') ? project.property('master') : '10.0.0.1'
     def port = project.hasProperty('port') ? project.property('port') : '29500'

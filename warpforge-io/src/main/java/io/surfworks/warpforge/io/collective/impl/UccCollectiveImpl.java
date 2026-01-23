@@ -149,7 +149,14 @@ public class UccCollectiveImpl implements CollectiveApi {
             LOG.fine("Single-rank mode - skipping OOB coordinator");
         }
 
-        // 3. Create UCC context
+        // 3. Read default UCC context configuration
+        MemorySegment ctxConfigPtr = arena.allocate(ValueLayout.ADDRESS);
+        status = Ucc.ucc_context_config_read(uccLib, MemorySegment.NULL, ctxConfigPtr);
+        UccHelper.checkStatus(status, "ucc_context_config_read");
+        MemorySegment ctxConfig = ctxConfigPtr.get(ValueLayout.ADDRESS, 0);
+        LOG.fine("UCC context config read successfully");
+
+        // 4. Create UCC context
         MemorySegment ctxParams = ucc_context_params.allocate(arena);
         ctxParams.fill((byte) 0);  // Zero-fill to prevent garbage values
 
@@ -162,9 +169,12 @@ public class UccCollectiveImpl implements CollectiveApi {
         }
 
         MemorySegment ctxHandlePtr = arena.allocate(ValueLayout.ADDRESS);
-        status = Ucc.ucc_context_create(uccLib, ctxParams, MemorySegment.NULL, ctxHandlePtr);
+        status = Ucc.ucc_context_create(uccLib, ctxParams, ctxConfig, ctxHandlePtr);
         UccHelper.checkStatus(status, "ucc_context_create");
         this.uccContext = ctxHandlePtr.get(ValueLayout.ADDRESS, 0);
+
+        // Release the context config - no longer needed after context creation
+        Ucc.ucc_context_config_release(ctxConfig);
         LOG.fine("UCC context created");
 
         // 4. Create UCC team

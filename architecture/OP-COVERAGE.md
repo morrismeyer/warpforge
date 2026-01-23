@@ -25,7 +25,10 @@ This document tracks PyTorch ATen Core operation coverage for the PyTorch → St
 | Attention | 26 | 26 | 100% |
 | Embedding | 23 | 23 | 100% |
 | Loss Functions | 32 | 32 | 100% |
-| **Total** | **316** | **316** | **100%** |
+| Dropout | 8 | 8 | 100% |
+| Upsampling | 14 | 14 | 100% |
+| Grid Sampling | 9 | 9 | 100% |
+| **Total** | **347** | **347** | **100%** |
 
 ## Detailed Coverage by Category
 
@@ -947,3 +950,109 @@ miopenRNNForwardInference(handle, rnnDesc, seqLength, xDesc, x, hxDesc, hx,
 dnnl::lstm_forward::primitive_desc lstm_pd(engine, prop_kind::forward_inference,
     direction::unidirectional_left2right, src_layer_md, src_iter_md, ...);
 ```
+
+## Dropout Operations Support
+
+### Overview
+
+WarpForge supports dropout operations via `stablehlo.custom_call`. Dropout is inherently non-deterministic during training (randomly zeroing elements), so backends must implement using their random number generation facilities.
+
+### Implemented Operations
+
+| PyTorch Op | StableHLO Target | Description |
+|------------|------------------|-------------|
+| `nn.Dropout` | `custom_call @dropout` | Standard dropout |
+| `nn.Dropout1d` | `custom_call @dropout` | Spatial 1D dropout (drops channels) |
+| `nn.Dropout2d` | `custom_call @dropout` | Spatial 2D dropout (drops channels) |
+| `nn.Dropout3d` | `custom_call @dropout` | Spatial 3D dropout (drops channels) |
+| `nn.AlphaDropout` | `custom_call @alpha_dropout` | Self-normalizing dropout for SELU |
+| `F.dropout` | `custom_call @dropout` | Functional dropout |
+| `F.feature_alpha_dropout` | `custom_call @feature_alpha_dropout` | Channel-wise alpha dropout |
+
+### Test Models (8 total)
+
+| Model | Description |
+|-------|-------------|
+| `dropout` | Standard nn.Dropout (p=0.5) |
+| `dropout_p03` | Dropout with p=0.3 |
+| `dropout1d` | nn.Dropout1d (channel dropout for 1D) |
+| `dropout2d` | nn.Dropout2d (channel dropout for 2D) |
+| `dropout3d` | nn.Dropout3d (channel dropout for 3D) |
+| `alpha_dropout` | nn.AlphaDropout for SELU networks |
+| `dropout_functional` | F.dropout functional API |
+| `feature_alpha_dropout` | F.feature_alpha_dropout |
+
+## Upsampling Operations Support
+
+### Overview
+
+WarpForge supports upsampling and interpolation operations via `stablehlo.custom_call`. These operations resize spatial dimensions using various interpolation methods.
+
+### Implemented Operations
+
+| PyTorch Op | StableHLO Target | Description |
+|------------|------------------|-------------|
+| `nn.Upsample(mode='nearest')` | `custom_call @upsample_nearest` | Nearest neighbor upsampling |
+| `nn.Upsample(mode='bilinear')` | `custom_call @upsample_bilinear` | Bilinear interpolation (2D) |
+| `nn.Upsample(mode='bicubic')` | `custom_call @upsample_bicubic` | Bicubic interpolation (2D) |
+| `nn.Upsample(mode='trilinear')` | `custom_call @upsample_trilinear` | Trilinear interpolation (3D) |
+| `F.interpolate` | `custom_call @interpolate` | General interpolation function |
+| `nn.PixelShuffle` | `custom_call @pixel_shuffle` | Sub-pixel convolution upsample |
+| `nn.PixelUnshuffle` | `custom_call @pixel_unshuffle` | Inverse of pixel shuffle |
+
+### Test Models (14 total)
+
+| Model | Description |
+|-------|-------------|
+| `upsample_nearest_2d` | nn.Upsample nearest 2x (2D) |
+| `upsample_nearest_3d` | nn.Upsample nearest (3D) |
+| `upsample_bilinear_2d` | nn.Upsample bilinear (2D) |
+| `upsample_bicubic_2d` | nn.Upsample bicubic (2D) |
+| `upsample_trilinear_3d` | nn.Upsample trilinear (3D) |
+| `upsample_bilinear_align_corners` | Bilinear with align_corners=True |
+| `interpolate_nearest` | F.interpolate nearest mode |
+| `interpolate_bilinear` | F.interpolate bilinear mode |
+| `interpolate_bicubic` | F.interpolate bicubic mode |
+| `interpolate_size` | F.interpolate with explicit size |
+| `interpolate_scale_factor` | F.interpolate with scale_factor |
+| `pixel_shuffle` | nn.PixelShuffle (upscale_factor=2) |
+| `pixel_unshuffle` | nn.PixelUnshuffle (downscale_factor=2) |
+| `pixel_shuffle_3x` | nn.PixelShuffle (upscale_factor=3) |
+
+## Grid Sampling Operations Support
+
+### Overview
+
+WarpForge supports grid sampling operations via `stablehlo.custom_call`. Grid sampling is essential for spatial transformer networks, allowing arbitrary geometric transformations through differentiable sampling.
+
+### Implemented Operations
+
+| PyTorch Op | StableHLO Target | Description |
+|------------|------------------|-------------|
+| `F.grid_sample(mode='bilinear')` | `custom_call @grid_sample` | Bilinear grid sampling |
+| `F.grid_sample(mode='nearest')` | `custom_call @grid_sample` | Nearest neighbor sampling |
+| `F.grid_sample(mode='bicubic')` | `custom_call @grid_sample` | Bicubic grid sampling |
+| `F.grid_sample(padding_mode='zeros')` | `custom_call @grid_sample` | Zero padding for OOB |
+| `F.grid_sample(padding_mode='border')` | `custom_call @grid_sample` | Border replication |
+| `F.grid_sample(padding_mode='reflection')` | `custom_call @grid_sample` | Reflection padding |
+| `F.affine_grid` | `custom_call @affine_grid` | Generate affine sampling grid |
+
+### Test Models (9 total)
+
+| Model | Description |
+|-------|-------------|
+| `grid_sample_bilinear` | F.grid_sample with bilinear mode |
+| `grid_sample_nearest` | F.grid_sample with nearest mode |
+| `grid_sample_bicubic` | F.grid_sample with bicubic mode |
+| `grid_sample_zeros` | F.grid_sample with zeros padding |
+| `grid_sample_border` | F.grid_sample with border padding |
+| `grid_sample_reflection` | F.grid_sample with reflection padding |
+| `grid_sample_align_corners` | F.grid_sample with align_corners=True |
+| `affine_grid` | F.affine_grid generation |
+| `spatial_transformer` | Full STN: affine_grid → grid_sample |
+
+## Completed Milestones
+
+20. ✅ Dropout operations (dropout, dropout1d/2d/3d, alpha_dropout, feature_alpha_dropout)
+21. ✅ Upsampling operations (nearest/bilinear/bicubic/trilinear, interpolate, pixel_shuffle)
+22. ✅ Grid sampling operations (grid_sample, affine_grid, spatial transformer)

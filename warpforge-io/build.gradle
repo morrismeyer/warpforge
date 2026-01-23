@@ -321,15 +321,34 @@ tasks.register('mellanoxClient', JavaExec) {
 // ===== Two-Node UCC Collective Test =====
 
 // UCC environment configuration for collective operations
-// UCC_CLS enables collective layer components
-// UCC_TLS enables transport layer components
+// Optimized for large message (1MB+) throughput over 100GbE RDMA
 def uccEnv = [
-    'UCC_CLS': 'basic',           // Use basic CL only (hier's sbgp doesn't work for 2-node 1-ppn setup)
-    'UCC_TLS': 'ucp',             // Use UCP transport layer
-    'UCC_LOG_LEVEL': 'debug',     // Show debug logs for troubleshooting
-    'UCX_LOG_LEVEL': 'info',      // Show UCX logs too
-    // Force knomial algorithm for allreduce (the default doesn't register for some reason)
-    'UCC_TL_UCP_ALLREDUCE_ALG': 'knomial'
+    // Collective layer: use basic only (hier's sbgp doesn't work for 2-node 1-ppn setup)
+    'UCC_CLS': 'basic',
+
+    // Transport layer: use UCP (UCX protocol)
+    'UCC_TLS': 'ucp',
+
+    // Algorithm selection for large messages:
+    // - ring: optimal for 2-node large message allreduce (single hop)
+    // - knomial: good for small messages, works well with 2 nodes too
+    'UCC_TL_UCP_ALLREDUCE_ALG': 'ring',
+    'UCC_TL_UCP_ALLGATHER_ALG': 'ring',
+    'UCC_TL_UCP_REDUCE_SCATTER_ALG': 'ring',
+
+    // UCX transport optimizations for RDMA
+    'UCX_RNDV_SCHEME': 'get_zcopy',  // Use zero-copy RDMA for large messages
+    'UCX_RNDV_THRESH': '8192',       // Switch to rendezvous at 8KB (optimize for large messages)
+
+    // Logging (reduce for production benchmarks)
+    'UCC_LOG_LEVEL': 'warn',
+    'UCX_LOG_LEVEL': 'warn'
+]
+
+// Debug version of UCC environment (use when troubleshooting)
+def uccEnvDebug = uccEnv + [
+    'UCC_LOG_LEVEL': 'debug',
+    'UCX_LOG_LEVEL': 'info'
 ]
 
 // Run two-node UCC collective test

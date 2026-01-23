@@ -14,6 +14,7 @@ import io.surfworks.warpforge.io.collective.CollectiveApi;
 import io.surfworks.warpforge.io.collective.CollectiveConfig;
 import io.surfworks.warpforge.io.collective.CollectiveException;
 import io.surfworks.warpforge.io.collective.CollectiveApi.CollectiveStats;
+import io.surfworks.warpforge.io.collective.impl.OperationArenaPool.PooledArena;
 import io.surfworks.warpforge.io.ffi.ucc.Ucc;
 import io.surfworks.warpforge.io.ffi.ucc.ucc_coll_args;
 import io.surfworks.warpforge.io.ffi.ucc.ucc_coll_buffer_info;
@@ -42,12 +43,26 @@ import io.surfworks.warpforge.io.ffi.ucc.ucc_team_params;
  * Run {@code ./gradlew :openucx-runtime:generateJextractStubs} to generate them.
  *
  * <h2>Threading Model</h2>
- * <p>Async operations use virtual threads (JEP 444) for better scalability
- * with I/O-bound RDMA operations. Each operation runs on its own virtual thread.
+ * <p>Operations run synchronously on the calling thread by default, which is
+ * required for UCX thread affinity. Optionally, a dedicated progress thread
+ * can be enabled for true async operations.
+ *
+ * <h2>Performance Optimizations</h2>
+ * <ul>
+ *   <li>Arena pooling: Reuses pre-allocated arenas to avoid per-op allocation overhead</li>
+ *   <li>Adaptive polling: Reduces FFM call overhead for large message operations</li>
+ *   <li>Progress thread: Optional dedicated thread for async completion (experimental)</li>
+ * </ul>
  */
 public class UccCollectiveImpl implements CollectiveApi {
 
     private static final Logger LOG = Logger.getLogger(UccCollectiveImpl.class.getName());
+
+    /** System property to enable arena pooling (default: true) */
+    private static final String PROP_USE_ARENA_POOL = "warpforge.ucc.arenaPool";
+
+    /** System property to enable progress thread (default: false, experimental) */
+    private static final String PROP_USE_PROGRESS_THREAD = "warpforge.ucc.progressThread";
 
     private final CollectiveConfig config;
     private final Arena arena;
@@ -59,6 +74,14 @@ public class UccCollectiveImpl implements CollectiveApi {
 
     // OOB coordinator for team formation
     private OobCoordinator oobCoordinator;
+
+    // Performance optimization: Arena pool for operation allocations
+    private final OperationArenaPool arenaPool;
+    private final boolean useArenaPool;
+
+    // Performance optimization: Dedicated progress thread (experimental)
+    private final UccProgressThread progressThread;
+    private final boolean useProgressThread;
 
     private volatile boolean closed = false;
     private volatile boolean initialized = false;
@@ -76,8 +99,31 @@ public class UccCollectiveImpl implements CollectiveApi {
         this.config = config;
         this.arena = Arena.ofShared();
 
-        // Initialize UCC context
+        // Check optimization settings
+        this.useArenaPool = Boolean.parseBoolean(
+            System.getProperty(PROP_USE_ARENA_POOL, "true"));
+        this.useProgressThread = Boolean.parseBoolean(
+            System.getProperty(PROP_USE_PROGRESS_THREAD, "false"));
+
+        // Initialize arena pool if enabled
+        if (useArenaPool) {
+            this.arenaPool = new OperationArenaPool();
+            LOG.fine("Arena pooling enabled");
+        } else {
+            this.arenaPool = null;
+        }
+
+        // Initialize UCC context (must be done before progress thread)
         initializeUcc();
+
+        // Initialize progress thread if enabled (after UCC context is ready)
+        if (useProgressThread && uccContext != null) {
+            this.progressThread = new UccProgressThread(uccContext);
+            this.progressThread.start();
+            LOG.info("Progress thread enabled (experimental)");
+        } else {
+            this.progressThread = null;
+        }
     }
 
     private void initializeUcc() {
@@ -268,12 +314,17 @@ public class UccCollectiveImpl implements CollectiveApi {
             return CompletableFuture.completedFuture(result);
         }
 
-        // Multi-rank: use UCC (must run synchronously - UCX thread affinity)
-        try (Arena opArena = Arena.ofConfined()) {
+        // Multi-rank: use UCC with arena pooling optimization
+        PooledArena pooledArena = useArenaPool ? arenaPool.acquire() : null;
+        Arena opArena = pooledArena != null ? pooledArena.arena() : Arena.ofConfined();
+
+        try {
             Tensor result = Tensor.zeros(input.dtype(), input.shape());
 
-            // Set up collective args
-            MemorySegment args = ucc_coll_args.allocate(opArena);
+            // Set up collective args (use pooled allocator if available)
+            MemorySegment args = pooledArena != null
+                ? pooledArena.allocateCollArgs()
+                : ucc_coll_args.allocate(opArena);
             UccHelper.setupCollectiveArgsWithOp(args, UccConstants.COLL_TYPE_ALLREDUCE, allReduceOpToUcc(op));
 
             // Configure source buffer
@@ -285,7 +336,9 @@ public class UccCollectiveImpl implements CollectiveApi {
             UccHelper.setupBufferInfo(dstInfo, result);
 
             // Initialize and post collective
-            MemorySegment requestPtr = opArena.allocate(ValueLayout.ADDRESS);
+            MemorySegment requestPtr = pooledArena != null
+                ? pooledArena.allocatePointer()
+                : opArena.allocate(ValueLayout.ADDRESS);
             UccHelper.initAndPostCollective(args, requestPtr, uccTeam, "allreduce");
 
             // Wait for completion
@@ -298,6 +351,13 @@ public class UccCollectiveImpl implements CollectiveApi {
             totalBytes.addAndGet(input.spec().byteSize());
 
             return CompletableFuture.completedFuture(result);
+        } finally {
+            // Release pooled arena or close temporary arena
+            if (pooledArena != null) {
+                arenaPool.release(pooledArena);
+            } else {
+                opArena.close();
+            }
         }
     }
 
@@ -1034,6 +1094,15 @@ public class UccCollectiveImpl implements CollectiveApi {
 
         LOG.info("Closing UCC collective for rank " + config.rank());
 
+        // Shutdown progress thread first (before destroying UCC resources)
+        if (progressThread != null) {
+            try {
+                progressThread.shutdown();
+            } catch (Exception e) {
+                LOG.log(Level.WARNING, "Error shutting down progress thread", e);
+            }
+        }
+
         // Cleanup UCC resources in reverse order
         try {
             if (uccTeam != null && !UccHelper.isNull(uccTeam)) {
@@ -1077,7 +1146,16 @@ public class UccCollectiveImpl implements CollectiveApi {
             }
         }
 
-        // Close arena
+        // Close arena pool
+        if (arenaPool != null) {
+            try {
+                arenaPool.close();
+            } catch (Exception e) {
+                LOG.log(Level.WARNING, "Error closing arena pool", e);
+            }
+        }
+
+        // Close main arena
         try {
             arena.close();
         } catch (Exception e) {

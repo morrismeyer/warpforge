@@ -318,6 +318,52 @@ tasks.register('mellanoxClient', JavaExec) {
     args 'client', host, port
 }
 
+// ===== Two-Node UCC Collective Test =====
+
+// Run two-node UCC collective test
+// Usage:
+//   On mark1nvidia: ./gradlew :warpforge-io:twoNodeTest --args='--rank 0'
+//   On mark1amd:    ./gradlew :warpforge-io:twoNodeTest --args='--rank 1'
+tasks.register('twoNodeTest', JavaExec) {
+    description = 'Run two-node UCC collective test (requires --args for rank)'
+    group = 'verification'
+
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'io.surfworks.warpforge.io.test.TwoNodeCollectiveTest'
+
+    jvmArgs '--enable-native-access=ALL-UNNAMED', '--enable-preview'
+
+    // Default to showing help if no args
+    args = project.hasProperty('args') ? project.property('args').split(' ') : ['--help']
+}
+
+// Convenience aliases for the two nodes
+tasks.register('twoNodeMaster', JavaExec) {
+    description = 'Run two-node test as master (rank 0) on mark1nvidia'
+    group = 'verification'
+
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'io.surfworks.warpforge.io.test.TwoNodeCollectiveTest'
+    jvmArgs '--enable-native-access=ALL-UNNAMED', '--enable-preview'
+
+    def master = project.hasProperty('master') ? project.property('master') : '10.0.0.1'
+    def port = project.hasProperty('port') ? project.property('port') : '29500'
+    args '--rank', '0', '--world-size', '2', '--master', master, '--port', port
+}
+
+tasks.register('twoNodeWorker', JavaExec) {
+    description = 'Run two-node test as worker (rank 1) on mark1amd'
+    group = 'verification'
+
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'io.surfworks.warpforge.io.test.TwoNodeCollectiveTest'
+    jvmArgs '--enable-native-access=ALL-UNNAMED', '--enable-preview'
+
+    def master = project.hasProperty('master') ? project.property('master') : '10.0.0.1'
+    def port = project.hasProperty('port') ? project.property('port') : '29500'
+    args '--rank', '1', '--world-size', '2', '--master', master, '--port', port
+}
+
 // ===== Documentation =====
 
 javadoc {

@@ -262,7 +262,7 @@ jobs:
           echo "=== Native Image Build ==="
 
           # Build native-image for UCC performance tests
-          ./gradlew :warpforge-io:buildNativeUccPerfTest --no-build-cache 2>&1 | tee native-build.log || {
+          ./gradlew :warpforge-io:nativeCompile --no-build-cache --no-configuration-cache 2>&1 | tee native-build.log || {
             echo "WARNING: Native image build failed (may be expected if GraalVM native-image not configured)"
             echo "Continuing without native tests..."
           }
@@ -271,6 +271,33 @@ jobs:
             echo "Native UCC perf test built successfully"
             ls -la warpforge-io/build/native/nativeCompile/
           fi
+
+      # ========================================
+      # PHASE 5.5: C Baseline Build
+      # ========================================
+      - name: Build C baseline on GPU boxes
+        if: ${{ inputs.skip_gpu_boxes != 'true' }}
+        run: |
+          set -euo pipefail
+          cd ~/surfworks/warpforge
+
+          echo "=== C Baseline Build ==="
+
+          NVIDIA_HOST="${NVIDIA_HOST:-mark1nvidia}"
+          AMD_HOST="${AMD_HOST:-mark1amd}"
+
+          # Build C baseline on both GPU boxes
+          echo "Building C baseline on NVIDIA box..."
+          ssh -o ConnectTimeout=10 "$NVIDIA_HOST" "cd ~/projects/warpforge/holmes-lab/mark1/ucx-baseline && make clean && make ucc" || {
+            echo "WARNING: C baseline build failed on NVIDIA"
+          }
+
+          echo "Building C baseline on AMD box..."
+          ssh -o ConnectTimeout=10 "$AMD_HOST" "cd ~/projects/warpforge/holmes-lab/mark1/ucx-baseline && make clean && make ucc" || {
+            echo "WARNING: C baseline build failed on AMD"
+          }
+
+          echo "C baseline build complete"
 
       # ========================================
       # PHASE 6: GPU Box Tests (NVIDIA + AMD)
@@ -308,95 +335,97 @@ jobs:
       # ========================================
       # PHASE 7: Two-Node Collective Performance Tests
       # ========================================
-      - name: Two-node UCC collective performance tests
+      # Runs all three implementations: C Baseline, Java JVM, Native-Image
+      # Uses the head-to-head benchmark script for consistent comparison
+
+      - name: Head-to-head performance benchmark (C, JVM, Native)
         if: ${{ inputs.skip_perf_tests != 'true' && inputs.skip_gpu_boxes != 'true' }}
         run: |
           set -euo pipefail
           cd ~/surfworks/warpforge
 
-          echo "=== Two-Node Collective Performance Tests ==="
-          echo "Testing NVIDIA <-> AMD Mellanox 100GbE collective operations"
-
-          # This requires both GPU boxes to be up and coordinated
-          # The orchestrator scripts should have already woken them
-
-          NVIDIA_HOST="${NVIDIA_HOST:-nvidia}"
-          AMD_HOST="${AMD_HOST:-amd}"
-          MASTER_IP="${MASTER_IP:-10.0.0.1}"
-
-          echo "NVIDIA host: $NVIDIA_HOST"
-          echo "AMD host: $AMD_HOST"
-          echo "Master IP: $MASTER_IP"
+          echo "=== Head-to-Head Performance Benchmark ==="
+          echo "Testing all three implementations:"
+          echo "  1. C Baseline (pure UCC)"
+          echo "  2. Java JVM (FFM + UCC)"
+          echo "  3. Native-Image (AOT compiled Java + FFM + UCC)"
+          echo ""
+          echo "Network: NVIDIA <-> AMD Mellanox 100GbE RDMA"
 
           # Create performance results directory
           PERF_RESULTS_DIR="$HOME/surfworks/warpforge/holmes-lab/mark1/results/nightly-$(date +%Y%m%d)"
           mkdir -p "$PERF_RESULTS_DIR"
 
-          # Launch master (rank 0) on NVIDIA box
-          echo "Starting UCC perf master on NVIDIA..."
-          ssh -o ConnectTimeout=10 "$NVIDIA_HOST" "cd ~/surfworks/warpforge && \
-            ./gradlew :warpforge-io:uccPerfMaster \
-              -Pmaster=$MASTER_IP -Pport=29500 \
-              -Psize=16777216 -Piterations=100 -Pwarmup=10 \
-              --no-build-cache" > "$PERF_RESULTS_DIR/nvidia-perf.log" 2>&1 &
-          NVIDIA_PID=$!
+          # Run the comprehensive head-to-head benchmark
+          # --native flag includes all three: C baseline, Java JVM, and native-image
+          chmod +x holmes-lab/mark1/ci-scripts/benchmark-head-to-head.sh
+          ./holmes-lab/mark1/ci-scripts/benchmark-head-to-head.sh --native 2>&1 | tee "$PERF_RESULTS_DIR/head-to-head.log"
 
-          # Give master time to start listening
-          sleep 5
+          echo ""
+          echo "=== Extracting Performance Results ==="
 
-          # Launch worker (rank 1) on AMD box
-          echo "Starting UCC perf worker on AMD..."
-          ssh -o ConnectTimeout=10 "$AMD_HOST" "cd ~/surfworks/warpforge && \
-            ./gradlew :warpforge-io:uccPerfWorker \
-              -Pmaster=$MASTER_IP -Pport=29500 \
-              -Psize=16777216 -Piterations=100 -Pwarmup=10 \
-              --no-build-cache" > "$PERF_RESULTS_DIR/amd-perf.log" 2>&1 &
-          AMD_PID=$!
+          # Extract key metrics for each implementation
+          echo "C Baseline Results:"
+          grep -E "^(allreduce|broadcast|allgather|reduce_scatter|alltoall|barrier)" "$PERF_RESULTS_DIR/head-to-head.log" | head -6 || true
 
-          # Wait for both to complete
-          echo "Waiting for performance tests to complete..."
-          wait $NVIDIA_PID || echo "WARNING: NVIDIA perf test exited with non-zero status"
-          wait $AMD_PID || echo "WARNING: AMD perf test exited with non-zero status"
+          echo ""
+          echo "Java JVM Results:"
+          grep "PERF_RESULT:" "$PERF_RESULTS_DIR/head-to-head.log" | head -6 || true
 
-          echo "=== Performance Results ==="
-          cat "$PERF_RESULTS_DIR/nvidia-perf.log" || true
+          echo ""
+          echo "Native-Image Results:"
+          grep "PERF_RESULT:" "$PERF_RESULTS_DIR/head-to-head.log" | tail -6 || true
 
-          # TODO: Parse results and compare against baseline
-          # TODO: Fail if regression detected
+          echo ""
+          echo "Performance benchmark complete. Results saved to: $PERF_RESULTS_DIR/head-to-head.log"
 
-          echo "Performance test logs saved to: $PERF_RESULTS_DIR"
-
-      - name: Native-image UCC performance comparison
+      - name: Verify all benchmarks passed
         if: ${{ inputs.skip_perf_tests != 'true' && inputs.skip_gpu_boxes != 'true' }}
         run: |
           set -euo pipefail
           cd ~/surfworks/warpforge
 
-          echo "=== Native Image Performance Comparison ==="
+          PERF_RESULTS_DIR="$HOME/surfworks/warpforge/holmes-lab/mark1/results/nightly-$(date +%Y%m%d)"
+          LOG_FILE="$PERF_RESULTS_DIR/head-to-head.log"
 
-          NATIVE_EXE="warpforge-io/build/native/nativeCompile/ucc-perf-test"
-          if [[ ! -f "$NATIVE_EXE" ]]; then
-            echo "WARNING: Native executable not found, skipping native perf comparison"
-            exit 0
+          echo "=== Verifying Benchmark Results ==="
+
+          # Check that all correctness tests passed
+          PASS_COUNT=$(grep -c "Correctness:    PASS" "$LOG_FILE" 2>/dev/null || echo "0")
+          FAIL_COUNT=$(grep -c "Correctness:    FAIL" "$LOG_FILE" 2>/dev/null || echo "0")
+
+          echo "Correctness checks: $PASS_COUNT passed, $FAIL_COUNT failed"
+
+          if [[ "$FAIL_COUNT" -gt 0 ]]; then
+            echo "ERROR: Some correctness checks failed!"
+            grep -B5 "Correctness:    FAIL" "$LOG_FILE" || true
+            exit 1
           fi
 
-          NVIDIA_HOST="${NVIDIA_HOST:-nvidia}"
-          AMD_HOST="${AMD_HOST:-amd}"
-          MASTER_IP="${MASTER_IP:-10.0.0.1}"
+          # Check that C baseline ran (should have lowercase collective names)
+          if ! grep -q "^allreduce" "$LOG_FILE" 2>/dev/null; then
+            echo "WARNING: C baseline results not found in log"
+          else
+            echo "C baseline: OK"
+          fi
 
-          PERF_RESULTS_DIR="$HOME/surfworks/warpforge/holmes-lab/mark1/results/nightly-$(date +%Y%m%d)"
-          mkdir -p "$PERF_RESULTS_DIR"
+          # Check that Java JVM ran (should have PERF_RESULT lines with JVM warmup)
+          JVM_RESULTS=$(grep -c "PERF_RESULT:" "$LOG_FILE" 2>/dev/null || echo "0")
+          if [[ "$JVM_RESULTS" -lt 6 ]]; then
+            echo "WARNING: Java results incomplete (expected at least 6, found $JVM_RESULTS)"
+          else
+            echo "Java JVM: OK ($JVM_RESULTS results)"
+          fi
 
-          # Copy native executable to both boxes
-          echo "Deploying native executable to GPU boxes..."
-          scp "$NATIVE_EXE" "$NVIDIA_HOST:~/surfworks/warpforge/ucc-perf-test" || true
-          scp "$NATIVE_EXE" "$AMD_HOST:~/surfworks/warpforge/ucc-perf-test" || true
+          # Check that native-image ran (look for native-specific output)
+          if grep -q "Native-Image Java" "$LOG_FILE" 2>/dev/null; then
+            echo "Native-Image: OK"
+          else
+            echo "WARNING: Native-image results not found"
+          fi
 
-          # Run native perf tests (similar coordination as JVM tests)
-          echo "Running native-image performance tests..."
-          # TODO: Implement native perf test coordination
-
-          echo "Native performance comparison complete"
+          echo ""
+          echo "Benchmark verification complete"
 
       # ========================================
       # PHASE 8: Performance Baseline Validation
@@ -439,7 +468,7 @@ jobs:
           echo "========================================"
           echo "Completed at: $(date)"
           echo ""
-          echo "Test Results:"
+          echo "=== Unit Test Results ==="
           cd ~/surfworks/warpforge
 
           for module in snakeburger-core warpforge-core warpforge-io snakeburger-codegen; do
@@ -450,6 +479,25 @@ jobs:
               echo "  ${module}: ${TOTAL:-0} tests, ${FAILED:-0} failures"
             fi
           done
+
+          echo ""
+          echo "=== Performance Test Results ==="
+          PERF_RESULTS_DIR="$HOME/surfworks/warpforge/holmes-lab/mark1/results/nightly-$(date +%Y%m%d)"
+          if [[ -f "$PERF_RESULTS_DIR/head-to-head.log" ]]; then
+            echo "Head-to-Head Benchmark (C vs JVM vs Native-Image):"
+            echo ""
+            echo "C Baseline:"
+            grep -E "^(allreduce|broadcast|allgather|reduce_scatter|alltoall)" "$PERF_RESULTS_DIR/head-to-head.log" 2>/dev/null | head -5 || echo "  (not available)"
+            echo ""
+            echo "Java JVM (first 3 collectives):"
+            grep "PERF_RESULT:" "$PERF_RESULTS_DIR/head-to-head.log" 2>/dev/null | head -3 || echo "  (not available)"
+            echo ""
+            PASS_COUNT=$(grep -c "Correctness:    PASS" "$PERF_RESULTS_DIR/head-to-head.log" 2>/dev/null || echo "0")
+            FAIL_COUNT=$(grep -c "Correctness:    FAIL" "$PERF_RESULTS_DIR/head-to-head.log" 2>/dev/null || echo "0")
+            echo "Correctness: $PASS_COUNT passed, $FAIL_COUNT failed"
+          else
+            echo "  Performance tests were skipped or not run"
+          fi
 
           echo ""
           echo "========================================"

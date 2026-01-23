@@ -15,6 +15,55 @@
       "type": "io.surfworks.warpforge.io.ffi.ucc.Ucc"
     },
     {
+      "type": "io.surfworks.warpforge.io.ffi.ucc.ucc_oob_coll$allgather$Function",
+      "methods": [
+        {
+          "name": "apply",
+          "parameterTypes": [
+            "java.lang.foreign.MemorySegment",
+            "java.lang.foreign.MemorySegment",
+            "long",
+            "java.lang.foreign.MemorySegment",
+            "java.lang.foreign.MemorySegment"
+          ]
+        }
+      ]
+    },
+    {
+      "type": "io.surfworks.warpforge.io.ffi.ucc.ucc_oob_coll$req_free$Function",
+      "methods": [
+        {
+          "name": "apply",
+          "parameterTypes": [
+            "java.lang.foreign.MemorySegment"
+          ]
+        }
+      ]
+    },
+    {
+      "type": "io.surfworks.warpforge.io.ffi.ucc.ucc_oob_coll$req_test$Function",
+      "methods": [
+        {
+          "name": "apply",
+          "parameterTypes": [
+            "java.lang.foreign.MemorySegment"
+          ]
+        }
+      ]
+    },
+    {
+      "type": "java.lang.Boolean",
+      "jniAccessible": true,
+      "methods": [
+        {
+          "name": "getBoolean",
+          "parameterTypes": [
+            "java.lang.String"
+          ]
+        }
+      ]
+    },
+    {
       "type": "sun.text.resources.cldr.FormatData"
     },
     {
@@ -41,6 +90,24 @@
     }
   ],
   "foreign": {
+    "upcalls": [
+      {
+        "returnType": "jint",
+        "parameterTypes": [
+          "void*"
+        ]
+      },
+      {
+        "returnType": "jint",
+        "parameterTypes": [
+          "void*",
+          "void*",
+          "jlong",
+          "void*",
+          "void*"
+        ]
+      }
+    ],
     "downcalls": [
       {
         "returnType": "jint",
@@ -61,6 +128,16 @@
         "parameterTypes": [
           "void*",
           "jint",
+          "void*",
+          "void*"
+        ]
+      },
+      {
+        "returnType": "jint",
+        "parameterTypes": [
+          "void*",
+          "void*",
+          "jlong",
           "void*",
           "void*"
         ]

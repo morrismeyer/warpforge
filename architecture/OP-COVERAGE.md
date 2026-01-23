@@ -297,6 +297,7 @@ This document tracks PyTorch ATen Core operation coverage for the PyTorch → St
 13. ✅ Complex tensor operations (complex64/complex128) - native StableHLO support
 14. ✅ FFT operations (torch.fft module) - native StableHLO FFT support
 15. ✅ Scan/cumulative operations (cumsum, cumprod, cummax, cummin, logcumsumexp, diff)
+16. ✅ RNN/LSTM/GRU operations (lstm, gru, rnn, cells, bidirectional, multi-layer)
 
 ## Dynamic Shape Support
 
@@ -681,4 +682,65 @@ cub::DeviceScan::InclusiveScan(d_temp, temp_bytes, d_in, d_out, op, n);
 **CPU**:
 ```cpp
 std::inclusive_scan(input, input + n, output, op);  // C++17
+```
+
+## RNN/LSTM/GRU Operations Support
+
+### Overview
+
+WarpForge supports recurrent neural network operations via `stablehlo.custom_call`. StableHLO does not have native RNN operations - backends implement using optimized libraries (cuDNN on NVIDIA, MIOpen on AMD, oneDNN on CPU).
+
+### Implemented Operations
+
+| PyTorch Op | StableHLO Target | Description |
+|------------|------------------|-------------|
+| `nn.LSTM` | `custom_call @lstm` | Long Short-Term Memory |
+| `nn.GRU` | `custom_call @gru` | Gated Recurrent Unit |
+| `nn.RNN` | `custom_call @rnn` | Vanilla RNN (tanh/relu) |
+| `nn.LSTMCell` | `custom_call @lstm_cell` | Single LSTM step |
+| `nn.GRUCell` | `custom_call @gru_cell` | Single GRU step |
+| `nn.RNNCell` | `custom_call @rnn_cell` | Single RNN step |
+| `pack_padded_sequence` | `custom_call @pack_padded_sequence` | Pack variable-length sequences |
+| `pad_packed_sequence` | `custom_call @pad_packed_sequence` | Unpack to padded tensor |
+
+### Supported Variants
+
+- **batch_first**: Input shape (batch, seq, features) vs (seq, batch, features)
+- **bidirectional**: Forward and backward passes
+- **multi-layer**: Stacked RNN layers (num_layers > 1)
+- **with_hidden**: Explicit initial hidden state
+
+### Test Models (17 models)
+
+| Model | Description |
+|-------|-------------|
+| `lstm` | Basic LSTM (seq_first) |
+| `lstm_batch_first` | LSTM with batch_first=True |
+| `lstm_bidirectional` | Bidirectional LSTM |
+| `lstm_multi_layer` | 3-layer stacked LSTM |
+| `lstm_with_hidden` | LSTM with initial (h0, c0) |
+| `gru` / `gru_batch_first` / `gru_bidirectional` / `gru_multi_layer` | GRU variants |
+| `rnn_tanh` / `rnn_relu` / `rnn_bidirectional` | RNN variants |
+| `lstm_cell` / `gru_cell` / `rnn_cell` | Single-step cells |
+
+### Backend Implementation Notes
+
+**NVIDIA (cuDNN)**:
+```cpp
+cudnnRNNForwardInference(handle, rnnDesc, seqLength, xDesc, x, hxDesc, hx,
+                          cxDesc, cx, wDesc, w, yDesc, y, hyDesc, hy, cyDesc, cy,
+                          workspace, workSpaceSize);
+```
+
+**AMD (MIOpen)**:
+```cpp
+miopenRNNForwardInference(handle, rnnDesc, seqLength, xDesc, x, hxDesc, hx,
+                           cxDesc, cx, wDesc, w, yDesc, y, hyDesc, hy, cyDesc, cy,
+                           workspace, workSpaceSize);
+```
+
+**CPU (oneDNN)**:
+```cpp
+dnnl::lstm_forward::primitive_desc lstm_pd(engine, prop_kind::forward_inference,
+    direction::unidirectional_left2right, src_layer_md, src_iter_md, ...);
 ```

@@ -924,6 +924,69 @@ class FXToStableHLO:
             return [f'{result_ssa} = stablehlo.custom_call @diff({input_ssa}) '
                     f'{{n = {n}, dim = {dim}}} : ({input_type}) -> {result_type}']
 
+        # ===== RNN/LSTM/GRU OPERATIONS =====
+        # StableHLO has no native RNN ops. Use custom_call for backend-optimized
+        # implementations (cuDNN on NVIDIA, MIOpen on AMD, oneDNN on CPU).
+
+        elif target_name in ('lstm', 'lstm_cell'):
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            hx = get_input(1) if len(node.args) > 1 else None
+            hidden_size = node.kwargs.get('hidden_size', 256)
+            num_layers = node.kwargs.get('num_layers', 1)
+            bias = node.kwargs.get('bias', True)
+            batch_first = node.kwargs.get('batch_first', False)
+            dropout = node.kwargs.get('dropout', 0.0)
+            bidirectional = node.kwargs.get('bidirectional', False)
+            attrs = f'hidden_size = {hidden_size}, num_layers = {num_layers}, bias = {str(bias).lower()}, '
+            attrs += f'batch_first = {str(batch_first).lower()}, dropout = {dropout}, bidirectional = {str(bidirectional).lower()}'
+            if hx:
+                hx_type = get_input_type(1)
+                return [f'{result_ssa} = stablehlo.custom_call @lstm({input_ssa}, {hx}) '
+                        f'{{{attrs}}} : ({input_type}, {hx_type}) -> {result_type}']
+            return [f'{result_ssa} = stablehlo.custom_call @lstm({input_ssa}) '
+                    f'{{{attrs}}} : ({input_type}) -> {result_type}']
+
+        elif target_name in ('gru', 'gru_cell'):
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            hx = get_input(1) if len(node.args) > 1 else None
+            hidden_size = node.kwargs.get('hidden_size', 256)
+            num_layers = node.kwargs.get('num_layers', 1)
+            bias = node.kwargs.get('bias', True)
+            batch_first = node.kwargs.get('batch_first', False)
+            dropout = node.kwargs.get('dropout', 0.0)
+            bidirectional = node.kwargs.get('bidirectional', False)
+            attrs = f'hidden_size = {hidden_size}, num_layers = {num_layers}, bias = {str(bias).lower()}, '
+            attrs += f'batch_first = {str(batch_first).lower()}, dropout = {dropout}, bidirectional = {str(bidirectional).lower()}'
+            if hx:
+                hx_type = get_input_type(1)
+                return [f'{result_ssa} = stablehlo.custom_call @gru({input_ssa}, {hx}) '
+                        f'{{{attrs}}} : ({input_type}, {hx_type}) -> {result_type}']
+            return [f'{result_ssa} = stablehlo.custom_call @gru({input_ssa}) '
+                    f'{{{attrs}}} : ({input_type}) -> {result_type}']
+
+        elif target_name in ('rnn_tanh', 'rnn_relu', 'rnn'):
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            hx = get_input(1) if len(node.args) > 1 else None
+            hidden_size = node.kwargs.get('hidden_size', 256)
+            num_layers = node.kwargs.get('num_layers', 1)
+            nonlinearity = node.kwargs.get('nonlinearity', 'tanh')
+            bias = node.kwargs.get('bias', True)
+            batch_first = node.kwargs.get('batch_first', False)
+            dropout = node.kwargs.get('dropout', 0.0)
+            bidirectional = node.kwargs.get('bidirectional', False)
+            attrs = f'hidden_size = {hidden_size}, num_layers = {num_layers}, nonlinearity = "{nonlinearity}", '
+            attrs += f'bias = {str(bias).lower()}, batch_first = {str(batch_first).lower()}, '
+            attrs += f'dropout = {dropout}, bidirectional = {str(bidirectional).lower()}'
+            if hx:
+                hx_type = get_input_type(1)
+                return [f'{result_ssa} = stablehlo.custom_call @rnn({input_ssa}, {hx}) '
+                        f'{{{attrs}}} : ({input_type}, {hx_type}) -> {result_type}']
+            return [f'{result_ssa} = stablehlo.custom_call @rnn({input_ssa}) '
+                    f'{{{attrs}}} : ({input_type}) -> {result_type}']
+
         elif target_name == 'std':
             # std(x) = sqrt(var(x)) = sqrt(mean((x - mean(x))^2))
             input_ssa = get_input(0)

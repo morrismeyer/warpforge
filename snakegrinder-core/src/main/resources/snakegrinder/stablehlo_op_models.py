@@ -703,6 +703,199 @@ class DiffN2Op(nn.Module):
 
 
 # =============================================================================
+# RNN/LSTM/GRU Operations
+# =============================================================================
+
+class LSTMOp(nn.Module):
+    """Basic LSTM layer.
+    Produces: stablehlo.custom_call @lstm
+    Input: (seq_len, batch, input_size)
+    Output: (output, (h_n, c_n))
+    """
+    def __init__(self):
+        super().__init__()
+        self.lstm = nn.LSTM(input_size=8, hidden_size=16, num_layers=1, batch_first=False)
+
+    def forward(self, x):
+        output, (h_n, c_n) = self.lstm(x)
+        return output
+
+
+class LSTMBatchFirstOp(nn.Module):
+    """LSTM with batch_first=True.
+    Input: (batch, seq_len, input_size)
+    """
+    def __init__(self):
+        super().__init__()
+        self.lstm = nn.LSTM(input_size=8, hidden_size=16, num_layers=1, batch_first=True)
+
+    def forward(self, x):
+        output, (h_n, c_n) = self.lstm(x)
+        return output
+
+
+class LSTMBidirectionalOp(nn.Module):
+    """Bidirectional LSTM.
+    Output hidden size is 2 * hidden_size.
+    """
+    def __init__(self):
+        super().__init__()
+        self.lstm = nn.LSTM(input_size=8, hidden_size=16, num_layers=1, bidirectional=True)
+
+    def forward(self, x):
+        output, (h_n, c_n) = self.lstm(x)
+        return output
+
+
+class LSTMMultiLayerOp(nn.Module):
+    """Multi-layer LSTM (stacked).
+    """
+    def __init__(self):
+        super().__init__()
+        self.lstm = nn.LSTM(input_size=8, hidden_size=16, num_layers=3)
+
+    def forward(self, x):
+        output, (h_n, c_n) = self.lstm(x)
+        return output
+
+
+class LSTMWithHiddenOp(nn.Module):
+    """LSTM with initial hidden state provided.
+    """
+    def __init__(self):
+        super().__init__()
+        self.lstm = nn.LSTM(input_size=8, hidden_size=16, num_layers=1)
+
+    def forward(self, x, h0, c0):
+        output, (h_n, c_n) = self.lstm(x, (h0, c0))
+        return output
+
+
+class GRUOp(nn.Module):
+    """Basic GRU layer.
+    Produces: stablehlo.custom_call @gru
+    """
+    def __init__(self):
+        super().__init__()
+        self.gru = nn.GRU(input_size=8, hidden_size=16, num_layers=1)
+
+    def forward(self, x):
+        output, h_n = self.gru(x)
+        return output
+
+
+class GRUBatchFirstOp(nn.Module):
+    """GRU with batch_first=True.
+    """
+    def __init__(self):
+        super().__init__()
+        self.gru = nn.GRU(input_size=8, hidden_size=16, num_layers=1, batch_first=True)
+
+    def forward(self, x):
+        output, h_n = self.gru(x)
+        return output
+
+
+class GRUBidirectionalOp(nn.Module):
+    """Bidirectional GRU.
+    """
+    def __init__(self):
+        super().__init__()
+        self.gru = nn.GRU(input_size=8, hidden_size=16, num_layers=1, bidirectional=True)
+
+    def forward(self, x):
+        output, h_n = self.gru(x)
+        return output
+
+
+class GRUMultiLayerOp(nn.Module):
+    """Multi-layer GRU.
+    """
+    def __init__(self):
+        super().__init__()
+        self.gru = nn.GRU(input_size=8, hidden_size=16, num_layers=3)
+
+    def forward(self, x):
+        output, h_n = self.gru(x)
+        return output
+
+
+class RNNTanhOp(nn.Module):
+    """Basic RNN with tanh nonlinearity.
+    Produces: stablehlo.custom_call @rnn
+    """
+    def __init__(self):
+        super().__init__()
+        self.rnn = nn.RNN(input_size=8, hidden_size=16, num_layers=1, nonlinearity='tanh')
+
+    def forward(self, x):
+        output, h_n = self.rnn(x)
+        return output
+
+
+class RNNReluOp(nn.Module):
+    """RNN with ReLU nonlinearity.
+    """
+    def __init__(self):
+        super().__init__()
+        self.rnn = nn.RNN(input_size=8, hidden_size=16, num_layers=1, nonlinearity='relu')
+
+    def forward(self, x):
+        output, h_n = self.rnn(x)
+        return output
+
+
+class RNNBidirectionalOp(nn.Module):
+    """Bidirectional RNN.
+    """
+    def __init__(self):
+        super().__init__()
+        self.rnn = nn.RNN(input_size=8, hidden_size=16, num_layers=1, bidirectional=True)
+
+    def forward(self, x):
+        output, h_n = self.rnn(x)
+        return output
+
+
+class LSTMCellOp(nn.Module):
+    """LSTM cell (single step).
+    Produces: stablehlo.custom_call @lstm_cell
+    """
+    def __init__(self):
+        super().__init__()
+        self.cell = nn.LSTMCell(input_size=8, hidden_size=16)
+
+    def forward(self, x, hx, cx):
+        h_n, c_n = self.cell(x, (hx, cx))
+        return h_n
+
+
+class GRUCellOp(nn.Module):
+    """GRU cell (single step).
+    Produces: stablehlo.custom_call @gru_cell
+    """
+    def __init__(self):
+        super().__init__()
+        self.cell = nn.GRUCell(input_size=8, hidden_size=16)
+
+    def forward(self, x, hx):
+        h_n = self.cell(x, hx)
+        return h_n
+
+
+class RNNCellOp(nn.Module):
+    """RNN cell (single step).
+    """
+    def __init__(self):
+        super().__init__()
+        self.cell = nn.RNNCell(input_size=8, hidden_size=16)
+
+    def forward(self, x, hx):
+        h_n = self.cell(x, hx)
+        return h_n
+
+
+# =============================================================================
 # Type Conversion Operations
 # =============================================================================
 
@@ -1919,6 +2112,24 @@ OPERATION_REGISTRY = {
     'logcumsumexp': (LogcumsumexpOp, [([2, 8], 'f32')]),
     'diff': (DiffOp, [([2, 8], 'f32')]),
     'diff_n2': (DiffN2Op, [([2, 10], 'f32')]),  # Need extra elements for n=2
+
+    # RNN/LSTM/GRU Operations
+    # Input shapes: (seq_len, batch, input_size) for seq-first, (batch, seq_len, input_size) for batch-first
+    'lstm': (LSTMOp, [([10, 2, 8], 'f32')]),  # seq_len=10, batch=2, input=8
+    'lstm_batch_first': (LSTMBatchFirstOp, [([2, 10, 8], 'f32')]),  # batch=2, seq_len=10
+    'lstm_bidirectional': (LSTMBidirectionalOp, [([10, 2, 8], 'f32')]),
+    'lstm_multi_layer': (LSTMMultiLayerOp, [([10, 2, 8], 'f32')]),
+    'lstm_with_hidden': (LSTMWithHiddenOp, [([10, 2, 8], 'f32'), ([1, 2, 16], 'f32'), ([1, 2, 16], 'f32')]),
+    'gru': (GRUOp, [([10, 2, 8], 'f32')]),
+    'gru_batch_first': (GRUBatchFirstOp, [([2, 10, 8], 'f32')]),
+    'gru_bidirectional': (GRUBidirectionalOp, [([10, 2, 8], 'f32')]),
+    'gru_multi_layer': (GRUMultiLayerOp, [([10, 2, 8], 'f32')]),
+    'rnn_tanh': (RNNTanhOp, [([10, 2, 8], 'f32')]),
+    'rnn_relu': (RNNReluOp, [([10, 2, 8], 'f32')]),
+    'rnn_bidirectional': (RNNBidirectionalOp, [([10, 2, 8], 'f32')]),
+    'lstm_cell': (LSTMCellOp, [([2, 8], 'f32'), ([2, 16], 'f32'), ([2, 16], 'f32')]),  # batch=2
+    'gru_cell': (GRUCellOp, [([2, 8], 'f32'), ([2, 16], 'f32')]),
+    'rnn_cell': (RNNCellOp, [([2, 8], 'f32'), ([2, 16], 'f32')]),
 
     # Type Conversion
     'to_float': (ToFloatOp, [([1, 8], 'i32')]),

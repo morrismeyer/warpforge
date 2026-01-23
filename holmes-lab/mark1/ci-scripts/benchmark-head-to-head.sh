@@ -63,7 +63,7 @@ error() { echo -e "${RED}[$(date '+%H:%M:%S')] ✗${NC} $*" >&2; }
 ssh_cmd() {
     local host="$1"
     shift
-    ssh -o ConnectTimeout=10 -o BatchMode=yes "$host" "$@"
+    ssh -o ConnectTimeout=10 -o BatchMode=yes -o StrictHostKeyChecking=accept-new "$host" "$@"
 }
 
 parse_args() {

@@ -2999,6 +2999,152 @@ class FXToStableHLO:
             return [f'{result_ssa} = stablehlo.custom_call @rfftfreq() '
                     f'{{n = {n}, d = {d}}} : () -> {result_type}']
 
+        # ===== DROPOUT OPERATIONS =====
+        elif target_name in ('dropout', 'dropout1d', 'dropout2d', 'dropout3d'):
+            # nn.Dropout, nn.Dropout1d, nn.Dropout2d, nn.Dropout3d
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            p = node.args[1] if len(node.args) > 1 else node.kwargs.get('p', 0.5)
+            training = node.kwargs.get('training', True)
+            inplace = node.kwargs.get('inplace', False)
+            attrs = f'p = {p}, training = {str(training).lower()}, inplace = {str(inplace).lower()}'
+            return [f'{result_ssa} = stablehlo.custom_call @{target_name}({input_ssa}) '
+                    f'{{{attrs}}} : ({input_type}) -> {result_type}']
+
+        elif target_name in ('alpha_dropout',):
+            # nn.AlphaDropout - maintains self-normalizing property for SELU
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            p = node.args[1] if len(node.args) > 1 else node.kwargs.get('p', 0.5)
+            training = node.kwargs.get('training', True)
+            inplace = node.kwargs.get('inplace', False)
+            attrs = f'p = {p}, training = {str(training).lower()}, inplace = {str(inplace).lower()}'
+            return [f'{result_ssa} = stablehlo.custom_call @alpha_dropout({input_ssa}) '
+                    f'{{{attrs}}} : ({input_type}) -> {result_type}']
+
+        elif target_name in ('feature_alpha_dropout',):
+            # F.feature_alpha_dropout - channel-wise alpha dropout
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            p = node.args[1] if len(node.args) > 1 else node.kwargs.get('p', 0.5)
+            training = node.kwargs.get('training', True)
+            inplace = node.kwargs.get('inplace', False)
+            attrs = f'p = {p}, training = {str(training).lower()}, inplace = {str(inplace).lower()}'
+            return [f'{result_ssa} = stablehlo.custom_call @feature_alpha_dropout({input_ssa}) '
+                    f'{{{attrs}}} : ({input_type}) -> {result_type}']
+
+        # ===== UPSAMPLING OPERATIONS =====
+        elif target_name in ('upsample', 'upsample_nearest', 'upsample_nearest1d', 'upsample_nearest2d', 'upsample_nearest3d'):
+            # nn.Upsample with mode='nearest' or nn.UpsamplingNearest2d
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            size = node.kwargs.get('size', None)
+            scale_factor = node.kwargs.get('scale_factor', None)
+            size_str = str(list(size)) if size else 'null'
+            scale_str = str(list(scale_factor)) if isinstance(scale_factor, (list, tuple)) else str(scale_factor) if scale_factor else 'null'
+            attrs = f'size = {size_str}, scale_factor = {scale_str}, mode = "nearest"'
+            return [f'{result_ssa} = stablehlo.custom_call @upsample_nearest({input_ssa}) '
+                    f'{{{attrs}}} : ({input_type}) -> {result_type}']
+
+        elif target_name in ('upsample_bilinear', 'upsample_bilinear2d'):
+            # nn.Upsample with mode='bilinear' or nn.UpsamplingBilinear2d
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            size = node.kwargs.get('size', None)
+            scale_factor = node.kwargs.get('scale_factor', None)
+            align_corners = node.kwargs.get('align_corners', False)
+            size_str = str(list(size)) if size else 'null'
+            scale_str = str(list(scale_factor)) if isinstance(scale_factor, (list, tuple)) else str(scale_factor) if scale_factor else 'null'
+            attrs = f'size = {size_str}, scale_factor = {scale_str}, mode = "bilinear", align_corners = {str(align_corners).lower()}'
+            return [f'{result_ssa} = stablehlo.custom_call @upsample_bilinear({input_ssa}) '
+                    f'{{{attrs}}} : ({input_type}) -> {result_type}']
+
+        elif target_name in ('upsample_bicubic', 'upsample_bicubic2d'):
+            # nn.Upsample with mode='bicubic'
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            size = node.kwargs.get('size', None)
+            scale_factor = node.kwargs.get('scale_factor', None)
+            align_corners = node.kwargs.get('align_corners', False)
+            size_str = str(list(size)) if size else 'null'
+            scale_str = str(list(scale_factor)) if isinstance(scale_factor, (list, tuple)) else str(scale_factor) if scale_factor else 'null'
+            attrs = f'size = {size_str}, scale_factor = {scale_str}, mode = "bicubic", align_corners = {str(align_corners).lower()}'
+            return [f'{result_ssa} = stablehlo.custom_call @upsample_bicubic({input_ssa}) '
+                    f'{{{attrs}}} : ({input_type}) -> {result_type}']
+
+        elif target_name in ('upsample_trilinear', 'upsample_trilinear3d'):
+            # nn.Upsample with mode='trilinear'
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            size = node.kwargs.get('size', None)
+            scale_factor = node.kwargs.get('scale_factor', None)
+            align_corners = node.kwargs.get('align_corners', False)
+            size_str = str(list(size)) if size else 'null'
+            scale_str = str(list(scale_factor)) if isinstance(scale_factor, (list, tuple)) else str(scale_factor) if scale_factor else 'null'
+            attrs = f'size = {size_str}, scale_factor = {scale_str}, mode = "trilinear", align_corners = {str(align_corners).lower()}'
+            return [f'{result_ssa} = stablehlo.custom_call @upsample_trilinear({input_ssa}) '
+                    f'{{{attrs}}} : ({input_type}) -> {result_type}']
+
+        elif target_name in ('interpolate',):
+            # F.interpolate - general interpolation function
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            size = node.kwargs.get('size', None)
+            scale_factor = node.kwargs.get('scale_factor', None)
+            mode = node.kwargs.get('mode', 'nearest')
+            align_corners = node.kwargs.get('align_corners', None)
+            recompute_scale_factor = node.kwargs.get('recompute_scale_factor', None)
+            antialias = node.kwargs.get('antialias', False)
+            size_str = str(list(size)) if size else 'null'
+            scale_str = str(list(scale_factor)) if isinstance(scale_factor, (list, tuple)) else str(scale_factor) if scale_factor else 'null'
+            align_str = str(align_corners).lower() if align_corners is not None else 'null'
+            attrs = f'size = {size_str}, scale_factor = {scale_str}, mode = "{mode}", align_corners = {align_str}, antialias = {str(antialias).lower()}'
+            return [f'{result_ssa} = stablehlo.custom_call @interpolate({input_ssa}) '
+                    f'{{{attrs}}} : ({input_type}) -> {result_type}']
+
+        elif target_name in ('pixel_shuffle',):
+            # nn.PixelShuffle / F.pixel_shuffle - rearranges from (C*r^2, H, W) to (C, H*r, W*r)
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            upscale_factor = node.args[1] if len(node.args) > 1 else node.kwargs.get('upscale_factor', 2)
+            attrs = f'upscale_factor = {upscale_factor}'
+            return [f'{result_ssa} = stablehlo.custom_call @pixel_shuffle({input_ssa}) '
+                    f'{{{attrs}}} : ({input_type}) -> {result_type}']
+
+        elif target_name in ('pixel_unshuffle',):
+            # nn.PixelUnshuffle / F.pixel_unshuffle - inverse of pixel_shuffle
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            downscale_factor = node.args[1] if len(node.args) > 1 else node.kwargs.get('downscale_factor', 2)
+            attrs = f'downscale_factor = {downscale_factor}'
+            return [f'{result_ssa} = stablehlo.custom_call @pixel_unshuffle({input_ssa}) '
+                    f'{{{attrs}}} : ({input_type}) -> {result_type}']
+
+        # ===== GRID SAMPLING OPERATIONS =====
+        elif target_name in ('grid_sample',):
+            # F.grid_sample - sample input using grid coordinates
+            input_ssa = get_input(0)
+            grid_ssa = get_input(1)
+            input_type = get_input_type(0)
+            grid_type = get_input_type(1)
+            mode = node.kwargs.get('mode', 'bilinear')
+            padding_mode = node.kwargs.get('padding_mode', 'zeros')
+            align_corners = node.kwargs.get('align_corners', False)
+            attrs = f'mode = "{mode}", padding_mode = "{padding_mode}", align_corners = {str(align_corners).lower()}'
+            return [f'{result_ssa} = stablehlo.custom_call @grid_sample({input_ssa}, {grid_ssa}) '
+                    f'{{{attrs}}} : ({input_type}, {grid_type}) -> {result_type}']
+
+        elif target_name in ('affine_grid',):
+            # F.affine_grid - generates 2D or 3D flow field (sampling grid)
+            theta_ssa = get_input(0)
+            theta_type = get_input_type(0)
+            size = node.args[1] if len(node.args) > 1 else node.kwargs.get('size')
+            align_corners = node.kwargs.get('align_corners', False)
+            size_str = str(list(size)) if size else 'null'
+            attrs = f'size = {size_str}, align_corners = {str(align_corners).lower()}'
+            return [f'{result_ssa} = stablehlo.custom_call @affine_grid({theta_ssa}) '
+                    f'{{{attrs}}} : ({theta_type}) -> {result_type}']
+
         else:
             return [f'// Unsupported function: {target_name}']
 

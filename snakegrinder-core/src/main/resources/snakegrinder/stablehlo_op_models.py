@@ -2924,6 +2924,328 @@ class IFFTShiftOp(nn.Module):
 
 
 # =============================================================================
+# Dropout Operations
+# =============================================================================
+
+class DropoutOp(nn.Module):
+    """Standard dropout layer.
+    Produces: stablehlo.custom_call @dropout
+    """
+    def __init__(self):
+        super().__init__()
+        self.dropout = nn.Dropout(p=0.5)
+
+    def forward(self, x):
+        return self.dropout(x)
+
+
+class DropoutP03Op(nn.Module):
+    """Dropout with p=0.3.
+    Produces: stablehlo.custom_call @dropout
+    """
+    def __init__(self):
+        super().__init__()
+        self.dropout = nn.Dropout(p=0.3)
+
+    def forward(self, x):
+        return self.dropout(x)
+
+
+class Dropout1dOp(nn.Module):
+    """1D channel dropout (drops entire channels).
+    Produces: stablehlo.custom_call @dropout1d
+    """
+    def __init__(self):
+        super().__init__()
+        self.dropout = nn.Dropout1d(p=0.5)
+
+    def forward(self, x):
+        return self.dropout(x)
+
+
+class Dropout2dOp(nn.Module):
+    """2D channel dropout (drops entire channels).
+    Produces: stablehlo.custom_call @dropout2d
+    """
+    def __init__(self):
+        super().__init__()
+        self.dropout = nn.Dropout2d(p=0.5)
+
+    def forward(self, x):
+        return self.dropout(x)
+
+
+class Dropout3dOp(nn.Module):
+    """3D channel dropout (drops entire channels).
+    Produces: stablehlo.custom_call @dropout3d
+    """
+    def __init__(self):
+        super().__init__()
+        self.dropout = nn.Dropout3d(p=0.5)
+
+    def forward(self, x):
+        return self.dropout(x)
+
+
+class AlphaDropoutOp(nn.Module):
+    """Alpha dropout for self-normalizing networks (SELU).
+    Produces: stablehlo.custom_call @alpha_dropout
+    """
+    def __init__(self):
+        super().__init__()
+        self.dropout = nn.AlphaDropout(p=0.5)
+
+    def forward(self, x):
+        return self.dropout(x)
+
+
+class DropoutFunctionalOp(nn.Module):
+    """Functional dropout API.
+    Produces: stablehlo.custom_call @dropout
+    """
+    def forward(self, x):
+        return F.dropout(x, p=0.5, training=True)
+
+
+class FeatureAlphaDropoutOp(nn.Module):
+    """Feature-wise alpha dropout.
+    Produces: stablehlo.custom_call @feature_alpha_dropout
+    """
+    def forward(self, x):
+        return F.feature_alpha_dropout(x, p=0.5, training=True)
+
+
+# =============================================================================
+# Upsampling Operations
+# =============================================================================
+
+class UpsampleNearest2dOp(nn.Module):
+    """Nearest neighbor upsampling (2D).
+    Produces: stablehlo.custom_call @upsample_nearest
+    """
+    def __init__(self):
+        super().__init__()
+        self.upsample = nn.Upsample(scale_factor=2, mode='nearest')
+
+    def forward(self, x):
+        return self.upsample(x)
+
+
+class UpsampleNearest3dOp(nn.Module):
+    """Nearest neighbor upsampling (3D).
+    Produces: stablehlo.custom_call @upsample_nearest
+    """
+    def __init__(self):
+        super().__init__()
+        self.upsample = nn.Upsample(scale_factor=2, mode='nearest')
+
+    def forward(self, x):
+        return self.upsample(x)
+
+
+class UpsampleBilinear2dOp(nn.Module):
+    """Bilinear upsampling (2D).
+    Produces: stablehlo.custom_call @upsample_bilinear
+    """
+    def __init__(self):
+        super().__init__()
+        self.upsample = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False)
+
+    def forward(self, x):
+        return self.upsample(x)
+
+
+class UpsampleBicubic2dOp(nn.Module):
+    """Bicubic upsampling (2D).
+    Produces: stablehlo.custom_call @upsample_bicubic
+    """
+    def __init__(self):
+        super().__init__()
+        self.upsample = nn.Upsample(scale_factor=2, mode='bicubic', align_corners=False)
+
+    def forward(self, x):
+        return self.upsample(x)
+
+
+class UpsampleTrilinear3dOp(nn.Module):
+    """Trilinear upsampling (3D).
+    Produces: stablehlo.custom_call @upsample_trilinear
+    """
+    def __init__(self):
+        super().__init__()
+        self.upsample = nn.Upsample(scale_factor=2, mode='trilinear', align_corners=False)
+
+    def forward(self, x):
+        return self.upsample(x)
+
+
+class UpsampleBilinearAlignCornersOp(nn.Module):
+    """Bilinear upsampling with align_corners=True.
+    Produces: stablehlo.custom_call @upsample_bilinear
+    """
+    def __init__(self):
+        super().__init__()
+        self.upsample = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
+
+    def forward(self, x):
+        return self.upsample(x)
+
+
+class InterpolateNearestOp(nn.Module):
+    """F.interpolate with nearest mode.
+    Produces: stablehlo.custom_call @interpolate
+    """
+    def forward(self, x):
+        return F.interpolate(x, scale_factor=2, mode='nearest')
+
+
+class InterpolateBilinearOp(nn.Module):
+    """F.interpolate with bilinear mode.
+    Produces: stablehlo.custom_call @interpolate
+    """
+    def forward(self, x):
+        return F.interpolate(x, scale_factor=2, mode='bilinear', align_corners=False)
+
+
+class InterpolateBicubicOp(nn.Module):
+    """F.interpolate with bicubic mode.
+    Produces: stablehlo.custom_call @interpolate
+    """
+    def forward(self, x):
+        return F.interpolate(x, scale_factor=2, mode='bicubic', align_corners=False)
+
+
+class InterpolateSizeOp(nn.Module):
+    """F.interpolate with explicit size.
+    Produces: stablehlo.custom_call @interpolate
+    """
+    def forward(self, x):
+        return F.interpolate(x, size=(16, 16), mode='bilinear', align_corners=False)
+
+
+class InterpolateScaleFactorOp(nn.Module):
+    """F.interpolate with scale_factor.
+    Produces: stablehlo.custom_call @interpolate
+    """
+    def forward(self, x):
+        return F.interpolate(x, scale_factor=3, mode='nearest')
+
+
+class PixelShuffleOp(nn.Module):
+    """Pixel shuffle for sub-pixel convolution upsampling.
+    Produces: stablehlo.custom_call @pixel_shuffle
+    """
+    def __init__(self):
+        super().__init__()
+        self.pixel_shuffle = nn.PixelShuffle(2)
+
+    def forward(self, x):
+        return self.pixel_shuffle(x)
+
+
+class PixelUnshuffleOp(nn.Module):
+    """Pixel unshuffle - inverse of pixel shuffle.
+    Produces: stablehlo.custom_call @pixel_unshuffle
+    """
+    def __init__(self):
+        super().__init__()
+        self.pixel_unshuffle = nn.PixelUnshuffle(2)
+
+    def forward(self, x):
+        return self.pixel_unshuffle(x)
+
+
+class PixelShuffle3xOp(nn.Module):
+    """Pixel shuffle with upscale_factor=3.
+    Produces: stablehlo.custom_call @pixel_shuffle
+    """
+    def __init__(self):
+        super().__init__()
+        self.pixel_shuffle = nn.PixelShuffle(3)
+
+    def forward(self, x):
+        return self.pixel_shuffle(x)
+
+
+# =============================================================================
+# Grid Sampling Operations
+# =============================================================================
+
+class GridSampleBilinearOp(nn.Module):
+    """Grid sample with bilinear interpolation.
+    Produces: stablehlo.custom_call @grid_sample
+    """
+    def forward(self, input, grid):
+        return F.grid_sample(input, grid, mode='bilinear', padding_mode='zeros', align_corners=False)
+
+
+class GridSampleNearestOp(nn.Module):
+    """Grid sample with nearest neighbor interpolation.
+    Produces: stablehlo.custom_call @grid_sample
+    """
+    def forward(self, input, grid):
+        return F.grid_sample(input, grid, mode='nearest', padding_mode='zeros', align_corners=False)
+
+
+class GridSampleBicubicOp(nn.Module):
+    """Grid sample with bicubic interpolation.
+    Produces: stablehlo.custom_call @grid_sample
+    """
+    def forward(self, input, grid):
+        return F.grid_sample(input, grid, mode='bicubic', padding_mode='zeros', align_corners=False)
+
+
+class GridSampleZerosOp(nn.Module):
+    """Grid sample with zeros padding.
+    Produces: stablehlo.custom_call @grid_sample
+    """
+    def forward(self, input, grid):
+        return F.grid_sample(input, grid, mode='bilinear', padding_mode='zeros', align_corners=False)
+
+
+class GridSampleBorderOp(nn.Module):
+    """Grid sample with border padding.
+    Produces: stablehlo.custom_call @grid_sample
+    """
+    def forward(self, input, grid):
+        return F.grid_sample(input, grid, mode='bilinear', padding_mode='border', align_corners=False)
+
+
+class GridSampleReflectionOp(nn.Module):
+    """Grid sample with reflection padding.
+    Produces: stablehlo.custom_call @grid_sample
+    """
+    def forward(self, input, grid):
+        return F.grid_sample(input, grid, mode='bilinear', padding_mode='reflection', align_corners=False)
+
+
+class GridSampleAlignCornersOp(nn.Module):
+    """Grid sample with align_corners=True.
+    Produces: stablehlo.custom_call @grid_sample
+    """
+    def forward(self, input, grid):
+        return F.grid_sample(input, grid, mode='bilinear', padding_mode='zeros', align_corners=True)
+
+
+class AffineGridOp(nn.Module):
+    """Affine grid generation.
+    Produces: stablehlo.custom_call @affine_grid
+    """
+    def forward(self, theta):
+        # Generate grid for 8x8 output
+        return F.affine_grid(theta, (theta.size(0), 1, 8, 8), align_corners=False)
+
+
+class SpatialTransformerOp(nn.Module):
+    """Full spatial transformer: affine_grid + grid_sample.
+    Produces: stablehlo.custom_call @affine_grid, @grid_sample
+    """
+    def forward(self, input, theta):
+        grid = F.affine_grid(theta, input.size(), align_corners=False)
+        return F.grid_sample(input, grid, mode='bilinear', padding_mode='zeros', align_corners=False)
+
+
+# =============================================================================
 # Operation Registry
 # =============================================================================
 # Maps operation names to (ModelClass, input_specs) tuples
@@ -3379,6 +3701,43 @@ OPERATION_REGISTRY = {
     # FFT helper operations
     'fftshift': (FFTShiftOp, [([2, 16], 'c64')]),
     'ifftshift': (IFFTShiftOp, [([2, 16], 'c64')]),
+
+    # Dropout operations
+    'dropout': (DropoutOp, [([2, 8, 16], 'f32')]),
+    'dropout_p03': (DropoutP03Op, [([2, 8, 16], 'f32')]),
+    'dropout1d': (Dropout1dOp, [([2, 8, 16], 'f32')]),
+    'dropout2d': (Dropout2dOp, [([2, 8, 8, 8], 'f32')]),
+    'dropout3d': (Dropout3dOp, [([2, 8, 4, 4, 4], 'f32')]),
+    'alpha_dropout': (AlphaDropoutOp, [([2, 8, 16], 'f32')]),
+    'dropout_functional': (DropoutFunctionalOp, [([2, 8, 16], 'f32')]),
+    'feature_alpha_dropout': (FeatureAlphaDropoutOp, [([2, 8, 16], 'f32')]),
+
+    # Upsampling operations
+    'upsample_nearest_2d': (UpsampleNearest2dOp, [([1, 3, 8, 8], 'f32')]),
+    'upsample_nearest_3d': (UpsampleNearest3dOp, [([1, 3, 4, 4, 4], 'f32')]),
+    'upsample_bilinear_2d': (UpsampleBilinear2dOp, [([1, 3, 8, 8], 'f32')]),
+    'upsample_bicubic_2d': (UpsampleBicubic2dOp, [([1, 3, 8, 8], 'f32')]),
+    'upsample_trilinear_3d': (UpsampleTrilinear3dOp, [([1, 3, 4, 4, 4], 'f32')]),
+    'upsample_bilinear_align_corners': (UpsampleBilinearAlignCornersOp, [([1, 3, 8, 8], 'f32')]),
+    'interpolate_nearest': (InterpolateNearestOp, [([1, 3, 8, 8], 'f32')]),
+    'interpolate_bilinear': (InterpolateBilinearOp, [([1, 3, 8, 8], 'f32')]),
+    'interpolate_bicubic': (InterpolateBicubicOp, [([1, 3, 8, 8], 'f32')]),
+    'interpolate_size': (InterpolateSizeOp, [([1, 3, 8, 8], 'f32')]),
+    'interpolate_scale_factor': (InterpolateScaleFactorOp, [([1, 3, 8, 8], 'f32')]),
+    'pixel_shuffle': (PixelShuffleOp, [([1, 12, 8, 8], 'f32')]),  # 12 = 3 * 2^2
+    'pixel_unshuffle': (PixelUnshuffleOp, [([1, 3, 16, 16], 'f32')]),
+    'pixel_shuffle_3x': (PixelShuffle3xOp, [([1, 27, 4, 4], 'f32')]),  # 27 = 3 * 3^2
+
+    # Grid sampling operations
+    'grid_sample_bilinear': (GridSampleBilinearOp, [([2, 3, 8, 8], 'f32'), ([2, 8, 8, 2], 'f32')]),
+    'grid_sample_nearest': (GridSampleNearestOp, [([2, 3, 8, 8], 'f32'), ([2, 8, 8, 2], 'f32')]),
+    'grid_sample_bicubic': (GridSampleBicubicOp, [([2, 3, 8, 8], 'f32'), ([2, 8, 8, 2], 'f32')]),
+    'grid_sample_zeros': (GridSampleZerosOp, [([2, 3, 8, 8], 'f32'), ([2, 8, 8, 2], 'f32')]),
+    'grid_sample_border': (GridSampleBorderOp, [([2, 3, 8, 8], 'f32'), ([2, 8, 8, 2], 'f32')]),
+    'grid_sample_reflection': (GridSampleReflectionOp, [([2, 3, 8, 8], 'f32'), ([2, 8, 8, 2], 'f32')]),
+    'grid_sample_align_corners': (GridSampleAlignCornersOp, [([2, 3, 8, 8], 'f32'), ([2, 8, 8, 2], 'f32')]),
+    'affine_grid': (AffineGridOp, [([2, 2, 3], 'f32')]),  # theta: (N, 2, 3)
+    'spatial_transformer': (SpatialTransformerOp, [([2, 3, 8, 8], 'f32'), ([2, 2, 3], 'f32')]),
 }
 
 # Registry of dynamic dimensions for models that need them

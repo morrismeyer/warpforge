@@ -27,10 +27,42 @@ def ucxInstallDir = new File(ucxRepoDir, 'install')
 def uccInstallDir = new File(uccRepoDir, 'install')
 def moduleBuildDir = layout.buildDirectory.get().asFile
 
-def jextractPath = providers.gradleProperty('jextract.path')
-        .orElse(providers.environmentVariable('JEXTRACT_HOME'))
-        .orElse('/opt/jextract-22')
-        .get()
+// Auto-discover jextract from common locations
+def findJextract() {
+    // Check gradle property first
+    def propPath = providers.gradleProperty('jextract.path').orNull
+    if (propPath != null && new File(propPath, 'bin/jextract').exists()) {
+        return propPath
+    }
+
+    // Check environment variable
+    def envPath = System.getenv('JEXTRACT_HOME')
+    if (envPath != null && new File(envPath, 'bin/jextract').exists()) {
+        return envPath
+    }
+
+    // Check common installation locations
+    def commonPaths = [
+        '/opt/jextract-22',
+        '/opt/jextract',
+        '/usr/local/jextract',
+        "${System.getProperty('user.home')}/jextract",
+        "${System.getProperty('user.home')}/tools/jextract",
+        "${System.getProperty('user.home')}/.local/jextract"
+    ]
+
+    for (path in commonPaths) {
+        def jextractBin = new File(path, 'bin/jextract')
+        if (jextractBin.exists()) {
+            return path
+        }
+    }
+
+    // Return default (may not exist - checkJextract will validate)
+    return '/opt/jextract-22'
+}
+
+def jextractPath = findJextract()
 
 def parallelJobs = providers.gradleProperty('openucx.jobs')
         .orElse(String.valueOf(Runtime.getRuntime().availableProcessors()))
@@ -175,7 +207,7 @@ tasks.register('autogenUCX', Exec) {
     group = 'openucx'
     description = 'Run autogen.sh for UCX'
 
-    dependsOn 'cloneUCX'
+    dependsOn 'cloneUCX', 'checkOpenUCXDeps'
     onlyIf { isLinux }
 
     def configureScript = new File(ucxRepoDir, 'configure')
@@ -241,7 +273,7 @@ tasks.register('autogenUCC', Exec) {
     group = 'openucx'
     description = 'Run autogen.sh for UCC'
 
-    dependsOn 'cloneUCC'
+    dependsOn 'cloneUCC', 'checkOpenUCXDeps'
     onlyIf { isLinux }
 
     def configureScript = new File(uccRepoDir, 'configure')
@@ -299,6 +331,45 @@ tasks.register('buildUCC', Exec) {
     }
 }
 
+// ===== Build Libraries Only (No jextract) =====
+
+tasks.register('buildOpenUCXLibraries') {
+    group = 'openucx'
+    description = 'Build UCX and UCC libraries only (no jextract required). Use this on GPU boxes.'
+
+    dependsOn 'buildUCX', 'buildUCC'
+
+    doLast {
+        if (!isLinux) {
+            println "WARNING: UCX/UCC libraries require Linux. Skipped on ${os}."
+            return
+        }
+
+        println """
+UCX/UCC Libraries Built Successfully!
+
+UCX installed at: ${ucxInstallDir}
+UCC installed at: ${uccInstallDir}
+
+To use these libraries, set:
+  export LD_LIBRARY_PATH=${ucxInstallDir}/lib:${uccInstallDir}/lib:\$LD_LIBRARY_PATH
+
+Or source the environment file:
+  source ${moduleBuildDir}/openucx.env
+"""
+
+        // Write environment file
+        def envFile = new File(moduleBuildDir, 'openucx.env')
+        envFile.parentFile.mkdirs()
+        envFile.text = """# OpenUCX environment for WarpForge
+export UCX_HOME=${ucxInstallDir}
+export UCC_HOME=${uccInstallDir}
+export LD_LIBRARY_PATH=${ucxInstallDir}/lib:${uccInstallDir}/lib:\$LD_LIBRARY_PATH
+export PKG_CONFIG_PATH=${ucxInstallDir}/lib/pkgconfig:${uccInstallDir}/lib/pkgconfig:\$PKG_CONFIG_PATH
+"""
+    }
+}
+
 // ===== jextract Stub Generation =====
 
 def generatedOutputDir = rootProject.file('warpforge-io/src/generated/java')
@@ -311,13 +382,29 @@ tasks.register('checkJextract') {
 
     doLast {
         if (!jextractBin.exists()) {
+            def searchedLocations = [
+                '/opt/jextract-22',
+                '/opt/jextract',
+                '/usr/local/jextract',
+                "${System.getProperty('user.home')}/jextract",
+                "${System.getProperty('user.home')}/tools/jextract",
+                "${System.getProperty('user.home')}/.local/jextract"
+            ].collect { "${it}/bin/jextract" }.join('\n  - ')
+
             throw new GradleException("""
-jextract not found at: ${jextractBin}
+jextract not found!
+
+Searched locations:
+  - ${searchedLocations}
 
 Install jextract:
   1. Download from: https://jdk.java.net/jextract/
-  2. Extract to /opt/jextract-22 (or set -Pjextract.path=/your/path)
-  3. Or set JEXTRACT_HOME environment variable
+  2. Extract to one of the above locations
+  3. Or set -Pjextract.path=/your/path
+  4. Or set JEXTRACT_HOME environment variable
+
+Note: If you only need to build UCX/UCC libraries (without FFM stubs),
+run: ./gradlew :openucx-runtime:buildOpenUCXLibraries
 """)
         }
         println "Found jextract at: ${jextractBin}"
@@ -516,12 +603,21 @@ If this is intentional:
 
 // ===== Orchestrator Task =====
 
+// Check if jextract is available (without failing)
+def jextractAvailable = jextractBin.exists()
+
 tasks.register('ensureOpenUCXReady') {
     group = 'openucx'
-    description = 'Full build cycle: update repos, build UCX/UCC, generate stubs, verify API stability'
+    description = 'Full build cycle: update repos, build UCX/UCC, generate stubs (if jextract available)'
 
     if (isLinux) {
-        dependsOn 'updateUCX', 'updateUCC', 'checkApiStability'
+        dependsOn 'updateUCX', 'updateUCC'
+        // Only generate stubs if jextract is available
+        if (jextractAvailable) {
+            dependsOn 'checkApiStability'
+        } else {
+            dependsOn 'buildOpenUCXLibraries'
+        }
     } else {
         dependsOn 'checkOpenUCXDepsMac'
     }
@@ -536,8 +632,9 @@ Full RDMA support requires Linux with InfiniBand/RoCE hardware.
             return
         }
 
-        println """
-OpenUCX Ready!
+        if (jextractAvailable) {
+            println """
+OpenUCX Ready! (Full mode with FFM stubs)
 
 UCX installed at: ${ucxInstallDir}
 UCC installed at: ${uccInstallDir}
@@ -554,6 +651,29 @@ To use in warpforge-io, set:
 Or source the generated environment file:
   source ${moduleBuildDir}/openucx.env
 """
+        } else {
+            println """
+OpenUCX Ready! (Libraries-only mode - jextract not found)
+
+UCX installed at: ${ucxInstallDir}
+UCC installed at: ${uccInstallDir}
+
+NOTE: FFM stubs were NOT generated because jextract was not found.
+      This is fine for GPU boxes that only need the native libraries.
+      FFM stubs should already exist from the NUC build.
+
+To use in warpforge-io, set:
+  LD_LIBRARY_PATH=${ucxInstallDir}/lib:${uccInstallDir}/lib:\$LD_LIBRARY_PATH
+
+Or source the generated environment file:
+  source ${moduleBuildDir}/openucx.env
+
+To generate FFM stubs, install jextract:
+  1. Download from: https://jdk.java.net/jextract/
+  2. Extract to /opt/jextract-22
+  3. Run: ./gradlew :openucx-runtime:generateJextractStubs
+"""
+        }
 
         // Write environment file
         def envFile = new File(moduleBuildDir, 'openucx.env')

@@ -24,7 +24,8 @@ This document tracks PyTorch ATen Core operation coverage for the PyTorch → St
 | RNN/LSTM/GRU | 17 | 17 | 100% |
 | Attention | 26 | 26 | 100% |
 | Embedding | 23 | 23 | 100% |
-| **Total** | **284** | **284** | **100%** |
+| Loss Functions | 32 | 32 | 100% |
+| **Total** | **316** | **316** | **100%** |
 
 ## Detailed Coverage by Category
 
@@ -303,6 +304,67 @@ This document tracks PyTorch ATen Core operation coverage for the PyTorch → St
 16. ✅ RNN/LSTM/GRU operations (lstm, gru, rnn, cells, bidirectional, multi-layer)
 17. ✅ Attention operations (scaled_dot_product_attention, multi_head_attention, transformer layers)
 18. ✅ Embedding operations (embedding, embedding_bag, one_hot, positional embedding)
+19. ✅ Loss functions (cross_entropy, mse, l1, huber, kl_div, triplet, ctc, etc.)
+
+## Loss Functions Support
+
+### Overview
+
+WarpForge supports comprehensive loss functions for training neural networks across classification, regression, metric learning, and sequence modeling tasks.
+
+### Supported Operations
+
+| PyTorch Op | StableHLO Target | Description |
+|------------|------------------|-------------|
+| `nn.CrossEntropyLoss` | `custom_call @cross_entropy_loss` | Multi-class classification |
+| `nn.NLLLoss` | `custom_call @cross_entropy_loss` | Negative log likelihood |
+| `nn.BCELoss` | `custom_call @binary_cross_entropy` | Binary classification |
+| `nn.BCEWithLogitsLoss` | `custom_call @bce_with_logits` | Binary with logits |
+| `nn.MSELoss` | `custom_call @mse_loss` | Mean squared error |
+| `nn.L1Loss` | `custom_call @l1_loss` | Mean absolute error |
+| `nn.SmoothL1Loss` | `custom_call @smooth_l1_loss` | Huber loss variant |
+| `nn.HuberLoss` | `custom_call @huber_loss` | Robust regression |
+| `nn.KLDivLoss` | `custom_call @kl_div` | Distribution divergence |
+| `nn.TripletMarginLoss` | `custom_call @triplet_margin_loss` | Metric learning |
+| `nn.CosineEmbeddingLoss` | `custom_call @cosine_embedding_loss` | Cosine similarity |
+| `nn.CTCLoss` | `custom_call @ctc_loss` | Sequence-to-sequence |
+| `nn.PoissonNLLLoss` | `custom_call @poisson_nll_loss` | Count data |
+| `nn.GaussianNLLLoss` | `custom_call @gaussian_nll_loss` | Uncertainty modeling |
+
+### Test Models (32 total)
+
+**Classification Losses (10)**:
+- `cross_entropy_loss` - Standard cross-entropy
+- `cross_entropy_loss_weighted` - With class weights
+- `cross_entropy_loss_ignore_index` - Ignore padding
+- `cross_entropy_loss_label_smoothing` - Regularization
+- `cross_entropy_loss_sum/none` - Different reductions
+- `nll_loss` - Negative log likelihood
+- `bce_loss`, `bce_with_logits_loss`, `bce_with_logits_pos_weight` - Binary
+
+**Regression Losses (7)**:
+- `mse_loss`, `mse_loss_sum` - Mean squared error
+- `l1_loss` - Mean absolute error
+- `smooth_l1_loss`, `smooth_l1_loss_beta` - Huber variant
+- `huber_loss`, `huber_loss_delta` - Robust regression
+
+**Distribution Losses (2)**:
+- `kl_div_loss`, `kl_div_loss_log_target` - KL divergence
+
+**Metric Learning Losses (5)**:
+- `hinge_embedding_loss` - Hinge loss
+- `margin_ranking_loss` - Ranking
+- `triplet_margin_loss`, `triplet_margin_loss_custom` - Triplet
+- `cosine_embedding_loss` - Cosine similarity
+
+**Sequence Losses (2)**:
+- `ctc_loss`, `ctc_loss_zero_infinity` - CTC
+
+**Other Losses (6)**:
+- `poisson_nll_loss` - Count data
+- `gaussian_nll_loss` - Uncertainty
+- `soft_margin_loss`, `multi_margin_loss` - Margin
+- `multilabel_margin_loss`, `multilabel_soft_margin_loss` - Multi-label
 
 ## Embedding Operations Support
 

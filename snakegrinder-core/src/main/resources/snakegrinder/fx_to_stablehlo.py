@@ -1106,6 +1106,272 @@ class FXToStableHLO:
             return [f'{result_ssa} = stablehlo.custom_call @one_hot({input_ssa}) '
                     f'{{num_classes = {num_classes}}} : ({input_type}) -> {result_type}']
 
+        # ===== LOSS FUNCTION OPERATIONS =====
+        # Common loss functions for training neural networks.
+        # Uses custom_call for complex multi-step loss computations.
+
+        elif target_name in ('cross_entropy_loss', 'cross_entropy', 'nll_loss'):
+            # F.cross_entropy / nn.CrossEntropyLoss / F.nll_loss
+            input_ssa = get_input(0)
+            target_ssa = get_input(1)
+            input_type = get_input_type(0)
+            target_type = get_input_type(1)
+            weight = get_input(2) if len(node.args) > 2 else None
+            reduction = node.kwargs.get('reduction', 'mean')
+            ignore_index = node.kwargs.get('ignore_index', -100)
+            label_smoothing = node.kwargs.get('label_smoothing', 0.0)
+            attrs = f'reduction = "{reduction}", ignore_index = {ignore_index}, label_smoothing = {label_smoothing}'
+            if weight:
+                weight_type = get_input_type(2)
+                return [f'{result_ssa} = stablehlo.custom_call @cross_entropy_loss'
+                        f'({input_ssa}, {target_ssa}, {weight}) '
+                        f'{{{attrs}}} : ({input_type}, {target_type}, {weight_type}) -> {result_type}']
+            return [f'{result_ssa} = stablehlo.custom_call @cross_entropy_loss({input_ssa}, {target_ssa}) '
+                    f'{{{attrs}}} : ({input_type}, {target_type}) -> {result_type}']
+
+        elif target_name in ('binary_cross_entropy', 'bce_loss'):
+            # F.binary_cross_entropy / nn.BCELoss
+            input_ssa = get_input(0)
+            target_ssa = get_input(1)
+            input_type = get_input_type(0)
+            target_type = get_input_type(1)
+            weight = get_input(2) if len(node.args) > 2 else None
+            reduction = node.kwargs.get('reduction', 'mean')
+            attrs = f'reduction = "{reduction}"'
+            if weight:
+                weight_type = get_input_type(2)
+                return [f'{result_ssa} = stablehlo.custom_call @binary_cross_entropy'
+                        f'({input_ssa}, {target_ssa}, {weight}) '
+                        f'{{{attrs}}} : ({input_type}, {target_type}, {weight_type}) -> {result_type}']
+            return [f'{result_ssa} = stablehlo.custom_call @binary_cross_entropy({input_ssa}, {target_ssa}) '
+                    f'{{{attrs}}} : ({input_type}, {target_type}) -> {result_type}']
+
+        elif target_name in ('binary_cross_entropy_with_logits', 'bce_with_logits_loss'):
+            # F.binary_cross_entropy_with_logits / nn.BCEWithLogitsLoss
+            input_ssa = get_input(0)
+            target_ssa = get_input(1)
+            input_type = get_input_type(0)
+            target_type = get_input_type(1)
+            weight = node.kwargs.get('weight', None)
+            pos_weight = node.kwargs.get('pos_weight', None)
+            reduction = node.kwargs.get('reduction', 'mean')
+            attrs = f'reduction = "{reduction}"'
+            return [f'{result_ssa} = stablehlo.custom_call @bce_with_logits({input_ssa}, {target_ssa}) '
+                    f'{{{attrs}}} : ({input_type}, {target_type}) -> {result_type}']
+
+        elif target_name in ('mse_loss', 'l2_loss'):
+            # F.mse_loss / nn.MSELoss
+            input_ssa = get_input(0)
+            target_ssa = get_input(1)
+            input_type = get_input_type(0)
+            target_type = get_input_type(1)
+            reduction = node.kwargs.get('reduction', 'mean')
+            attrs = f'reduction = "{reduction}"'
+            return [f'{result_ssa} = stablehlo.custom_call @mse_loss({input_ssa}, {target_ssa}) '
+                    f'{{{attrs}}} : ({input_type}, {target_type}) -> {result_type}']
+
+        elif target_name in ('l1_loss', 'mae_loss'):
+            # F.l1_loss / nn.L1Loss
+            input_ssa = get_input(0)
+            target_ssa = get_input(1)
+            input_type = get_input_type(0)
+            target_type = get_input_type(1)
+            reduction = node.kwargs.get('reduction', 'mean')
+            attrs = f'reduction = "{reduction}"'
+            return [f'{result_ssa} = stablehlo.custom_call @l1_loss({input_ssa}, {target_ssa}) '
+                    f'{{{attrs}}} : ({input_type}, {target_type}) -> {result_type}']
+
+        elif target_name == 'smooth_l1_loss':
+            # F.smooth_l1_loss / nn.SmoothL1Loss (Huber loss)
+            input_ssa = get_input(0)
+            target_ssa = get_input(1)
+            input_type = get_input_type(0)
+            target_type = get_input_type(1)
+            reduction = node.kwargs.get('reduction', 'mean')
+            beta = node.kwargs.get('beta', 1.0)
+            attrs = f'reduction = "{reduction}", beta = {beta}'
+            return [f'{result_ssa} = stablehlo.custom_call @smooth_l1_loss({input_ssa}, {target_ssa}) '
+                    f'{{{attrs}}} : ({input_type}, {target_type}) -> {result_type}']
+
+        elif target_name == 'huber_loss':
+            # F.huber_loss / nn.HuberLoss
+            input_ssa = get_input(0)
+            target_ssa = get_input(1)
+            input_type = get_input_type(0)
+            target_type = get_input_type(1)
+            reduction = node.kwargs.get('reduction', 'mean')
+            delta = node.kwargs.get('delta', 1.0)
+            attrs = f'reduction = "{reduction}", delta = {delta}'
+            return [f'{result_ssa} = stablehlo.custom_call @huber_loss({input_ssa}, {target_ssa}) '
+                    f'{{{attrs}}} : ({input_type}, {target_type}) -> {result_type}']
+
+        elif target_name == 'kl_div':
+            # F.kl_div / nn.KLDivLoss
+            input_ssa = get_input(0)
+            target_ssa = get_input(1)
+            input_type = get_input_type(0)
+            target_type = get_input_type(1)
+            reduction = node.kwargs.get('reduction', 'mean')
+            log_target = node.kwargs.get('log_target', False)
+            attrs = f'reduction = "{reduction}", log_target = {str(log_target).lower()}'
+            return [f'{result_ssa} = stablehlo.custom_call @kl_div({input_ssa}, {target_ssa}) '
+                    f'{{{attrs}}} : ({input_type}, {target_type}) -> {result_type}']
+
+        elif target_name in ('hinge_embedding_loss', 'hinge_loss'):
+            # F.hinge_embedding_loss / nn.HingeEmbeddingLoss
+            input_ssa = get_input(0)
+            target_ssa = get_input(1)
+            input_type = get_input_type(0)
+            target_type = get_input_type(1)
+            margin = node.kwargs.get('margin', 1.0)
+            reduction = node.kwargs.get('reduction', 'mean')
+            attrs = f'margin = {margin}, reduction = "{reduction}"'
+            return [f'{result_ssa} = stablehlo.custom_call @hinge_embedding_loss({input_ssa}, {target_ssa}) '
+                    f'{{{attrs}}} : ({input_type}, {target_type}) -> {result_type}']
+
+        elif target_name in ('margin_ranking_loss',):
+            # F.margin_ranking_loss / nn.MarginRankingLoss
+            input1_ssa = get_input(0)
+            input2_ssa = get_input(1)
+            target_ssa = get_input(2)
+            input1_type = get_input_type(0)
+            input2_type = get_input_type(1)
+            target_type = get_input_type(2)
+            margin = node.kwargs.get('margin', 0.0)
+            reduction = node.kwargs.get('reduction', 'mean')
+            attrs = f'margin = {margin}, reduction = "{reduction}"'
+            return [f'{result_ssa} = stablehlo.custom_call @margin_ranking_loss'
+                    f'({input1_ssa}, {input2_ssa}, {target_ssa}) '
+                    f'{{{attrs}}} : ({input1_type}, {input2_type}, {target_type}) -> {result_type}']
+
+        elif target_name == 'triplet_margin_loss':
+            # F.triplet_margin_loss / nn.TripletMarginLoss
+            anchor_ssa = get_input(0)
+            positive_ssa = get_input(1)
+            negative_ssa = get_input(2)
+            anchor_type = get_input_type(0)
+            positive_type = get_input_type(1)
+            negative_type = get_input_type(2)
+            margin = node.kwargs.get('margin', 1.0)
+            p = node.kwargs.get('p', 2)
+            reduction = node.kwargs.get('reduction', 'mean')
+            attrs = f'margin = {margin}, p = {p}, reduction = "{reduction}"'
+            return [f'{result_ssa} = stablehlo.custom_call @triplet_margin_loss'
+                    f'({anchor_ssa}, {positive_ssa}, {negative_ssa}) '
+                    f'{{{attrs}}} : ({anchor_type}, {positive_type}, {negative_type}) -> {result_type}']
+
+        elif target_name == 'cosine_embedding_loss':
+            # F.cosine_embedding_loss / nn.CosineEmbeddingLoss
+            input1_ssa = get_input(0)
+            input2_ssa = get_input(1)
+            target_ssa = get_input(2)
+            input1_type = get_input_type(0)
+            input2_type = get_input_type(1)
+            target_type = get_input_type(2)
+            margin = node.kwargs.get('margin', 0.0)
+            reduction = node.kwargs.get('reduction', 'mean')
+            attrs = f'margin = {margin}, reduction = "{reduction}"'
+            return [f'{result_ssa} = stablehlo.custom_call @cosine_embedding_loss'
+                    f'({input1_ssa}, {input2_ssa}, {target_ssa}) '
+                    f'{{{attrs}}} : ({input1_type}, {input2_type}, {target_type}) -> {result_type}']
+
+        elif target_name in ('ctc_loss',):
+            # F.ctc_loss / nn.CTCLoss
+            log_probs_ssa = get_input(0)
+            targets_ssa = get_input(1)
+            log_probs_type = get_input_type(0)
+            targets_type = get_input_type(1)
+            input_lengths = get_input(2) if len(node.args) > 2 else None
+            target_lengths = get_input(3) if len(node.args) > 3 else None
+            blank = node.kwargs.get('blank', 0)
+            reduction = node.kwargs.get('reduction', 'mean')
+            zero_infinity = node.kwargs.get('zero_infinity', False)
+            attrs = f'blank = {blank}, reduction = "{reduction}", zero_infinity = {str(zero_infinity).lower()}'
+            if input_lengths and target_lengths:
+                il_type = get_input_type(2)
+                tl_type = get_input_type(3)
+                return [f'{result_ssa} = stablehlo.custom_call @ctc_loss'
+                        f'({log_probs_ssa}, {targets_ssa}, {input_lengths}, {target_lengths}) '
+                        f'{{{attrs}}} : ({log_probs_type}, {targets_type}, {il_type}, {tl_type}) -> {result_type}']
+            return [f'{result_ssa} = stablehlo.custom_call @ctc_loss({log_probs_ssa}, {targets_ssa}) '
+                    f'{{{attrs}}} : ({log_probs_type}, {targets_type}) -> {result_type}']
+
+        elif target_name in ('poisson_nll_loss',):
+            # F.poisson_nll_loss / nn.PoissonNLLLoss
+            input_ssa = get_input(0)
+            target_ssa = get_input(1)
+            input_type = get_input_type(0)
+            target_type = get_input_type(1)
+            log_input = node.kwargs.get('log_input', True)
+            full = node.kwargs.get('full', False)
+            eps = node.kwargs.get('eps', 1e-8)
+            reduction = node.kwargs.get('reduction', 'mean')
+            attrs = f'log_input = {str(log_input).lower()}, full = {str(full).lower()}, eps = {eps}, reduction = "{reduction}"'
+            return [f'{result_ssa} = stablehlo.custom_call @poisson_nll_loss({input_ssa}, {target_ssa}) '
+                    f'{{{attrs}}} : ({input_type}, {target_type}) -> {result_type}']
+
+        elif target_name in ('gaussian_nll_loss',):
+            # F.gaussian_nll_loss / nn.GaussianNLLLoss
+            input_ssa = get_input(0)
+            target_ssa = get_input(1)
+            var_ssa = get_input(2)
+            input_type = get_input_type(0)
+            target_type = get_input_type(1)
+            var_type = get_input_type(2)
+            full = node.kwargs.get('full', False)
+            eps = node.kwargs.get('eps', 1e-6)
+            reduction = node.kwargs.get('reduction', 'mean')
+            attrs = f'full = {str(full).lower()}, eps = {eps}, reduction = "{reduction}"'
+            return [f'{result_ssa} = stablehlo.custom_call @gaussian_nll_loss'
+                    f'({input_ssa}, {target_ssa}, {var_ssa}) '
+                    f'{{{attrs}}} : ({input_type}, {target_type}, {var_type}) -> {result_type}']
+
+        elif target_name in ('soft_margin_loss',):
+            # F.soft_margin_loss / nn.SoftMarginLoss
+            input_ssa = get_input(0)
+            target_ssa = get_input(1)
+            input_type = get_input_type(0)
+            target_type = get_input_type(1)
+            reduction = node.kwargs.get('reduction', 'mean')
+            attrs = f'reduction = "{reduction}"'
+            return [f'{result_ssa} = stablehlo.custom_call @soft_margin_loss({input_ssa}, {target_ssa}) '
+                    f'{{{attrs}}} : ({input_type}, {target_type}) -> {result_type}']
+
+        elif target_name in ('multi_margin_loss',):
+            # F.multi_margin_loss / nn.MultiMarginLoss
+            input_ssa = get_input(0)
+            target_ssa = get_input(1)
+            input_type = get_input_type(0)
+            target_type = get_input_type(1)
+            p = node.kwargs.get('p', 1)
+            margin = node.kwargs.get('margin', 1.0)
+            reduction = node.kwargs.get('reduction', 'mean')
+            attrs = f'p = {p}, margin = {margin}, reduction = "{reduction}"'
+            return [f'{result_ssa} = stablehlo.custom_call @multi_margin_loss({input_ssa}, {target_ssa}) '
+                    f'{{{attrs}}} : ({input_type}, {target_type}) -> {result_type}']
+
+        elif target_name in ('multilabel_margin_loss',):
+            # F.multilabel_margin_loss / nn.MultiLabelMarginLoss
+            input_ssa = get_input(0)
+            target_ssa = get_input(1)
+            input_type = get_input_type(0)
+            target_type = get_input_type(1)
+            reduction = node.kwargs.get('reduction', 'mean')
+            attrs = f'reduction = "{reduction}"'
+            return [f'{result_ssa} = stablehlo.custom_call @multilabel_margin_loss({input_ssa}, {target_ssa}) '
+                    f'{{{attrs}}} : ({input_type}, {target_type}) -> {result_type}']
+
+        elif target_name in ('multilabel_soft_margin_loss',):
+            # F.multilabel_soft_margin_loss / nn.MultiLabelSoftMarginLoss
+            input_ssa = get_input(0)
+            target_ssa = get_input(1)
+            input_type = get_input_type(0)
+            target_type = get_input_type(1)
+            reduction = node.kwargs.get('reduction', 'mean')
+            attrs = f'reduction = "{reduction}"'
+            return [f'{result_ssa} = stablehlo.custom_call @multilabel_soft_margin_loss({input_ssa}, {target_ssa}) '
+                    f'{{{attrs}}} : ({input_type}, {target_type}) -> {result_type}']
+
         elif target_name == 'std':
             # std(x) = sqrt(var(x)) = sqrt(mean((x - mean(x))^2))
             input_ssa = get_input(0)

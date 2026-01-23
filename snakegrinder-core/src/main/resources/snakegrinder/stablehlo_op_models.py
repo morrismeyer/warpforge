@@ -1457,6 +1457,382 @@ class EmbeddingSum2dOp(nn.Module):
 
 
 # =============================================================================
+# Loss Function Operations
+# =============================================================================
+
+class CrossEntropyLossOp(nn.Module):
+    """Cross-entropy loss (nn.CrossEntropyLoss).
+    Standard classification loss.
+    """
+    def __init__(self):
+        super().__init__()
+        self.loss = nn.CrossEntropyLoss()
+
+    def forward(self, input, target):
+        return self.loss(input, target)
+
+
+class CrossEntropyLossWeightedOp(nn.Module):
+    """Cross-entropy loss with class weights.
+    """
+    def __init__(self):
+        super().__init__()
+        self.loss = nn.CrossEntropyLoss(weight=torch.ones(10))
+
+    def forward(self, input, target):
+        return self.loss(input, target)
+
+
+class CrossEntropyLossIgnoreIndexOp(nn.Module):
+    """Cross-entropy loss with ignore_index.
+    """
+    def __init__(self):
+        super().__init__()
+        self.loss = nn.CrossEntropyLoss(ignore_index=0)
+
+    def forward(self, input, target):
+        return self.loss(input, target)
+
+
+class CrossEntropyLossLabelSmoothingOp(nn.Module):
+    """Cross-entropy loss with label smoothing.
+    """
+    def __init__(self):
+        super().__init__()
+        self.loss = nn.CrossEntropyLoss(label_smoothing=0.1)
+
+    def forward(self, input, target):
+        return self.loss(input, target)
+
+
+class CrossEntropyLossSumOp(nn.Module):
+    """Cross-entropy loss with reduction='sum'.
+    """
+    def __init__(self):
+        super().__init__()
+        self.loss = nn.CrossEntropyLoss(reduction='sum')
+
+    def forward(self, input, target):
+        return self.loss(input, target)
+
+
+class CrossEntropyLossNoneOp(nn.Module):
+    """Cross-entropy loss with reduction='none'.
+    Returns per-sample loss.
+    """
+    def __init__(self):
+        super().__init__()
+        self.loss = nn.CrossEntropyLoss(reduction='none')
+
+    def forward(self, input, target):
+        return self.loss(input, target)
+
+
+class NLLLossOp(nn.Module):
+    """Negative log likelihood loss (nn.NLLLoss).
+    Expects log-probabilities input.
+    """
+    def __init__(self):
+        super().__init__()
+        self.loss = nn.NLLLoss()
+
+    def forward(self, input, target):
+        return self.loss(input, target)
+
+
+class BCELossOp(nn.Module):
+    """Binary cross-entropy loss (nn.BCELoss).
+    Expects probabilities input.
+    """
+    def __init__(self):
+        super().__init__()
+        self.loss = nn.BCELoss()
+
+    def forward(self, input, target):
+        return self.loss(input, target)
+
+
+class BCEWithLogitsLossOp(nn.Module):
+    """BCE with logits (nn.BCEWithLogitsLoss).
+    More numerically stable than BCELoss.
+    """
+    def __init__(self):
+        super().__init__()
+        self.loss = nn.BCEWithLogitsLoss()
+
+    def forward(self, input, target):
+        return self.loss(input, target)
+
+
+class BCEWithLogitsPosWeightOp(nn.Module):
+    """BCE with logits and pos_weight.
+    For imbalanced binary classification.
+    """
+    def __init__(self):
+        super().__init__()
+        self.loss = nn.BCEWithLogitsLoss(pos_weight=torch.ones(10) * 2)
+
+    def forward(self, input, target):
+        return self.loss(input, target)
+
+
+class MSELossOp(nn.Module):
+    """Mean squared error loss (nn.MSELoss).
+    Standard regression loss.
+    """
+    def __init__(self):
+        super().__init__()
+        self.loss = nn.MSELoss()
+
+    def forward(self, input, target):
+        return self.loss(input, target)
+
+
+class MSELossSumOp(nn.Module):
+    """MSE loss with reduction='sum'.
+    """
+    def __init__(self):
+        super().__init__()
+        self.loss = nn.MSELoss(reduction='sum')
+
+    def forward(self, input, target):
+        return self.loss(input, target)
+
+
+class L1LossOp(nn.Module):
+    """L1/MAE loss (nn.L1Loss).
+    Robust to outliers.
+    """
+    def __init__(self):
+        super().__init__()
+        self.loss = nn.L1Loss()
+
+    def forward(self, input, target):
+        return self.loss(input, target)
+
+
+class SmoothL1LossOp(nn.Module):
+    """Smooth L1 / Huber loss (nn.SmoothL1Loss).
+    Combines L1 and L2.
+    """
+    def __init__(self):
+        super().__init__()
+        self.loss = nn.SmoothL1Loss()
+
+    def forward(self, input, target):
+        return self.loss(input, target)
+
+
+class SmoothL1LossBetaOp(nn.Module):
+    """Smooth L1 loss with custom beta.
+    """
+    def __init__(self):
+        super().__init__()
+        self.loss = nn.SmoothL1Loss(beta=0.5)
+
+    def forward(self, input, target):
+        return self.loss(input, target)
+
+
+class HuberLossOp(nn.Module):
+    """Huber loss (nn.HuberLoss).
+    Similar to SmoothL1 with delta parameter.
+    """
+    def __init__(self):
+        super().__init__()
+        self.loss = nn.HuberLoss()
+
+    def forward(self, input, target):
+        return self.loss(input, target)
+
+
+class HuberLossDeltaOp(nn.Module):
+    """Huber loss with custom delta.
+    """
+    def __init__(self):
+        super().__init__()
+        self.loss = nn.HuberLoss(delta=0.5)
+
+    def forward(self, input, target):
+        return self.loss(input, target)
+
+
+class KLDivLossOp(nn.Module):
+    """KL divergence loss (nn.KLDivLoss).
+    Measures distribution difference.
+    """
+    def __init__(self):
+        super().__init__()
+        self.loss = nn.KLDivLoss(reduction='batchmean')
+
+    def forward(self, input, target):
+        return self.loss(F.log_softmax(input, dim=1), F.softmax(target, dim=1))
+
+
+class KLDivLossLogTargetOp(nn.Module):
+    """KL divergence with log_target=True.
+    """
+    def __init__(self):
+        super().__init__()
+        self.loss = nn.KLDivLoss(reduction='batchmean', log_target=True)
+
+    def forward(self, input, target):
+        return self.loss(F.log_softmax(input, dim=1), F.log_softmax(target, dim=1))
+
+
+class HingeEmbeddingLossOp(nn.Module):
+    """Hinge embedding loss (nn.HingeEmbeddingLoss).
+    For learning embeddings.
+    """
+    def __init__(self):
+        super().__init__()
+        self.loss = nn.HingeEmbeddingLoss()
+
+    def forward(self, input, target):
+        return self.loss(input, target)
+
+
+class MarginRankingLossOp(nn.Module):
+    """Margin ranking loss (nn.MarginRankingLoss).
+    For learning to rank.
+    """
+    def __init__(self):
+        super().__init__()
+        self.loss = nn.MarginRankingLoss()
+
+    def forward(self, input1, input2, target):
+        return self.loss(input1, input2, target)
+
+
+class TripletMarginLossOp(nn.Module):
+    """Triplet margin loss (nn.TripletMarginLoss).
+    For metric learning.
+    """
+    def __init__(self):
+        super().__init__()
+        self.loss = nn.TripletMarginLoss()
+
+    def forward(self, anchor, positive, negative):
+        return self.loss(anchor, positive, negative)
+
+
+class TripletMarginLossCustomOp(nn.Module):
+    """Triplet margin loss with custom margin and p.
+    """
+    def __init__(self):
+        super().__init__()
+        self.loss = nn.TripletMarginLoss(margin=2.0, p=1)
+
+    def forward(self, anchor, positive, negative):
+        return self.loss(anchor, positive, negative)
+
+
+class CosineEmbeddingLossOp(nn.Module):
+    """Cosine embedding loss (nn.CosineEmbeddingLoss).
+    For learning cosine similarity.
+    """
+    def __init__(self):
+        super().__init__()
+        self.loss = nn.CosineEmbeddingLoss()
+
+    def forward(self, input1, input2, target):
+        return self.loss(input1, input2, target)
+
+
+class CTCLossOp(nn.Module):
+    """CTC loss (nn.CTCLoss).
+    For sequence-to-sequence without alignment.
+    """
+    def __init__(self):
+        super().__init__()
+        self.loss = nn.CTCLoss()
+
+    def forward(self, log_probs, targets, input_lengths, target_lengths):
+        return self.loss(log_probs, targets, input_lengths, target_lengths)
+
+
+class CTCLossZeroInfinityOp(nn.Module):
+    """CTC loss with zero_infinity=True.
+    """
+    def __init__(self):
+        super().__init__()
+        self.loss = nn.CTCLoss(zero_infinity=True)
+
+    def forward(self, log_probs, targets, input_lengths, target_lengths):
+        return self.loss(log_probs, targets, input_lengths, target_lengths)
+
+
+class PoissonNLLLossOp(nn.Module):
+    """Poisson NLL loss (nn.PoissonNLLLoss).
+    For count data.
+    """
+    def __init__(self):
+        super().__init__()
+        self.loss = nn.PoissonNLLLoss()
+
+    def forward(self, input, target):
+        return self.loss(input, target)
+
+
+class GaussianNLLLossOp(nn.Module):
+    """Gaussian NLL loss (nn.GaussianNLLLoss).
+    For regression with uncertainty.
+    """
+    def __init__(self):
+        super().__init__()
+        self.loss = nn.GaussianNLLLoss()
+
+    def forward(self, input, target, var):
+        return self.loss(input, target, var)
+
+
+class SoftMarginLossOp(nn.Module):
+    """Soft margin loss (nn.SoftMarginLoss).
+    Two-class classification.
+    """
+    def __init__(self):
+        super().__init__()
+        self.loss = nn.SoftMarginLoss()
+
+    def forward(self, input, target):
+        return self.loss(input, target)
+
+
+class MultiMarginLossOp(nn.Module):
+    """Multi-margin loss (nn.MultiMarginLoss).
+    Multi-class hinge loss.
+    """
+    def __init__(self):
+        super().__init__()
+        self.loss = nn.MultiMarginLoss()
+
+    def forward(self, input, target):
+        return self.loss(input, target)
+
+
+class MultiLabelMarginLossOp(nn.Module):
+    """Multi-label margin loss (nn.MultiLabelMarginLoss).
+    """
+    def __init__(self):
+        super().__init__()
+        self.loss = nn.MultiLabelMarginLoss()
+
+    def forward(self, input, target):
+        return self.loss(input, target)
+
+
+class MultiLabelSoftMarginLossOp(nn.Module):
+    """Multi-label soft margin loss (nn.MultiLabelSoftMarginLoss).
+    """
+    def __init__(self):
+        super().__init__()
+        self.loss = nn.MultiLabelSoftMarginLoss()
+
+    def forward(self, input, target):
+        return self.loss(input, target)
+
+
+# =============================================================================
 # Type Conversion Operations
 # =============================================================================
 
@@ -2749,6 +3125,48 @@ OPERATION_REGISTRY = {
     'embedding_with_layernorm': (EmbeddingWithLayerNormOp, [([2, 10], 'i64')]),
     'positional_embedding': (PositionalEmbeddingOp, [([2, 10], 'i64')]),
     'embedding_sum_2d': (EmbeddingSum2dOp, [([2, 10], 'i64'), ([2, 10], 'i64'), ([2, 10], 'i64')]),  # token, segment, position
+
+    # Loss Functions
+    # Classification losses: input (batch, num_classes), target (batch,) for class indices
+    'cross_entropy_loss': (CrossEntropyLossOp, [([4, 10], 'f32'), ([4], 'i64')]),  # batch=4, classes=10
+    'cross_entropy_loss_weighted': (CrossEntropyLossWeightedOp, [([4, 10], 'f32'), ([4], 'i64')]),
+    'cross_entropy_loss_ignore_index': (CrossEntropyLossIgnoreIndexOp, [([4, 10], 'f32'), ([4], 'i64')]),
+    'cross_entropy_loss_label_smoothing': (CrossEntropyLossLabelSmoothingOp, [([4, 10], 'f32'), ([4], 'i64')]),
+    'cross_entropy_loss_sum': (CrossEntropyLossSumOp, [([4, 10], 'f32'), ([4], 'i64')]),
+    'cross_entropy_loss_none': (CrossEntropyLossNoneOp, [([4, 10], 'f32'), ([4], 'i64')]),
+    'nll_loss': (NLLLossOp, [([4, 10], 'f32'), ([4], 'i64')]),
+    # Binary classification losses
+    'bce_loss': (BCELossOp, [([4, 10], 'f32'), ([4, 10], 'f32')]),
+    'bce_with_logits_loss': (BCEWithLogitsLossOp, [([4, 10], 'f32'), ([4, 10], 'f32')]),
+    'bce_with_logits_pos_weight': (BCEWithLogitsPosWeightOp, [([4, 10], 'f32'), ([4, 10], 'f32')]),
+    # Regression losses
+    'mse_loss': (MSELossOp, [([4, 10], 'f32'), ([4, 10], 'f32')]),
+    'mse_loss_sum': (MSELossSumOp, [([4, 10], 'f32'), ([4, 10], 'f32')]),
+    'l1_loss': (L1LossOp, [([4, 10], 'f32'), ([4, 10], 'f32')]),
+    'smooth_l1_loss': (SmoothL1LossOp, [([4, 10], 'f32'), ([4, 10], 'f32')]),
+    'smooth_l1_loss_beta': (SmoothL1LossBetaOp, [([4, 10], 'f32'), ([4, 10], 'f32')]),
+    'huber_loss': (HuberLossOp, [([4, 10], 'f32'), ([4, 10], 'f32')]),
+    'huber_loss_delta': (HuberLossDeltaOp, [([4, 10], 'f32'), ([4, 10], 'f32')]),
+    # Distribution losses
+    'kl_div_loss': (KLDivLossOp, [([4, 10], 'f32'), ([4, 10], 'f32')]),
+    'kl_div_loss_log_target': (KLDivLossLogTargetOp, [([4, 10], 'f32'), ([4, 10], 'f32')]),
+    # Embedding/metric learning losses
+    'hinge_embedding_loss': (HingeEmbeddingLossOp, [([4, 10], 'f32'), ([4, 10], 'f32')]),
+    'margin_ranking_loss': (MarginRankingLossOp, [([4], 'f32'), ([4], 'f32'), ([4], 'f32')]),
+    'triplet_margin_loss': (TripletMarginLossOp, [([4, 64], 'f32'), ([4, 64], 'f32'), ([4, 64], 'f32')]),  # anchor, positive, negative
+    'triplet_margin_loss_custom': (TripletMarginLossCustomOp, [([4, 64], 'f32'), ([4, 64], 'f32'), ([4, 64], 'f32')]),
+    'cosine_embedding_loss': (CosineEmbeddingLossOp, [([4, 64], 'f32'), ([4, 64], 'f32'), ([4], 'f32')]),
+    # Sequence losses
+    'ctc_loss': (CTCLossOp, [([50, 4, 20], 'f32'), ([4, 10], 'i64'), ([4], 'i64'), ([4], 'i64')]),  # (T, N, C), targets, input_lengths, target_lengths
+    'ctc_loss_zero_infinity': (CTCLossZeroInfinityOp, [([50, 4, 20], 'f32'), ([4, 10], 'i64'), ([4], 'i64'), ([4], 'i64')]),
+    # Statistical losses
+    'poisson_nll_loss': (PoissonNLLLossOp, [([4, 10], 'f32'), ([4, 10], 'f32')]),
+    'gaussian_nll_loss': (GaussianNLLLossOp, [([4, 10], 'f32'), ([4, 10], 'f32'), ([4, 10], 'f32')]),  # input, target, var
+    # Margin losses
+    'soft_margin_loss': (SoftMarginLossOp, [([4, 10], 'f32'), ([4, 10], 'f32')]),
+    'multi_margin_loss': (MultiMarginLossOp, [([4, 10], 'f32'), ([4], 'i64')]),
+    'multilabel_margin_loss': (MultiLabelMarginLossOp, [([4, 10], 'f32'), ([4, 10], 'i64')]),
+    'multilabel_soft_margin_loss': (MultiLabelSoftMarginLossOp, [([4, 10], 'f32'), ([4, 10], 'f32')]),
 
     # Type Conversion
     'to_float': (ToFloatOp, [([1, 8], 'i32')]),

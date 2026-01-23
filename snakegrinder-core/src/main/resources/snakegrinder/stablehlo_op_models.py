@@ -896,6 +896,307 @@ class RNNCellOp(nn.Module):
 
 
 # =============================================================================
+# Attention Operations
+# =============================================================================
+
+class ScaledDotProductAttentionOp(nn.Module):
+    """Basic scaled dot-product attention (F.scaled_dot_product_attention).
+    Produces: stablehlo.custom_call @scaled_dot_product_attention
+    Input: query, key, value with shapes (batch, num_heads, seq_len, head_dim)
+    """
+    def forward(self, query, key, value):
+        return F.scaled_dot_product_attention(query, key, value)
+
+
+class ScaledDotProductAttentionCausalOp(nn.Module):
+    """Scaled dot-product attention with causal mask.
+    is_causal=True applies a causal mask preventing attention to future tokens.
+    """
+    def forward(self, query, key, value):
+        return F.scaled_dot_product_attention(query, key, value, is_causal=True)
+
+
+class ScaledDotProductAttentionDropoutOp(nn.Module):
+    """Scaled dot-product attention with dropout.
+    dropout_p specifies dropout probability during training.
+    """
+    def forward(self, query, key, value):
+        return F.scaled_dot_product_attention(query, key, value, dropout_p=0.1)
+
+
+class ScaledDotProductAttentionMaskOp(nn.Module):
+    """Scaled dot-product attention with explicit attention mask.
+    Mask is added to attention scores before softmax.
+    """
+    def forward(self, query, key, value, attn_mask):
+        return F.scaled_dot_product_attention(query, key, value, attn_mask=attn_mask)
+
+
+class ScaledDotProductAttentionScaleOp(nn.Module):
+    """Scaled dot-product attention with custom scale factor.
+    Default scale is 1/sqrt(head_dim), can be overridden.
+    """
+    def forward(self, query, key, value):
+        return F.scaled_dot_product_attention(query, key, value, scale=0.1)
+
+
+class MultiheadAttentionOp(nn.Module):
+    """Multi-head attention layer (nn.MultiheadAttention).
+    Produces: stablehlo.custom_call @multi_head_attention
+    Input: query, key, value with shape (seq_len, batch, embed_dim)
+    """
+    def __init__(self):
+        super().__init__()
+        self.mha = nn.MultiheadAttention(embed_dim=64, num_heads=8, batch_first=False)
+
+    def forward(self, query, key, value):
+        output, attn_weights = self.mha(query, key, value)
+        return output
+
+
+class MultiheadAttentionBatchFirstOp(nn.Module):
+    """Multi-head attention with batch_first=True.
+    Input: query, key, value with shape (batch, seq_len, embed_dim)
+    """
+    def __init__(self):
+        super().__init__()
+        self.mha = nn.MultiheadAttention(embed_dim=64, num_heads=8, batch_first=True)
+
+    def forward(self, query, key, value):
+        output, attn_weights = self.mha(query, key, value)
+        return output
+
+
+class MultiheadAttentionWithMaskOp(nn.Module):
+    """Multi-head attention with key padding mask.
+    key_padding_mask: (batch, seq_len) bool tensor, True = masked position
+    """
+    def __init__(self):
+        super().__init__()
+        self.mha = nn.MultiheadAttention(embed_dim=64, num_heads=8)
+
+    def forward(self, query, key, value, key_padding_mask):
+        output, attn_weights = self.mha(query, key, value, key_padding_mask=key_padding_mask)
+        return output
+
+
+class MultiheadAttentionAttnMaskOp(nn.Module):
+    """Multi-head attention with attention mask.
+    attn_mask: (seq_len, seq_len) or (batch*num_heads, seq_len, seq_len)
+    """
+    def __init__(self):
+        super().__init__()
+        self.mha = nn.MultiheadAttention(embed_dim=64, num_heads=8)
+
+    def forward(self, query, key, value, attn_mask):
+        output, attn_weights = self.mha(query, key, value, attn_mask=attn_mask)
+        return output
+
+
+class MultiheadAttentionDropoutOp(nn.Module):
+    """Multi-head attention with dropout.
+    """
+    def __init__(self):
+        super().__init__()
+        self.mha = nn.MultiheadAttention(embed_dim=64, num_heads=8, dropout=0.1)
+
+    def forward(self, query, key, value):
+        output, attn_weights = self.mha(query, key, value)
+        return output
+
+
+class MultiheadAttentionNoBiasOp(nn.Module):
+    """Multi-head attention without bias.
+    """
+    def __init__(self):
+        super().__init__()
+        self.mha = nn.MultiheadAttention(embed_dim=64, num_heads=8, bias=False)
+
+    def forward(self, query, key, value):
+        output, attn_weights = self.mha(query, key, value)
+        return output
+
+
+class MultiheadAttentionAddBiasKVOp(nn.Module):
+    """Multi-head attention with add_bias_kv=True.
+    Adds learnable bias to key and value sequences.
+    """
+    def __init__(self):
+        super().__init__()
+        self.mha = nn.MultiheadAttention(embed_dim=64, num_heads=8, add_bias_kv=True)
+
+    def forward(self, query, key, value):
+        output, attn_weights = self.mha(query, key, value)
+        return output
+
+
+class MultiheadAttentionAddZeroAttnOp(nn.Module):
+    """Multi-head attention with add_zero_attn=True.
+    Adds a new batch of zeros to key and value sequences.
+    """
+    def __init__(self):
+        super().__init__()
+        self.mha = nn.MultiheadAttention(embed_dim=64, num_heads=8, add_zero_attn=True)
+
+    def forward(self, query, key, value):
+        output, attn_weights = self.mha(query, key, value)
+        return output
+
+
+class MultiheadAttentionKDimVDimOp(nn.Module):
+    """Multi-head attention with different key/value dimensions.
+    kdim and vdim specify dimensions for key and value projections.
+    """
+    def __init__(self):
+        super().__init__()
+        self.mha = nn.MultiheadAttention(embed_dim=64, num_heads=8, kdim=32, vdim=32)
+
+    def forward(self, query, key, value):
+        output, attn_weights = self.mha(query, key, value)
+        return output
+
+
+class SelfAttentionOp(nn.Module):
+    """Self-attention (query = key = value).
+    Common in transformer encoders.
+    """
+    def __init__(self):
+        super().__init__()
+        self.mha = nn.MultiheadAttention(embed_dim=64, num_heads=8)
+
+    def forward(self, x):
+        output, attn_weights = self.mha(x, x, x)
+        return output
+
+
+class CrossAttentionOp(nn.Module):
+    """Cross-attention (query from one source, key/value from another).
+    Common in transformer decoders.
+    """
+    def __init__(self):
+        super().__init__()
+        self.mha = nn.MultiheadAttention(embed_dim=64, num_heads=8)
+
+    def forward(self, query, memory):
+        output, attn_weights = self.mha(query, memory, memory)
+        return output
+
+
+class AttentionWithProjectionOp(nn.Module):
+    """Attention followed by output projection.
+    Tests attention -> linear pattern common in transformers.
+    """
+    def __init__(self):
+        super().__init__()
+        self.mha = nn.MultiheadAttention(embed_dim=64, num_heads=8)
+        self.proj = nn.Linear(64, 64)
+
+    def forward(self, query, key, value):
+        output, _ = self.mha(query, key, value)
+        return self.proj(output)
+
+
+class AttentionWithLayerNormOp(nn.Module):
+    """Attention with layer normalization (pre-norm style).
+    Tests pattern: LayerNorm -> Attention
+    """
+    def __init__(self):
+        super().__init__()
+        self.norm = nn.LayerNorm(64)
+        self.mha = nn.MultiheadAttention(embed_dim=64, num_heads=8)
+
+    def forward(self, x):
+        normed = self.norm(x)
+        output, _ = self.mha(normed, normed, normed)
+        return output
+
+
+class AttentionWithResidualOp(nn.Module):
+    """Attention with residual connection.
+    Tests pattern: x + Attention(x)
+    """
+    def __init__(self):
+        super().__init__()
+        self.mha = nn.MultiheadAttention(embed_dim=64, num_heads=8)
+
+    def forward(self, x):
+        output, _ = self.mha(x, x, x)
+        return x + output
+
+
+class TransformerEncoderLayerOp(nn.Module):
+    """Full transformer encoder layer.
+    Tests complete: attention + feedforward + residuals + norms
+    """
+    def __init__(self):
+        super().__init__()
+        self.layer = nn.TransformerEncoderLayer(d_model=64, nhead=8, batch_first=False)
+
+    def forward(self, x):
+        return self.layer(x)
+
+
+class TransformerEncoderLayerBatchFirstOp(nn.Module):
+    """Transformer encoder layer with batch_first=True.
+    """
+    def __init__(self):
+        super().__init__()
+        self.layer = nn.TransformerEncoderLayer(d_model=64, nhead=8, batch_first=True)
+
+    def forward(self, x):
+        return self.layer(x)
+
+
+class TransformerDecoderLayerOp(nn.Module):
+    """Full transformer decoder layer.
+    Tests self-attention + cross-attention + feedforward
+    """
+    def __init__(self):
+        super().__init__()
+        self.layer = nn.TransformerDecoderLayer(d_model=64, nhead=8, batch_first=False)
+
+    def forward(self, tgt, memory):
+        return self.layer(tgt, memory)
+
+
+class TransformerEncoderOp(nn.Module):
+    """Stacked transformer encoder.
+    Tests multiple encoder layers in sequence.
+    """
+    def __init__(self):
+        super().__init__()
+        encoder_layer = nn.TransformerEncoderLayer(d_model=64, nhead=8, batch_first=False)
+        self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=2)
+
+    def forward(self, x):
+        return self.encoder(x)
+
+
+class TransformerDecoderOp(nn.Module):
+    """Stacked transformer decoder.
+    Tests multiple decoder layers in sequence.
+    """
+    def __init__(self):
+        super().__init__()
+        decoder_layer = nn.TransformerDecoderLayer(d_model=64, nhead=8, batch_first=False)
+        self.decoder = nn.TransformerDecoder(decoder_layer, num_layers=2)
+
+    def forward(self, tgt, memory):
+        return self.decoder(tgt, memory)
+
+
+class TransformerOp(nn.Module):
+    """Full transformer model (encoder + decoder).
+    """
+    def __init__(self):
+        super().__init__()
+        self.transformer = nn.Transformer(d_model=64, nhead=8, num_encoder_layers=2, num_decoder_layers=2, batch_first=False)
+
+    def forward(self, src, tgt):
+        return self.transformer(src, tgt)
+
+
+# =============================================================================
 # Type Conversion Operations
 # =============================================================================
 
@@ -2130,6 +2431,37 @@ OPERATION_REGISTRY = {
     'lstm_cell': (LSTMCellOp, [([2, 8], 'f32'), ([2, 16], 'f32'), ([2, 16], 'f32')]),  # batch=2
     'gru_cell': (GRUCellOp, [([2, 8], 'f32'), ([2, 16], 'f32')]),
     'rnn_cell': (RNNCellOp, [([2, 8], 'f32'), ([2, 16], 'f32')]),
+
+    # Attention Operations
+    # Scaled dot-product attention shapes: (batch, num_heads, seq_len, head_dim)
+    'scaled_dot_product_attention': (ScaledDotProductAttentionOp, [([2, 8, 10, 16], 'f32'), ([2, 8, 10, 16], 'f32'), ([2, 8, 10, 16], 'f32')]),  # batch=2, heads=8, seq=10, head_dim=16
+    'sdpa_causal': (ScaledDotProductAttentionCausalOp, [([2, 8, 10, 16], 'f32'), ([2, 8, 10, 16], 'f32'), ([2, 8, 10, 16], 'f32')]),
+    'sdpa_dropout': (ScaledDotProductAttentionDropoutOp, [([2, 8, 10, 16], 'f32'), ([2, 8, 10, 16], 'f32'), ([2, 8, 10, 16], 'f32')]),
+    'sdpa_mask': (ScaledDotProductAttentionMaskOp, [([2, 8, 10, 16], 'f32'), ([2, 8, 10, 16], 'f32'), ([2, 8, 10, 16], 'f32'), ([2, 8, 10, 10], 'f32')]),  # mask: (batch, heads, seq, seq)
+    'sdpa_scale': (ScaledDotProductAttentionScaleOp, [([2, 8, 10, 16], 'f32'), ([2, 8, 10, 16], 'f32'), ([2, 8, 10, 16], 'f32')]),
+    # Multi-head attention shapes: (seq_len, batch, embed_dim) for seq-first
+    'multihead_attention': (MultiheadAttentionOp, [([10, 2, 64], 'f32'), ([10, 2, 64], 'f32'), ([10, 2, 64], 'f32')]),  # seq=10, batch=2, embed=64
+    'mha_batch_first': (MultiheadAttentionBatchFirstOp, [([2, 10, 64], 'f32'), ([2, 10, 64], 'f32'), ([2, 10, 64], 'f32')]),
+    'mha_key_padding_mask': (MultiheadAttentionWithMaskOp, [([10, 2, 64], 'f32'), ([10, 2, 64], 'f32'), ([10, 2, 64], 'f32'), ([2, 10], 'bool')]),  # mask: (batch, seq)
+    'mha_attn_mask': (MultiheadAttentionAttnMaskOp, [([10, 2, 64], 'f32'), ([10, 2, 64], 'f32'), ([10, 2, 64], 'f32'), ([10, 10], 'f32')]),  # mask: (seq, seq)
+    'mha_dropout': (MultiheadAttentionDropoutOp, [([10, 2, 64], 'f32'), ([10, 2, 64], 'f32'), ([10, 2, 64], 'f32')]),
+    'mha_no_bias': (MultiheadAttentionNoBiasOp, [([10, 2, 64], 'f32'), ([10, 2, 64], 'f32'), ([10, 2, 64], 'f32')]),
+    'mha_add_bias_kv': (MultiheadAttentionAddBiasKVOp, [([10, 2, 64], 'f32'), ([10, 2, 64], 'f32'), ([10, 2, 64], 'f32')]),
+    'mha_add_zero_attn': (MultiheadAttentionAddZeroAttnOp, [([10, 2, 64], 'f32'), ([10, 2, 64], 'f32'), ([10, 2, 64], 'f32')]),
+    'mha_kdim_vdim': (MultiheadAttentionKDimVDimOp, [([10, 2, 64], 'f32'), ([10, 2, 32], 'f32'), ([10, 2, 32], 'f32')]),  # key/value have different dim
+    # Attention patterns
+    'self_attention': (SelfAttentionOp, [([10, 2, 64], 'f32')]),  # single input for self-attn
+    'cross_attention': (CrossAttentionOp, [([10, 2, 64], 'f32'), ([20, 2, 64], 'f32')]),  # query and memory can differ in seq_len
+    'attention_with_projection': (AttentionWithProjectionOp, [([10, 2, 64], 'f32'), ([10, 2, 64], 'f32'), ([10, 2, 64], 'f32')]),
+    'attention_with_layernorm': (AttentionWithLayerNormOp, [([10, 2, 64], 'f32')]),
+    'attention_with_residual': (AttentionWithResidualOp, [([10, 2, 64], 'f32')]),
+    # Transformer layers and models
+    'transformer_encoder_layer': (TransformerEncoderLayerOp, [([10, 2, 64], 'f32')]),
+    'transformer_encoder_layer_batch_first': (TransformerEncoderLayerBatchFirstOp, [([2, 10, 64], 'f32')]),
+    'transformer_decoder_layer': (TransformerDecoderLayerOp, [([10, 2, 64], 'f32'), ([20, 2, 64], 'f32')]),  # tgt and memory
+    'transformer_encoder': (TransformerEncoderOp, [([10, 2, 64], 'f32')]),
+    'transformer_decoder': (TransformerDecoderOp, [([10, 2, 64], 'f32'), ([20, 2, 64], 'f32')]),
+    'transformer': (TransformerOp, [([20, 2, 64], 'f32'), ([10, 2, 64], 'f32')]),  # src and tgt
 
     # Type Conversion
     'to_float': (ToFloatOp, [([1, 8], 'i32')]),

@@ -21,7 +21,9 @@ This document tracks PyTorch ATen Core operation coverage for the PyTorch → St
 | Padding | 4 | 4 | 100% |
 | Type Conversion | 8 | 8 | 100% |
 | Training/Backward | 45 | 45 | 100% |
-| **Total** | **218** | **218** | **100%** |
+| RNN/LSTM/GRU | 17 | 17 | 100% |
+| Attention | 26 | 26 | 100% |
+| **Total** | **261** | **261** | **100%** |
 
 ## Detailed Coverage by Category
 
@@ -298,6 +300,83 @@ This document tracks PyTorch ATen Core operation coverage for the PyTorch → St
 14. ✅ FFT operations (torch.fft module) - native StableHLO FFT support
 15. ✅ Scan/cumulative operations (cumsum, cumprod, cummax, cummin, logcumsumexp, diff)
 16. ✅ RNN/LSTM/GRU operations (lstm, gru, rnn, cells, bidirectional, multi-layer)
+17. ✅ Attention operations (scaled_dot_product_attention, multi_head_attention, transformer layers)
+
+## Attention Operations Support
+
+### Overview
+
+WarpForge supports comprehensive attention mechanisms for transformer and sequence models. These operations map to `stablehlo.custom_call` to enable backend-optimized implementations (Flash Attention on NVIDIA, Memory-efficient attention on AMD, etc.).
+
+### Supported Operations
+
+| PyTorch Op | StableHLO Target | Description |
+|------------|------------------|-------------|
+| `F.scaled_dot_product_attention` | `custom_call @scaled_dot_product_attention` | Core SDPA operation |
+| `F.scaled_dot_product_attention(..., is_causal=True)` | `custom_call @scaled_dot_product_attention` | Causal masking for autoregressive |
+| `F.scaled_dot_product_attention(..., attn_mask=...)` | `custom_call @scaled_dot_product_attention` | Explicit attention mask |
+| `nn.MultiheadAttention` | `custom_call @multi_head_attention` | Multi-head attention layer |
+| `nn.TransformerEncoderLayer` | (decomposed) | Attention + FFN + residuals |
+| `nn.TransformerDecoderLayer` | (decomposed) | Self-attn + cross-attn + FFN |
+| `nn.TransformerEncoder` | (decomposed) | Stacked encoder layers |
+| `nn.TransformerDecoder` | (decomposed) | Stacked decoder layers |
+| `nn.Transformer` | (decomposed) | Full encoder-decoder model |
+
+### Key Features
+
+- **Causal masking**: `is_causal=True` for autoregressive generation (GPT-style)
+- **Custom masking**: Explicit attention masks for padding, bidirectional attention
+- **Dropout**: Training-time attention dropout
+- **Custom scale**: Override default 1/sqrt(d_k) scaling
+- **Batch-first**: Support both (seq, batch, embed) and (batch, seq, embed) layouts
+- **Cross-attention**: Query from one source, key/value from another
+- **Key padding mask**: Ignore padding tokens in sequences
+
+### Backend Optimizations
+
+The `custom_call` approach allows backends to select optimal implementations:
+
+| Backend | Implementation | Notes |
+|---------|---------------|-------|
+| NVIDIA | Flash Attention v2 | cuDNN 8.9+ required for fused kernel |
+| NVIDIA | Memory-efficient attention | xFormers fallback |
+| AMD | Composable Kernel | ROCm 6.0+ |
+| CPU | oneDNN | Optimized matmul + softmax |
+
+### Test Models (26 total)
+
+**Scaled Dot-Product Attention (5)**:
+- `scaled_dot_product_attention` - Basic SDPA
+- `sdpa_causal` - Causal masking
+- `sdpa_dropout` - With dropout
+- `sdpa_mask` - Explicit attention mask
+- `sdpa_scale` - Custom scale factor
+
+**Multi-Head Attention (11)**:
+- `multihead_attention` - Basic MHA (seq-first)
+- `mha_batch_first` - Batch-first layout
+- `mha_key_padding_mask` - Key padding mask
+- `mha_attn_mask` - Attention mask
+- `mha_dropout` - With dropout
+- `mha_no_bias` - Without bias
+- `mha_add_bias_kv` - Bias to key/value
+- `mha_add_zero_attn` - Zero attention
+- `mha_kdim_vdim` - Different key/value dimensions
+- `self_attention` - Self-attention pattern
+- `cross_attention` - Cross-attention pattern
+
+**Attention Patterns (3)**:
+- `attention_with_projection` - Attention + linear
+- `attention_with_layernorm` - Pre-norm attention
+- `attention_with_residual` - Attention + skip connection
+
+**Transformer Modules (7)**:
+- `transformer_encoder_layer` - Single encoder layer
+- `transformer_encoder_layer_batch_first` - Batch-first encoder
+- `transformer_decoder_layer` - Single decoder layer
+- `transformer_encoder` - Stacked encoder
+- `transformer_decoder` - Stacked decoder
+- `transformer` - Full encoder-decoder model
 
 ## Dynamic Shape Support
 

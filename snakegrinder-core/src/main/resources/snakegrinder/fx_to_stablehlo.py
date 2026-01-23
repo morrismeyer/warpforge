@@ -987,6 +987,64 @@ class FXToStableHLO:
             return [f'{result_ssa} = stablehlo.custom_call @rnn({input_ssa}) '
                     f'{{{attrs}}} : ({input_type}) -> {result_type}']
 
+        # ===== ATTENTION OPERATIONS =====
+        # Attention mechanisms for transformers and sequence models.
+        # Uses custom_call for backend-optimized implementations (Flash Attention, etc.)
+
+        elif target_name in ('scaled_dot_product_attention', '_scaled_dot_product_attention'):
+            # F.scaled_dot_product_attention(query, key, value, attn_mask, dropout_p, is_causal)
+            query_ssa = get_input(0)
+            key_ssa = get_input(1)
+            value_ssa = get_input(2)
+            query_type = get_input_type(0)
+            key_type = get_input_type(1)
+            value_type = get_input_type(2)
+            attn_mask = get_input(3) if len(node.args) > 3 else None
+            dropout_p = node.args[4] if len(node.args) > 4 else node.kwargs.get('dropout_p', 0.0)
+            is_causal = node.args[5] if len(node.args) > 5 else node.kwargs.get('is_causal', False)
+            scale = node.kwargs.get('scale', None)
+            attrs = f'dropout_p = {dropout_p}, is_causal = {str(is_causal).lower()}'
+            if scale is not None:
+                attrs += f', scale = {scale}'
+            if attn_mask:
+                mask_type = get_input_type(3)
+                return [f'{result_ssa} = stablehlo.custom_call @scaled_dot_product_attention'
+                        f'({query_ssa}, {key_ssa}, {value_ssa}, {attn_mask}) '
+                        f'{{{attrs}}} : ({query_type}, {key_type}, {value_type}, {mask_type}) -> {result_type}']
+            return [f'{result_ssa} = stablehlo.custom_call @scaled_dot_product_attention'
+                    f'({query_ssa}, {key_ssa}, {value_ssa}) '
+                    f'{{{attrs}}} : ({query_type}, {key_type}, {value_type}) -> {result_type}']
+
+        elif target_name in ('multi_head_attention_forward', 'multihead_attention'):
+            # nn.MultiheadAttention forward
+            query_ssa = get_input(0)
+            key_ssa = get_input(1)
+            value_ssa = get_input(2)
+            query_type = get_input_type(0)
+            key_type = get_input_type(1)
+            value_type = get_input_type(2)
+            embed_dim = node.kwargs.get('embed_dim', 512)
+            num_heads = node.kwargs.get('num_heads', 8)
+            dropout = node.kwargs.get('dropout', 0.0)
+            bias = node.kwargs.get('bias', True)
+            add_bias_kv = node.kwargs.get('add_bias_kv', False)
+            add_zero_attn = node.kwargs.get('add_zero_attn', False)
+            batch_first = node.kwargs.get('batch_first', False)
+            attrs = f'embed_dim = {embed_dim}, num_heads = {num_heads}, dropout = {dropout}, '
+            attrs += f'bias = {str(bias).lower()}, add_bias_kv = {str(add_bias_kv).lower()}, '
+            attrs += f'add_zero_attn = {str(add_zero_attn).lower()}, batch_first = {str(batch_first).lower()}'
+            return [f'{result_ssa} = stablehlo.custom_call @multi_head_attention'
+                    f'({query_ssa}, {key_ssa}, {value_ssa}) '
+                    f'{{{attrs}}} : ({query_type}, {key_type}, {value_type}) -> {result_type}']
+
+        elif target_name == 'softmax':
+            # Already handled above, but add attention-specific variant
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            dim = node.args[1] if len(node.args) > 1 else node.kwargs.get('dim', -1)
+            return [f'{result_ssa} = stablehlo.custom_call @softmax({input_ssa}) '
+                    f'{{dim = {dim}}} : ({input_type}) -> {result_type}']
+
         elif target_name == 'std':
             # std(x) = sqrt(var(x)) = sqrt(mean((x - mean(x))^2))
             input_ssa = get_input(0)

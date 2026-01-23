@@ -379,7 +379,9 @@ tasks.register('testNativeImage', Exec) {
 
     doLast {
         // Verify output files were created
-        def outputDir = file("${rootProject.buildDir}/snakegrinder/trace-example")
+        // Use project.buildDir (not rootProject.buildDir) because snakegrinder writes to a relative path
+        // from its working directory, which is the project directory when run via Exec task
+        def outputDir = file("${project.buildDir}/snakegrinder/trace-example")
         def mlirFile = file("${outputDir}/model.mlir")
         def manifestFile = file("${outputDir}/manifest.json")
 

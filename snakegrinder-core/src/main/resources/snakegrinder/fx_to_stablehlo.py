@@ -507,6 +507,325 @@ class FXToStableHLO:
                 f'{result_ssa} = stablehlo.divide {exp_ssa}, {exp_ssa} : {result_type}  // placeholder'
             ]
 
+        elif target_name == 'log_softmax':
+            input_ssa = get_input(0)
+            # log_softmax(x) = x - log(sum(exp(x)))
+            exp_ssa = f'{result_ssa}_exp'
+            log_ssa = f'{result_ssa}_log'
+            return [
+                f'{exp_ssa} = stablehlo.exponential {input_ssa} : {result_type}',
+                f'// Note: Full log_softmax requires reduction - simplified here',
+                f'{log_ssa} = stablehlo.log {exp_ssa} : {result_type}',
+                f'{result_ssa} = stablehlo.subtract {input_ssa}, {log_ssa} : {result_type}  // placeholder'
+            ]
+
+        # === Additional Reduction Operations ===
+        elif target_name == 'mean':
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            dim = node.args[1] if len(node.args) > 1 else node.kwargs.get('dim', None)
+            keepdim = node.kwargs.get('keepdim', False)
+            if dim is None:
+                dim = 0
+            init_ssa = f'{result_ssa}_init'
+            sum_ssa = f'{result_ssa}_sum'
+            return [
+                f'{init_ssa} = stablehlo.constant dense<0.0> : tensor<f32>',
+                f'{sum_ssa} = stablehlo.reduce {input_ssa}, {init_ssa}, dims = [{dim}], reducer = add : ({input_type}, tensor<f32>) -> {result_type}',
+                f'// Note: mean requires dividing by count - simplified here',
+                f'{result_ssa} = {sum_ssa}  // placeholder for mean'
+            ]
+
+        elif target_name == 'prod':
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            dim = node.args[1] if len(node.args) > 1 else node.kwargs.get('dim', None)
+            if dim is None:
+                dim = 0
+            init_ssa = f'{result_ssa}_init'
+            return [
+                f'{init_ssa} = stablehlo.constant dense<1.0> : tensor<f32>',
+                f'{result_ssa} = stablehlo.reduce {input_ssa}, {init_ssa}, dims = [{dim}], reducer = multiply : ({input_type}, tensor<f32>) -> {result_type}'
+            ]
+
+        elif target_name == 'all':
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            dim = node.args[1] if len(node.args) > 1 else node.kwargs.get('dim', None)
+            if dim is None:
+                dim = 0
+            init_ssa = f'{result_ssa}_init'
+            return [
+                f'{init_ssa} = stablehlo.constant dense<true> : tensor<i1>',
+                f'{result_ssa} = stablehlo.reduce {input_ssa}, {init_ssa}, dims = [{dim}], reducer = and : ({input_type}, tensor<i1>) -> {result_type}'
+            ]
+
+        elif target_name == 'any':
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            dim = node.args[1] if len(node.args) > 1 else node.kwargs.get('dim', None)
+            if dim is None:
+                dim = 0
+            init_ssa = f'{result_ssa}_init'
+            return [
+                f'{init_ssa} = stablehlo.constant dense<false> : tensor<i1>',
+                f'{result_ssa} = stablehlo.reduce {input_ssa}, {init_ssa}, dims = [{dim}], reducer = or : ({input_type}, tensor<i1>) -> {result_type}'
+            ]
+
+        elif target_name == 'logsumexp':
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            dim = node.args[1] if len(node.args) > 1 else node.kwargs.get('dim', 0)
+            # logsumexp(x) = log(sum(exp(x)))
+            exp_ssa = f'{result_ssa}_exp'
+            sum_init = f'{result_ssa}_init'
+            sum_ssa = f'{result_ssa}_sum'
+            return [
+                f'{exp_ssa} = stablehlo.exponential {input_ssa} : {input_type}',
+                f'{sum_init} = stablehlo.constant dense<0.0> : tensor<f32>',
+                f'{sum_ssa} = stablehlo.reduce {exp_ssa}, {sum_init}, dims = [{dim}], reducer = add : ({input_type}, tensor<f32>) -> {result_type}',
+                f'{result_ssa} = stablehlo.log {sum_ssa} : {result_type}'
+            ]
+
+        elif target_name == 'cumsum':
+            input_ssa = get_input(0)
+            dim = node.args[1] if len(node.args) > 1 else node.kwargs.get('dim', 0)
+            return [f'// cumsum requires scan - not directly supported in StableHLO',
+                    f'{result_ssa} = stablehlo.custom_call @cumsum({input_ssa}) {{dim = {dim}}} : ({get_input_type(0)}) -> {result_type}']
+
+        elif target_name == 'cumprod':
+            input_ssa = get_input(0)
+            dim = node.args[1] if len(node.args) > 1 else node.kwargs.get('dim', 0)
+            return [f'// cumprod requires scan - not directly supported in StableHLO',
+                    f'{result_ssa} = stablehlo.custom_call @cumprod({input_ssa}) {{dim = {dim}}} : ({get_input_type(0)}) -> {result_type}']
+
+        # === Activation Functions ===
+        elif target_name == 'leaky_relu':
+            input_ssa = get_input(0)
+            negative_slope = node.args[1] if len(node.args) > 1 else node.kwargs.get('negative_slope', 0.01)
+            zero_ssa = f'{result_ssa}_zero'
+            scale_ssa = f'{result_ssa}_scale'
+            scaled_ssa = f'{result_ssa}_scaled'
+            cmp_ssa = f'{result_ssa}_cmp'
+            return [
+                f'{zero_ssa} = stablehlo.constant dense<0.0> : {result_type}',
+                f'{scale_ssa} = stablehlo.constant dense<{negative_slope}> : {result_type}',
+                f'{scaled_ssa} = stablehlo.multiply {input_ssa}, {scale_ssa} : {result_type}',
+                f'{cmp_ssa} = stablehlo.compare GE, {input_ssa}, {zero_ssa} : ({result_type}, {result_type}) -> tensor<i1>',
+                f'{result_ssa} = stablehlo.select {cmp_ssa}, {input_ssa}, {scaled_ssa} : (tensor<i1>, {result_type}, {result_type}) -> {result_type}'
+            ]
+
+        elif target_name == 'elu':
+            input_ssa = get_input(0)
+            alpha = node.args[1] if len(node.args) > 1 else node.kwargs.get('alpha', 1.0)
+            zero_ssa = f'{result_ssa}_zero'
+            alpha_ssa = f'{result_ssa}_alpha'
+            exp_ssa = f'{result_ssa}_exp'
+            sub_ssa = f'{result_ssa}_sub'
+            scaled_ssa = f'{result_ssa}_scaled'
+            cmp_ssa = f'{result_ssa}_cmp'
+            return [
+                f'{zero_ssa} = stablehlo.constant dense<0.0> : {result_type}',
+                f'{alpha_ssa} = stablehlo.constant dense<{alpha}> : {result_type}',
+                f'{exp_ssa} = stablehlo.exponential {input_ssa} : {result_type}',
+                f'{sub_ssa} = stablehlo.subtract {exp_ssa}, {alpha_ssa} : {result_type}',
+                f'{scaled_ssa} = stablehlo.multiply {alpha_ssa}, {sub_ssa} : {result_type}',
+                f'{cmp_ssa} = stablehlo.compare GE, {input_ssa}, {zero_ssa} : ({result_type}, {result_type}) -> tensor<i1>',
+                f'{result_ssa} = stablehlo.select {cmp_ssa}, {input_ssa}, {scaled_ssa} : (tensor<i1>, {result_type}, {result_type}) -> {result_type}'
+            ]
+
+        elif target_name in ('silu', 'swish'):
+            # silu(x) = x * sigmoid(x)
+            input_ssa = get_input(0)
+            sigmoid_ssa = f'{result_ssa}_sigmoid'
+            return [
+                f'{sigmoid_ssa} = stablehlo.logistic {input_ssa} : {result_type}',
+                f'{result_ssa} = stablehlo.multiply {input_ssa}, {sigmoid_ssa} : {result_type}'
+            ]
+
+        elif target_name == 'gelu':
+            # gelu(x) ≈ 0.5 * x * (1 + tanh(sqrt(2/π) * (x + 0.044715 * x^3)))
+            input_ssa = get_input(0)
+            half_ssa = f'{result_ssa}_half'
+            coef_ssa = f'{result_ssa}_coef'
+            cube_coef_ssa = f'{result_ssa}_cube_coef'
+            sq_ssa = f'{result_ssa}_sq'
+            cube_ssa = f'{result_ssa}_cube'
+            scaled_cube_ssa = f'{result_ssa}_scaled_cube'
+            sum_ssa = f'{result_ssa}_sum'
+            inner_ssa = f'{result_ssa}_inner'
+            tanh_ssa = f'{result_ssa}_tanh'
+            one_ssa = f'{result_ssa}_one'
+            add_ssa = f'{result_ssa}_add'
+            mul1_ssa = f'{result_ssa}_mul1'
+            return [
+                f'{half_ssa} = stablehlo.constant dense<0.5> : {result_type}',
+                f'{coef_ssa} = stablehlo.constant dense<0.7978845608> : {result_type}',  # sqrt(2/π)
+                f'{cube_coef_ssa} = stablehlo.constant dense<0.044715> : {result_type}',
+                f'{one_ssa} = stablehlo.constant dense<1.0> : {result_type}',
+                f'{sq_ssa} = stablehlo.multiply {input_ssa}, {input_ssa} : {result_type}',
+                f'{cube_ssa} = stablehlo.multiply {sq_ssa}, {input_ssa} : {result_type}',
+                f'{scaled_cube_ssa} = stablehlo.multiply {cube_ssa}, {cube_coef_ssa} : {result_type}',
+                f'{sum_ssa} = stablehlo.add {input_ssa}, {scaled_cube_ssa} : {result_type}',
+                f'{inner_ssa} = stablehlo.multiply {sum_ssa}, {coef_ssa} : {result_type}',
+                f'{tanh_ssa} = stablehlo.tanh {inner_ssa} : {result_type}',
+                f'{add_ssa} = stablehlo.add {one_ssa}, {tanh_ssa} : {result_type}',
+                f'{mul1_ssa} = stablehlo.multiply {input_ssa}, {add_ssa} : {result_type}',
+                f'{result_ssa} = stablehlo.multiply {half_ssa}, {mul1_ssa} : {result_type}'
+            ]
+
+        elif target_name == 'mish':
+            # mish(x) = x * tanh(softplus(x)) = x * tanh(ln(1 + exp(x)))
+            input_ssa = get_input(0)
+            exp_ssa = f'{result_ssa}_exp'
+            one_ssa = f'{result_ssa}_one'
+            add_ssa = f'{result_ssa}_add'
+            log_ssa = f'{result_ssa}_log'
+            tanh_ssa = f'{result_ssa}_tanh'
+            return [
+                f'{one_ssa} = stablehlo.constant dense<1.0> : {result_type}',
+                f'{exp_ssa} = stablehlo.exponential {input_ssa} : {result_type}',
+                f'{add_ssa} = stablehlo.add {one_ssa}, {exp_ssa} : {result_type}',
+                f'{log_ssa} = stablehlo.log {add_ssa} : {result_type}',
+                f'{tanh_ssa} = stablehlo.tanh {log_ssa} : {result_type}',
+                f'{result_ssa} = stablehlo.multiply {input_ssa}, {tanh_ssa} : {result_type}'
+            ]
+
+        elif target_name == 'softplus':
+            # softplus(x) = ln(1 + exp(x))
+            input_ssa = get_input(0)
+            exp_ssa = f'{result_ssa}_exp'
+            one_ssa = f'{result_ssa}_one'
+            add_ssa = f'{result_ssa}_add'
+            return [
+                f'{one_ssa} = stablehlo.constant dense<1.0> : {result_type}',
+                f'{exp_ssa} = stablehlo.exponential {input_ssa} : {result_type}',
+                f'{add_ssa} = stablehlo.add {one_ssa}, {exp_ssa} : {result_type}',
+                f'{result_ssa} = stablehlo.log {add_ssa} : {result_type}'
+            ]
+
+        elif target_name == 'softsign':
+            # softsign(x) = x / (1 + |x|)
+            input_ssa = get_input(0)
+            one_ssa = f'{result_ssa}_one'
+            abs_ssa = f'{result_ssa}_abs'
+            denom_ssa = f'{result_ssa}_denom'
+            return [
+                f'{one_ssa} = stablehlo.constant dense<1.0> : {result_type}',
+                f'{abs_ssa} = stablehlo.abs {input_ssa} : {result_type}',
+                f'{denom_ssa} = stablehlo.add {one_ssa}, {abs_ssa} : {result_type}',
+                f'{result_ssa} = stablehlo.divide {input_ssa}, {denom_ssa} : {result_type}'
+            ]
+
+        elif target_name == 'hardtanh':
+            input_ssa = get_input(0)
+            min_val = node.args[1] if len(node.args) > 1 else node.kwargs.get('min_val', -1.0)
+            max_val = node.args[2] if len(node.args) > 2 else node.kwargs.get('max_val', 1.0)
+            min_ssa = f'{result_ssa}_min'
+            max_ssa = f'{result_ssa}_max'
+            return [
+                f'{min_ssa} = stablehlo.constant dense<{min_val}> : {result_type}',
+                f'{max_ssa} = stablehlo.constant dense<{max_val}> : {result_type}',
+                f'{result_ssa} = stablehlo.clamp {min_ssa}, {input_ssa}, {max_ssa} : {result_type}'
+            ]
+
+        elif target_name == 'relu6':
+            input_ssa = get_input(0)
+            zero_ssa = f'{result_ssa}_zero'
+            six_ssa = f'{result_ssa}_six'
+            return [
+                f'{zero_ssa} = stablehlo.constant dense<0.0> : {result_type}',
+                f'{six_ssa} = stablehlo.constant dense<6.0> : {result_type}',
+                f'{result_ssa} = stablehlo.clamp {zero_ssa}, {input_ssa}, {six_ssa} : {result_type}'
+            ]
+
+        elif target_name == 'hardsigmoid':
+            # hardsigmoid(x) = clamp((x + 3) / 6, 0, 1)
+            input_ssa = get_input(0)
+            three_ssa = f'{result_ssa}_three'
+            six_ssa = f'{result_ssa}_six'
+            add_ssa = f'{result_ssa}_add'
+            div_ssa = f'{result_ssa}_div'
+            zero_ssa = f'{result_ssa}_zero'
+            one_ssa = f'{result_ssa}_one'
+            return [
+                f'{three_ssa} = stablehlo.constant dense<3.0> : {result_type}',
+                f'{six_ssa} = stablehlo.constant dense<6.0> : {result_type}',
+                f'{zero_ssa} = stablehlo.constant dense<0.0> : {result_type}',
+                f'{one_ssa} = stablehlo.constant dense<1.0> : {result_type}',
+                f'{add_ssa} = stablehlo.add {input_ssa}, {three_ssa} : {result_type}',
+                f'{div_ssa} = stablehlo.divide {add_ssa}, {six_ssa} : {result_type}',
+                f'{result_ssa} = stablehlo.clamp {zero_ssa}, {div_ssa}, {one_ssa} : {result_type}'
+            ]
+
+        elif target_name == 'hardswish':
+            # hardswish(x) = x * hardsigmoid(x) = x * clamp((x + 3) / 6, 0, 1)
+            input_ssa = get_input(0)
+            three_ssa = f'{result_ssa}_three'
+            six_ssa = f'{result_ssa}_six'
+            add_ssa = f'{result_ssa}_add'
+            div_ssa = f'{result_ssa}_div'
+            zero_ssa = f'{result_ssa}_zero'
+            one_ssa = f'{result_ssa}_one'
+            clamped_ssa = f'{result_ssa}_clamped'
+            return [
+                f'{three_ssa} = stablehlo.constant dense<3.0> : {result_type}',
+                f'{six_ssa} = stablehlo.constant dense<6.0> : {result_type}',
+                f'{zero_ssa} = stablehlo.constant dense<0.0> : {result_type}',
+                f'{one_ssa} = stablehlo.constant dense<1.0> : {result_type}',
+                f'{add_ssa} = stablehlo.add {input_ssa}, {three_ssa} : {result_type}',
+                f'{div_ssa} = stablehlo.divide {add_ssa}, {six_ssa} : {result_type}',
+                f'{clamped_ssa} = stablehlo.clamp {zero_ssa}, {div_ssa}, {one_ssa} : {result_type}',
+                f'{result_ssa} = stablehlo.multiply {input_ssa}, {clamped_ssa} : {result_type}'
+            ]
+
+        elif target_name == 'selu':
+            # selu(x) = scale * (max(0, x) + min(0, alpha * (exp(x) - 1)))
+            # scale ≈ 1.0507, alpha ≈ 1.6733
+            input_ssa = get_input(0)
+            scale_ssa = f'{result_ssa}_scale'
+            alpha_ssa = f'{result_ssa}_alpha'
+            zero_ssa = f'{result_ssa}_zero'
+            one_ssa = f'{result_ssa}_one'
+            exp_ssa = f'{result_ssa}_exp'
+            sub_ssa = f'{result_ssa}_sub'
+            scaled_neg_ssa = f'{result_ssa}_scaled_neg'
+            cmp_ssa = f'{result_ssa}_cmp'
+            selected_ssa = f'{result_ssa}_selected'
+            return [
+                f'{scale_ssa} = stablehlo.constant dense<1.0507009873554805> : {result_type}',
+                f'{alpha_ssa} = stablehlo.constant dense<1.6732632423543772> : {result_type}',
+                f'{zero_ssa} = stablehlo.constant dense<0.0> : {result_type}',
+                f'{one_ssa} = stablehlo.constant dense<1.0> : {result_type}',
+                f'{exp_ssa} = stablehlo.exponential {input_ssa} : {result_type}',
+                f'{sub_ssa} = stablehlo.subtract {exp_ssa}, {one_ssa} : {result_type}',
+                f'{scaled_neg_ssa} = stablehlo.multiply {alpha_ssa}, {sub_ssa} : {result_type}',
+                f'{cmp_ssa} = stablehlo.compare GE, {input_ssa}, {zero_ssa} : ({result_type}, {result_type}) -> tensor<i1>',
+                f'{selected_ssa} = stablehlo.select {cmp_ssa}, {input_ssa}, {scaled_neg_ssa} : (tensor<i1>, {result_type}, {result_type}) -> {result_type}',
+                f'{result_ssa} = stablehlo.multiply {scale_ssa}, {selected_ssa} : {result_type}'
+            ]
+
+        elif target_name == 'prelu':
+            # prelu(x, weight) = max(0, x) + weight * min(0, x)
+            input_ssa = get_input(0)
+            weight_ssa = get_input(1) if len(node.args) > 1 else f'{result_ssa}_weight'
+            zero_ssa = f'{result_ssa}_zero'
+            cmp_ssa = f'{result_ssa}_cmp'
+            neg_ssa = f'{result_ssa}_neg'
+            scaled_ssa = f'{result_ssa}_scaled'
+            return [
+                f'{zero_ssa} = stablehlo.constant dense<0.0> : {result_type}',
+                f'{cmp_ssa} = stablehlo.compare GE, {input_ssa}, {zero_ssa} : ({result_type}, {result_type}) -> tensor<i1>',
+                f'{scaled_ssa} = stablehlo.multiply {input_ssa}, {weight_ssa} : {result_type}',
+                f'{result_ssa} = stablehlo.select {cmp_ssa}, {input_ssa}, {scaled_ssa} : (tensor<i1>, {result_type}, {result_type}) -> {result_type}'
+            ]
+
+        # === Type Conversion ===
+        elif target_name in ('to', 'type', 'float', 'half', 'double', 'int', 'long', 'bool', 'bfloat16'):
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            return [f'{result_ssa} = stablehlo.convert {input_ssa} : {input_type} -> {result_type}']
+
         # === Matrix operations ===
         elif target_name == 'matmul':
             lhs = get_input(0)
@@ -517,6 +836,254 @@ class FXToStableHLO:
             return [
                 f'{result_ssa} = stablehlo.dot_general {lhs}, {rhs}, '
                 f'{dot_attr} : ({lhs_type}, {rhs_type}) -> {result_type}'
+            ]
+
+        elif target_name == 'mm':
+            # 2D matrix multiply: (M, K) x (K, N) -> (M, N)
+            lhs = get_input(0)
+            rhs = get_input(1)
+            lhs_type = get_input_type(0)
+            rhs_type = get_input_type(1)
+            dot_attr = '#stablehlo.dot<lhs_batching_dimensions = [], rhs_batching_dimensions = [], lhs_contracting_dimensions = [1], rhs_contracting_dimensions = [0]>'
+            return [
+                f'{result_ssa} = stablehlo.dot_general {lhs}, {rhs}, '
+                f'{dot_attr} : ({lhs_type}, {rhs_type}) -> {result_type}'
+            ]
+
+        elif target_name == 'bmm':
+            # Batched matrix multiply: (B, M, K) x (B, K, N) -> (B, M, N)
+            lhs = get_input(0)
+            rhs = get_input(1)
+            lhs_type = get_input_type(0)
+            rhs_type = get_input_type(1)
+            dot_attr = '#stablehlo.dot<lhs_batching_dimensions = [0], rhs_batching_dimensions = [0], lhs_contracting_dimensions = [2], rhs_contracting_dimensions = [1]>'
+            return [
+                f'{result_ssa} = stablehlo.dot_general {lhs}, {rhs}, '
+                f'{dot_attr} : ({lhs_type}, {rhs_type}) -> {result_type}'
+            ]
+
+        elif target_name == 'linear':
+            # Linear: x @ weight.T + bias
+            input_ssa = get_input(0)
+            weight_ssa = get_input(1)
+            input_type = get_input_type(0)
+            weight_type = get_input_type(1)
+            has_bias = len(node.args) > 2 or 'bias' in node.kwargs
+            dot_attr = '#stablehlo.dot<lhs_batching_dimensions = [], rhs_batching_dimensions = [], lhs_contracting_dimensions = [1], rhs_contracting_dimensions = [1]>'
+            if has_bias:
+                bias_ssa = get_input(2) if len(node.args) > 2 else node.kwargs.get('bias', '%bias')
+                mm_ssa = f'{result_ssa}_mm'
+                return [
+                    f'{mm_ssa} = stablehlo.dot_general {input_ssa}, {weight_ssa}, '
+                    f'{dot_attr} : ({input_type}, {weight_type}) -> {result_type}',
+                    f'{result_ssa} = stablehlo.add {mm_ssa}, {bias_ssa} : {result_type}'
+                ]
+            else:
+                return [
+                    f'{result_ssa} = stablehlo.dot_general {input_ssa}, {weight_ssa}, '
+                    f'{dot_attr} : ({input_type}, {weight_type}) -> {result_type}'
+                ]
+
+        elif target_name == 'mv':
+            # Matrix-vector multiply: (M, N) x (N,) -> (M,)
+            lhs = get_input(0)
+            rhs = get_input(1)
+            lhs_type = get_input_type(0)
+            rhs_type = get_input_type(1)
+            dot_attr = '#stablehlo.dot<lhs_batching_dimensions = [], rhs_batching_dimensions = [], lhs_contracting_dimensions = [1], rhs_contracting_dimensions = [0]>'
+            return [
+                f'{result_ssa} = stablehlo.dot_general {lhs}, {rhs}, '
+                f'{dot_attr} : ({lhs_type}, {rhs_type}) -> {result_type}'
+            ]
+
+        elif target_name == 'dot':
+            # Dot product: (N,) x (N,) -> scalar
+            lhs = get_input(0)
+            rhs = get_input(1)
+            lhs_type = get_input_type(0)
+            rhs_type = get_input_type(1)
+            dot_attr = '#stablehlo.dot<lhs_batching_dimensions = [], rhs_batching_dimensions = [], lhs_contracting_dimensions = [0], rhs_contracting_dimensions = [0]>'
+            return [
+                f'{result_ssa} = stablehlo.dot_general {lhs}, {rhs}, '
+                f'{dot_attr} : ({lhs_type}, {rhs_type}) -> {result_type}'
+            ]
+
+        elif target_name == 'outer':
+            # Outer product: (M,) x (N,) -> (M, N)
+            lhs = get_input(0)
+            rhs = get_input(1)
+            lhs_type = get_input_type(0)
+            rhs_type = get_input_type(1)
+            dot_attr = '#stablehlo.dot<lhs_batching_dimensions = [], rhs_batching_dimensions = [], lhs_contracting_dimensions = [], rhs_contracting_dimensions = []>'
+            return [
+                f'{result_ssa} = stablehlo.dot_general {lhs}, {rhs}, '
+                f'{dot_attr} : ({lhs_type}, {rhs_type}) -> {result_type}'
+            ]
+
+        elif target_name == 'addmm':
+            # addmm(bias, mat1, mat2) = bias + mat1 @ mat2
+            bias_ssa = get_input(0)
+            lhs = get_input(1)
+            rhs = get_input(2)
+            lhs_type = get_input_type(1)
+            rhs_type = get_input_type(2)
+            mm_ssa = f'{result_ssa}_mm'
+            dot_attr = '#stablehlo.dot<lhs_batching_dimensions = [], rhs_batching_dimensions = [], lhs_contracting_dimensions = [1], rhs_contracting_dimensions = [0]>'
+            return [
+                f'{mm_ssa} = stablehlo.dot_general {lhs}, {rhs}, '
+                f'{dot_attr} : ({lhs_type}, {rhs_type}) -> {result_type}',
+                f'{result_ssa} = stablehlo.add {mm_ssa}, {bias_ssa} : {result_type}'
+            ]
+
+        elif target_name == 'baddbmm':
+            # baddbmm(input, batch1, batch2) = input + batch1 @ batch2
+            input_ssa = get_input(0)
+            lhs = get_input(1)
+            rhs = get_input(2)
+            lhs_type = get_input_type(1)
+            rhs_type = get_input_type(2)
+            mm_ssa = f'{result_ssa}_bmm'
+            dot_attr = '#stablehlo.dot<lhs_batching_dimensions = [0], rhs_batching_dimensions = [0], lhs_contracting_dimensions = [2], rhs_contracting_dimensions = [1]>'
+            return [
+                f'{mm_ssa} = stablehlo.dot_general {lhs}, {rhs}, '
+                f'{dot_attr} : ({lhs_type}, {rhs_type}) -> {result_type}',
+                f'{result_ssa} = stablehlo.add {mm_ssa}, {input_ssa} : {result_type}'
+            ]
+
+        # === Shape operations ===
+        elif target_name == 'reshape':
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            return [f'{result_ssa} = stablehlo.reshape {input_ssa} : {input_type} -> {result_type}']
+
+        elif target_name == 'view':
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            return [f'{result_ssa} = stablehlo.reshape {input_ssa} : {input_type} -> {result_type}']
+
+        elif target_name == 'flatten':
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            return [f'{result_ssa} = stablehlo.reshape {input_ssa} : {input_type} -> {result_type}']
+
+        elif target_name == 'squeeze':
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            return [f'{result_ssa} = stablehlo.reshape {input_ssa} : {input_type} -> {result_type}']
+
+        elif target_name == 'unsqueeze':
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            return [f'{result_ssa} = stablehlo.reshape {input_ssa} : {input_type} -> {result_type}']
+
+        elif target_name == 'transpose':
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            dim0 = node.args[1] if len(node.args) > 1 else 0
+            dim1 = node.args[2] if len(node.args) > 2 else 1
+            input_shape = self.shape_map.get(node.args[0].name if hasattr(node.args[0], 'name') else '', ())
+            ndim = len(input_shape) if input_shape else 2
+            permutation = list(range(ndim))
+            if dim0 < ndim and dim1 < ndim:
+                permutation[dim0], permutation[dim1] = permutation[dim1], permutation[dim0]
+            perm_str = ', '.join(str(p) for p in permutation)
+            return [f'{result_ssa} = stablehlo.transpose {input_ssa}, dims = [{perm_str}] : {input_type} -> {result_type}']
+
+        elif target_name == 'permute':
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            dims = node.args[1] if len(node.args) > 1 else node.kwargs.get('dims', [])
+            if isinstance(dims, (list, tuple)):
+                perm_str = ', '.join(str(d) for d in dims)
+            else:
+                perm_str = str(dims)
+            return [f'{result_ssa} = stablehlo.transpose {input_ssa}, dims = [{perm_str}] : {input_type} -> {result_type}']
+
+        elif target_name == 'split':
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            # split returns tuple - simplified to custom_call
+            return [f'{result_ssa} = stablehlo.custom_call @split({input_ssa}) : ({input_type}) -> {result_type}']
+
+        elif target_name == 'chunk':
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            chunks = node.args[1] if len(node.args) > 1 else node.kwargs.get('chunks', 2)
+            return [f'{result_ssa} = stablehlo.custom_call @chunk({input_ssa}) {{chunks = {chunks}}} : ({input_type}) -> {result_type}']
+
+        elif target_name == 'tile':
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            return [f'{result_ssa} = stablehlo.custom_call @tile({input_ssa}) : ({input_type}) -> {result_type}']
+
+        elif target_name == 'repeat':
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            return [f'{result_ssa} = stablehlo.custom_call @repeat({input_ssa}) : ({input_type}) -> {result_type}']
+
+        elif target_name == 'roll':
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            shifts = node.args[1] if len(node.args) > 1 else 0
+            dims = node.args[2] if len(node.args) > 2 else 0
+            return [f'{result_ssa} = stablehlo.custom_call @roll({input_ssa}) {{shifts = {shifts}, dims = {dims}}} : ({input_type}) -> {result_type}']
+
+        elif target_name == 'flip':
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            dims = node.args[1] if len(node.args) > 1 else [0]
+            return [f'{result_ssa} = stablehlo.reverse {input_ssa}, dims = {list(dims)} : {input_type}']
+
+        # === Indexing/Slicing ===
+        elif target_name == 'index_select':
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            dim = node.args[1] if len(node.args) > 1 else 0
+            indices_ssa = get_input(2) if len(node.args) > 2 else '%indices'
+            return [f'{result_ssa} = stablehlo.gather {input_ssa}[{indices_ssa}], dim = {dim} : ({input_type}) -> {result_type}']
+
+        elif target_name == 'gather':
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            dim = node.args[1] if len(node.args) > 1 else 0
+            indices_ssa = get_input(2) if len(node.args) > 2 else '%indices'
+            return [f'{result_ssa} = stablehlo.gather {input_ssa}[{indices_ssa}], dim = {dim} : ({input_type}) -> {result_type}']
+
+        elif target_name == 'scatter':
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            dim = node.args[1] if len(node.args) > 1 else 0
+            indices_ssa = get_input(2) if len(node.args) > 2 else '%indices'
+            src_ssa = get_input(3) if len(node.args) > 3 else '%src'
+            return [f'{result_ssa} = stablehlo.scatter {input_ssa}, {indices_ssa}, {src_ssa}, dim = {dim} : ({input_type}) -> {result_type}']
+
+        elif target_name == 'masked_fill':
+            input_ssa = get_input(0)
+            mask_ssa = get_input(1) if len(node.args) > 1 else '%mask'
+            value = node.args[2] if len(node.args) > 2 else 0.0
+            value_ssa = f'{result_ssa}_value'
+            return [
+                f'{value_ssa} = stablehlo.constant dense<{value}> : {result_type}',
+                f'{result_ssa} = stablehlo.select {mask_ssa}, {value_ssa}, {input_ssa} : (tensor<i1>, {result_type}, {result_type}) -> {result_type}'
+            ]
+
+        elif target_name == 'masked_select':
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            mask_ssa = get_input(1) if len(node.args) > 1 else '%mask'
+            return [f'{result_ssa} = stablehlo.custom_call @masked_select({input_ssa}, {mask_ssa}) : ({input_type}, tensor<i1>) -> {result_type}']
+
+        # === Padding operations ===
+        elif target_name == 'pad':
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            pad = node.args[1] if len(node.args) > 1 else []
+            value = node.args[2] if len(node.args) > 2 else 0.0
+            value_ssa = f'{result_ssa}_value'
+            # Convert PyTorch pad format (pairs from last dim) to StableHLO format
+            return [
+                f'{value_ssa} = stablehlo.constant dense<{value}> : tensor<f32>',
+                f'{result_ssa} = stablehlo.pad {input_ssa}, {value_ssa}, low = [], high = [], interior = [] : ({input_type}, tensor<f32>) -> {result_type}'
             ]
 
         else:

@@ -1045,6 +1045,67 @@ class FXToStableHLO:
             return [f'{result_ssa} = stablehlo.custom_call @softmax({input_ssa}) '
                     f'{{dim = {dim}}} : ({input_type}) -> {result_type}']
 
+        # ===== EMBEDDING OPERATIONS =====
+        # Embedding lookup operations for NLP and recommendation systems.
+        # Uses stablehlo.gather for basic embedding, custom_call for advanced modes.
+
+        elif target_name in ('embedding', 'embedding_lookup'):
+            # F.embedding(input, weight) or nn.Embedding forward
+            input_ssa = get_input(0)
+            weight_ssa = get_input(1)
+            input_type = get_input_type(0)
+            weight_type = get_input_type(1)
+            padding_idx = node.kwargs.get('padding_idx', None)
+            max_norm = node.kwargs.get('max_norm', None)
+            norm_type = node.kwargs.get('norm_type', 2.0)
+            scale_grad_by_freq = node.kwargs.get('scale_grad_by_freq', False)
+            sparse = node.kwargs.get('sparse', False)
+            if max_norm is not None or sparse:
+                attrs = f'padding_idx = {padding_idx}, max_norm = {max_norm}, norm_type = {norm_type}, '
+                attrs += f'scale_grad_by_freq = {str(scale_grad_by_freq).lower()}, sparse = {str(sparse).lower()}'
+                return [f'{result_ssa} = stablehlo.custom_call @embedding({input_ssa}, {weight_ssa}) '
+                        f'{{{attrs}}} : ({input_type}, {weight_type}) -> {result_type}']
+            else:
+                return [f'{result_ssa} = stablehlo.gather {weight_ssa}[{input_ssa}] : ({weight_type}, {input_type}) -> {result_type}']
+
+        elif target_name in ('embedding_bag', '_embedding_bag'):
+            # F.embedding_bag - embedding lookup with reduction (sum, mean, max)
+            input_ssa = get_input(0)
+            weight_ssa = get_input(1)
+            input_type = get_input_type(0)
+            weight_type = get_input_type(1)
+            offsets = get_input(2) if len(node.args) > 2 else None
+            mode = node.kwargs.get('mode', 'mean')
+            sparse = node.kwargs.get('sparse', False)
+            include_last_offset = node.kwargs.get('include_last_offset', False)
+            padding_idx = node.kwargs.get('padding_idx', None)
+            per_sample_weights = get_input(3) if len(node.args) > 3 else None
+            attrs = f'mode = "{mode}", sparse = {str(sparse).lower()}, '
+            attrs += f'include_last_offset = {str(include_last_offset).lower()}'
+            if padding_idx is not None:
+                attrs += f', padding_idx = {padding_idx}'
+            if offsets and per_sample_weights:
+                offsets_type = get_input_type(2)
+                psw_type = get_input_type(3)
+                return [f'{result_ssa} = stablehlo.custom_call @embedding_bag'
+                        f'({input_ssa}, {weight_ssa}, {offsets}, {per_sample_weights}) '
+                        f'{{{attrs}}} : ({input_type}, {weight_type}, {offsets_type}, {psw_type}) -> {result_type}']
+            elif offsets:
+                offsets_type = get_input_type(2)
+                return [f'{result_ssa} = stablehlo.custom_call @embedding_bag'
+                        f'({input_ssa}, {weight_ssa}, {offsets}) '
+                        f'{{{attrs}}} : ({input_type}, {weight_type}, {offsets_type}) -> {result_type}']
+            return [f'{result_ssa} = stablehlo.custom_call @embedding_bag({input_ssa}, {weight_ssa}) '
+                    f'{{{attrs}}} : ({input_type}, {weight_type}) -> {result_type}']
+
+        elif target_name == 'one_hot':
+            # F.one_hot(tensor, num_classes)
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            num_classes = node.args[1] if len(node.args) > 1 else node.kwargs.get('num_classes', -1)
+            return [f'{result_ssa} = stablehlo.custom_call @one_hot({input_ssa}) '
+                    f'{{num_classes = {num_classes}}} : ({input_type}) -> {result_type}']
+
         elif target_name == 'std':
             # std(x) = sqrt(var(x)) = sqrt(mean((x - mean(x))^2))
             input_ssa = get_input(0)

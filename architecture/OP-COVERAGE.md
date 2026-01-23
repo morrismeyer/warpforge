@@ -23,7 +23,8 @@ This document tracks PyTorch ATen Core operation coverage for the PyTorch → St
 | Training/Backward | 45 | 45 | 100% |
 | RNN/LSTM/GRU | 17 | 17 | 100% |
 | Attention | 26 | 26 | 100% |
-| **Total** | **261** | **261** | **100%** |
+| Embedding | 23 | 23 | 100% |
+| **Total** | **284** | **284** | **100%** |
 
 ## Detailed Coverage by Category
 
@@ -301,6 +302,67 @@ This document tracks PyTorch ATen Core operation coverage for the PyTorch → St
 15. ✅ Scan/cumulative operations (cumsum, cumprod, cummax, cummin, logcumsumexp, diff)
 16. ✅ RNN/LSTM/GRU operations (lstm, gru, rnn, cells, bidirectional, multi-layer)
 17. ✅ Attention operations (scaled_dot_product_attention, multi_head_attention, transformer layers)
+18. ✅ Embedding operations (embedding, embedding_bag, one_hot, positional embedding)
+
+## Embedding Operations Support
+
+### Overview
+
+WarpForge supports comprehensive embedding operations for NLP, recommendation systems, and any model requiring discrete index-to-vector lookups.
+
+### Supported Operations
+
+| PyTorch Op | StableHLO Target | Description |
+|------------|------------------|-------------|
+| `nn.Embedding` | `stablehlo.gather` | Basic embedding lookup |
+| `nn.Embedding(padding_idx=...)` | `stablehlo.gather` | Embedding with padding token |
+| `nn.Embedding(max_norm=...)` | `custom_call @embedding` | Embedding with norm constraint |
+| `nn.Embedding(sparse=True)` | `custom_call @embedding` | Sparse gradient embedding |
+| `F.embedding` | `stablehlo.gather` | Functional embedding API |
+| `nn.EmbeddingBag(mode='sum')` | `custom_call @embedding_bag` | Sum pooled embeddings |
+| `nn.EmbeddingBag(mode='mean')` | `custom_call @embedding_bag` | Mean pooled embeddings |
+| `nn.EmbeddingBag(mode='max')` | `custom_call @embedding_bag` | Max pooled embeddings |
+| `F.one_hot` | `custom_call @one_hot` | One-hot encoding |
+
+### Key Features
+
+- **Padding support**: `padding_idx` zeroes out specific tokens
+- **Norm constraints**: `max_norm` renormalizes vectors exceeding threshold
+- **Sparse gradients**: `sparse=True` for efficient large vocabulary training
+- **EmbeddingBag modes**: sum, mean, max pooling for variable-length sequences
+- **Per-sample weights**: Weighted combination in EmbeddingBag
+- **Positional encoding**: Learned position embeddings for transformers
+
+### Test Models (23 total)
+
+**Basic Embedding (7)**:
+- `embedding` - Basic nn.Embedding
+- `embedding_with_padding` - With padding_idx
+- `embedding_with_max_norm` - With max_norm constraint
+- `embedding_with_norm_type` - Custom p-norm
+- `embedding_scale_grad` - Frequency-scaled gradients
+- `embedding_sparse` - Sparse gradients
+- `embedding_functional` - F.embedding API
+
+**EmbeddingBag (7)**:
+- `embedding_bag_sum` - Sum pooling
+- `embedding_bag_mean` - Mean pooling
+- `embedding_bag_max` - Max pooling
+- `embedding_bag_with_weights` - Per-sample weights
+- `embedding_bag_padding` - With padding_idx
+- `embedding_bag_sparse` - Sparse gradients
+- `embedding_bag_last_offset` - include_last_offset=True
+
+**One-Hot (2)**:
+- `one_hot` - Fixed num_classes
+- `one_hot_dynamic` - Auto-detect num_classes
+
+**Embedding Patterns (7)**:
+- `embedding_with_projection` - Embedding → Linear
+- `embedding_with_dropout` - Embedding → Dropout
+- `embedding_with_layernorm` - Embedding → LayerNorm
+- `positional_embedding` - Token + Position embeddings
+- `embedding_sum_2d` - Token + Segment + Position (BERT-style)
 
 ## Attention Operations Support
 

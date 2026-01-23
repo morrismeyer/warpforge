@@ -1197,6 +1197,266 @@ class TransformerOp(nn.Module):
 
 
 # =============================================================================
+# Embedding Operations
+# =============================================================================
+
+class EmbeddingOp(nn.Module):
+    """Basic embedding layer (nn.Embedding).
+    Produces: stablehlo.gather
+    Input: indices tensor, Output: embedded vectors
+    """
+    def __init__(self):
+        super().__init__()
+        self.embedding = nn.Embedding(num_embeddings=1000, embedding_dim=64)
+
+    def forward(self, x):
+        return self.embedding(x)
+
+
+class EmbeddingWithPaddingOp(nn.Module):
+    """Embedding with padding_idx.
+    Vectors at padding_idx are always zero.
+    """
+    def __init__(self):
+        super().__init__()
+        self.embedding = nn.Embedding(num_embeddings=1000, embedding_dim=64, padding_idx=0)
+
+    def forward(self, x):
+        return self.embedding(x)
+
+
+class EmbeddingWithMaxNormOp(nn.Module):
+    """Embedding with max_norm constraint.
+    Embedding vectors are renormalized if they exceed max_norm.
+    """
+    def __init__(self):
+        super().__init__()
+        self.embedding = nn.Embedding(num_embeddings=1000, embedding_dim=64, max_norm=1.0)
+
+    def forward(self, x):
+        return self.embedding(x)
+
+
+class EmbeddingWithNormTypeOp(nn.Module):
+    """Embedding with custom norm type for max_norm.
+    norm_type controls the p-norm used (default is L2).
+    """
+    def __init__(self):
+        super().__init__()
+        self.embedding = nn.Embedding(num_embeddings=1000, embedding_dim=64, max_norm=1.0, norm_type=1.0)
+
+    def forward(self, x):
+        return self.embedding(x)
+
+
+class EmbeddingScaleGradOp(nn.Module):
+    """Embedding with scale_grad_by_freq=True.
+    Gradients scaled by word frequency in batch.
+    """
+    def __init__(self):
+        super().__init__()
+        self.embedding = nn.Embedding(num_embeddings=1000, embedding_dim=64, scale_grad_by_freq=True)
+
+    def forward(self, x):
+        return self.embedding(x)
+
+
+class EmbeddingSparseOp(nn.Module):
+    """Sparse embedding (sparse=True).
+    Gradients are sparse tensors for efficiency.
+    """
+    def __init__(self):
+        super().__init__()
+        self.embedding = nn.Embedding(num_embeddings=1000, embedding_dim=64, sparse=True)
+
+    def forward(self, x):
+        return self.embedding(x)
+
+
+class EmbeddingFunctionalOp(nn.Module):
+    """Embedding using F.embedding functional API.
+    """
+    def __init__(self):
+        super().__init__()
+        self.weight = nn.Parameter(torch.randn(1000, 64))
+
+    def forward(self, x):
+        return F.embedding(x, self.weight)
+
+
+class EmbeddingBagSumOp(nn.Module):
+    """EmbeddingBag with mode='sum'.
+    Sums embeddings for each bag/sample.
+    """
+    def __init__(self):
+        super().__init__()
+        self.embedding_bag = nn.EmbeddingBag(num_embeddings=1000, embedding_dim=64, mode='sum')
+
+    def forward(self, x, offsets):
+        return self.embedding_bag(x, offsets)
+
+
+class EmbeddingBagMeanOp(nn.Module):
+    """EmbeddingBag with mode='mean'.
+    Averages embeddings for each bag/sample.
+    """
+    def __init__(self):
+        super().__init__()
+        self.embedding_bag = nn.EmbeddingBag(num_embeddings=1000, embedding_dim=64, mode='mean')
+
+    def forward(self, x, offsets):
+        return self.embedding_bag(x, offsets)
+
+
+class EmbeddingBagMaxOp(nn.Module):
+    """EmbeddingBag with mode='max'.
+    Takes max embedding for each bag/sample.
+    """
+    def __init__(self):
+        super().__init__()
+        self.embedding_bag = nn.EmbeddingBag(num_embeddings=1000, embedding_dim=64, mode='max')
+
+    def forward(self, x, offsets):
+        return self.embedding_bag(x, offsets)
+
+
+class EmbeddingBagWithWeightsOp(nn.Module):
+    """EmbeddingBag with per_sample_weights.
+    Weighted combination of embeddings.
+    """
+    def __init__(self):
+        super().__init__()
+        self.embedding_bag = nn.EmbeddingBag(num_embeddings=1000, embedding_dim=64, mode='sum')
+
+    def forward(self, x, offsets, per_sample_weights):
+        return self.embedding_bag(x, offsets, per_sample_weights)
+
+
+class EmbeddingBagPaddingOp(nn.Module):
+    """EmbeddingBag with padding_idx.
+    """
+    def __init__(self):
+        super().__init__()
+        self.embedding_bag = nn.EmbeddingBag(num_embeddings=1000, embedding_dim=64, mode='sum', padding_idx=0)
+
+    def forward(self, x, offsets):
+        return self.embedding_bag(x, offsets)
+
+
+class EmbeddingBagSparseOp(nn.Module):
+    """Sparse EmbeddingBag.
+    """
+    def __init__(self):
+        super().__init__()
+        self.embedding_bag = nn.EmbeddingBag(num_embeddings=1000, embedding_dim=64, mode='sum', sparse=True)
+
+    def forward(self, x, offsets):
+        return self.embedding_bag(x, offsets)
+
+
+class EmbeddingBagLastOffsetOp(nn.Module):
+    """EmbeddingBag with include_last_offset=True.
+    """
+    def __init__(self):
+        super().__init__()
+        self.embedding_bag = nn.EmbeddingBag(num_embeddings=1000, embedding_dim=64, mode='sum', include_last_offset=True)
+
+    def forward(self, x, offsets):
+        return self.embedding_bag(x, offsets)
+
+
+class OneHotOp(nn.Module):
+    """One-hot encoding (F.one_hot).
+    """
+    def forward(self, x):
+        return F.one_hot(x, num_classes=10)
+
+
+class OneHotDynamicOp(nn.Module):
+    """One-hot encoding with num_classes=-1 (auto-detect).
+    """
+    def forward(self, x):
+        return F.one_hot(x)
+
+
+class EmbeddingWithProjectionOp(nn.Module):
+    """Embedding followed by linear projection.
+    Common pattern in transformers.
+    """
+    def __init__(self):
+        super().__init__()
+        self.embedding = nn.Embedding(num_embeddings=1000, embedding_dim=64)
+        self.proj = nn.Linear(64, 128)
+
+    def forward(self, x):
+        embedded = self.embedding(x)
+        return self.proj(embedded)
+
+
+class EmbeddingWithDropoutOp(nn.Module):
+    """Embedding followed by dropout.
+    Common pattern for regularization.
+    """
+    def __init__(self):
+        super().__init__()
+        self.embedding = nn.Embedding(num_embeddings=1000, embedding_dim=64)
+        self.dropout = nn.Dropout(0.1)
+
+    def forward(self, x):
+        embedded = self.embedding(x)
+        return self.dropout(embedded)
+
+
+class EmbeddingWithLayerNormOp(nn.Module):
+    """Embedding followed by layer normalization.
+    Common in transformer architectures.
+    """
+    def __init__(self):
+        super().__init__()
+        self.embedding = nn.Embedding(num_embeddings=1000, embedding_dim=64)
+        self.layer_norm = nn.LayerNorm(64)
+
+    def forward(self, x):
+        embedded = self.embedding(x)
+        return self.layer_norm(embedded)
+
+
+class PositionalEmbeddingOp(nn.Module):
+    """Learned positional embedding.
+    Separate embedding for position indices.
+    """
+    def __init__(self):
+        super().__init__()
+        self.token_embedding = nn.Embedding(num_embeddings=1000, embedding_dim=64)
+        self.position_embedding = nn.Embedding(num_embeddings=512, embedding_dim=64)
+
+    def forward(self, x):
+        # x: (batch, seq_len)
+        seq_len = x.size(1)
+        positions = torch.arange(seq_len, device=x.device).unsqueeze(0)  # (1, seq_len)
+        token_embed = self.token_embedding(x)
+        pos_embed = self.position_embedding(positions)
+        return token_embed + pos_embed
+
+
+class EmbeddingSum2dOp(nn.Module):
+    """Sum of multiple embeddings (e.g., token + segment + position).
+    BERT-style combined embedding.
+    """
+    def __init__(self):
+        super().__init__()
+        self.token_embedding = nn.Embedding(num_embeddings=30000, embedding_dim=64)
+        self.segment_embedding = nn.Embedding(num_embeddings=2, embedding_dim=64)
+        self.position_embedding = nn.Embedding(num_embeddings=512, embedding_dim=64)
+
+    def forward(self, token_ids, segment_ids, position_ids):
+        token_embed = self.token_embedding(token_ids)
+        segment_embed = self.segment_embedding(segment_ids)
+        position_embed = self.position_embedding(position_ids)
+        return token_embed + segment_embed + position_embed
+
+
+# =============================================================================
 # Type Conversion Operations
 # =============================================================================
 
@@ -2462,6 +2722,33 @@ OPERATION_REGISTRY = {
     'transformer_encoder': (TransformerEncoderOp, [([10, 2, 64], 'f32')]),
     'transformer_decoder': (TransformerDecoderOp, [([10, 2, 64], 'f32'), ([20, 2, 64], 'f32')]),
     'transformer': (TransformerOp, [([20, 2, 64], 'f32'), ([10, 2, 64], 'f32')]),  # src and tgt
+
+    # Embedding Operations
+    # Input: indices tensor (i64), Output: embedded vectors (f32)
+    'embedding': (EmbeddingOp, [([2, 10], 'i64')]),  # batch=2, seq=10
+    'embedding_with_padding': (EmbeddingWithPaddingOp, [([2, 10], 'i64')]),
+    'embedding_with_max_norm': (EmbeddingWithMaxNormOp, [([2, 10], 'i64')]),
+    'embedding_with_norm_type': (EmbeddingWithNormTypeOp, [([2, 10], 'i64')]),
+    'embedding_scale_grad': (EmbeddingScaleGradOp, [([2, 10], 'i64')]),
+    'embedding_sparse': (EmbeddingSparseOp, [([2, 10], 'i64')]),
+    'embedding_functional': (EmbeddingFunctionalOp, [([2, 10], 'i64')]),
+    # EmbeddingBag: indices (1D), offsets (1D)
+    'embedding_bag_sum': (EmbeddingBagSumOp, [([20], 'i64'), ([4], 'i64')]),  # 20 indices, 4 bags
+    'embedding_bag_mean': (EmbeddingBagMeanOp, [([20], 'i64'), ([4], 'i64')]),
+    'embedding_bag_max': (EmbeddingBagMaxOp, [([20], 'i64'), ([4], 'i64')]),
+    'embedding_bag_with_weights': (EmbeddingBagWithWeightsOp, [([20], 'i64'), ([4], 'i64'), ([20], 'f32')]),  # per_sample_weights
+    'embedding_bag_padding': (EmbeddingBagPaddingOp, [([20], 'i64'), ([4], 'i64')]),
+    'embedding_bag_sparse': (EmbeddingBagSparseOp, [([20], 'i64'), ([4], 'i64')]),
+    'embedding_bag_last_offset': (EmbeddingBagLastOffsetOp, [([20], 'i64'), ([5], 'i64')]),  # 5 offsets with include_last_offset
+    # One-hot encoding
+    'one_hot': (OneHotOp, [([2, 5], 'i64')]),  # batch=2, seq=5
+    'one_hot_dynamic': (OneHotDynamicOp, [([2, 5], 'i64')]),
+    # Embedding patterns
+    'embedding_with_projection': (EmbeddingWithProjectionOp, [([2, 10], 'i64')]),
+    'embedding_with_dropout': (EmbeddingWithDropoutOp, [([2, 10], 'i64')]),
+    'embedding_with_layernorm': (EmbeddingWithLayerNormOp, [([2, 10], 'i64')]),
+    'positional_embedding': (PositionalEmbeddingOp, [([2, 10], 'i64')]),
+    'embedding_sum_2d': (EmbeddingSum2dOp, [([2, 10], 'i64'), ([2, 10], 'i64'), ([2, 10], 'i64')]),  # token, segment, position
 
     # Type Conversion
     'to_float': (ToFloatOp, [([1, 8], 'i32')]),

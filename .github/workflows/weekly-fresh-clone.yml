@@ -302,37 +302,96 @@ jobs:
           echo "warpforge-io: ${COUNT} tests - OK"
 
       # ========================================
-      # PHASE 7: SnakeGrinder Distribution Tests
+      # PHASE 7: SnakeGrinder Distribution & Packaging
       # ========================================
-      - name: SnakeGrinder distribution tests
+      - name: SnakeGrinder - test PyTorch venv
         run: |
           set -euo pipefail
           cd "$FRESH_CLONE_DIR"
 
-          echo "=== SnakeGrinder Distribution Tests ==="
+          echo "=== SnakeGrinder PyTorch Venv Tests ==="
 
-          ./gradlew :snakegrinder-dist:testDist --no-build-cache --no-configuration-cache 2>&1 | tee snakegrinder-test.log
+          ./gradlew :snakegrinder-dist:testPytorchVenv --no-build-cache --no-configuration-cache 2>&1 | tee snakegrinder-venv-test.log
 
-          echo "SnakeGrinder tests passed"
+          echo "PyTorch venv tests passed"
+
+      - name: SnakeGrinder - build native image
+        run: |
+          set -euo pipefail
+          cd "$FRESH_CLONE_DIR"
+
+          echo "=== SnakeGrinder Native Image Build ==="
+
+          ./gradlew :snakegrinder-dist:buildNativeImage --no-build-cache --no-configuration-cache 2>&1 | tee snakegrinder-native-build.log || {
+            echo "WARNING: SnakeGrinder native image build failed"
+            echo "This may be expected on fresh clone - native-image setup may require additional config"
+          }
+
+          NATIVE_EXE="snakegrinder-dist/build/native/nativeCompile/snakegrinder"
+          if [[ -f "$NATIVE_EXE" ]]; then
+            echo "SnakeGrinder native executable built: $(ls -lh "$NATIVE_EXE" | awk '{print $5}')"
+          fi
+
+      - name: SnakeGrinder - test native image
+        run: |
+          set -euo pipefail
+          cd "$FRESH_CLONE_DIR"
+
+          echo "=== SnakeGrinder Native Image Tests ==="
+
+          NATIVE_EXE="snakegrinder-dist/build/native/nativeCompile/snakegrinder"
+          if [[ -f "$NATIVE_EXE" ]]; then
+            ./gradlew :snakegrinder-dist:testNativeImage --no-build-cache --no-configuration-cache 2>&1 | tee snakegrinder-native-test.log
+            echo "SnakeGrinder native image tests passed"
+          else
+            echo "WARNING: Native executable not found, skipping native image tests"
+          fi
+
+      - name: SnakeGrinder - assemble distribution
+        run: |
+          set -euo pipefail
+          cd "$FRESH_CLONE_DIR"
+
+          echo "=== SnakeGrinder Distribution Assembly ==="
+
+          ./gradlew :snakegrinder-dist:assembleDist --no-build-cache --no-configuration-cache 2>&1 | tee snakegrinder-assemble.log
+
+          # Verify distribution was created
+          DIST_DIR="snakegrinder-dist/build/dist"
+          if [[ -d "$DIST_DIR" ]]; then
+            echo "Distribution assembled:"
+            ls -la "$DIST_DIR"
+            echo "Total size: $(du -sh "$DIST_DIR" | cut -f1)"
+          fi
+
+      - name: SnakeGrinder - full distribution tests
+        run: |
+          set -euo pipefail
+          cd "$FRESH_CLONE_DIR"
+
+          echo "=== SnakeGrinder Full Distribution Tests ==="
+
+          ./gradlew :snakegrinder-dist:testDist --no-build-cache --no-configuration-cache 2>&1 | tee snakegrinder-dist-test.log
+
+          echo "All SnakeGrinder distribution tests passed"
 
       # ========================================
-      # PHASE 8: Native Image Build (Optional)
+      # PHASE 8: UCC Native Image Build
       # ========================================
       - name: Build native-image UCC performance test
         run: |
           set -euo pipefail
           cd "$FRESH_CLONE_DIR"
 
-          echo "=== Native Image Build ==="
+          echo "=== UCC Native Image Build ==="
 
-          # This may fail if native-image isn't configured, which is OK for fresh clone
-          ./gradlew :warpforge-io:buildNativeUccPerfTest --no-build-cache 2>&1 | tee native-build.log || {
-            echo "WARNING: Native image build failed"
-            echo "This is acceptable for fresh clone test - native-image setup may require additional config"
+          ./gradlew :warpforge-io:buildNativeUccPerfTest --no-build-cache 2>&1 | tee ucc-native-build.log || {
+            echo "WARNING: UCC native image build failed"
+            echo "This may be expected on fresh clone - native-image setup may require additional config"
           }
 
           if [[ -f "warpforge-io/build/native/nativeCompile/ucc-perf-test" ]]; then
-            echo "Native executable built successfully"
+            echo "UCC native executable built successfully"
           fi
 
       # ========================================

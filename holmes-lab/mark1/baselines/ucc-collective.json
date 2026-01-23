@@ -1,0 +1,41 @@
+{
+  "version": "1.0",
+  "description": "UCC collective operation performance baselines for NVIDIA <-> AMD Mellanox 100GbE",
+  "hardware": {
+    "nvidia_box": "mark1nvidia - ConnectX-6 100GbE",
+    "amd_box": "mark1amd - ConnectX-6 100GbE",
+    "interconnect": "Direct 100GbE QSFP28"
+  },
+  "updated": "2026-01-23T00:00:00Z",
+  "note": "Initial placeholder - update after first successful nightly run",
+  "metrics": {
+    "allreduce_16mb": {
+      "throughput_gbps": {
+        "value": null,
+        "threshold_percent": 10,
+        "direction": "higher_is_better",
+        "description": "Allreduce throughput for 16MB messages"
+      },
+      "latency_us": {
+        "value": null,
+        "threshold_percent": 15,
+        "direction": "lower_is_better",
+        "description": "Allreduce latency for 16MB messages"
+      }
+    },
+    "allgather_16mb": {
+      "throughput_gbps": {
+        "value": null,
+        "threshold_percent": 10,
+        "direction": "higher_is_better"
+      }
+    },
+    "reduce_scatter_16mb": {
+      "throughput_gbps": {
+        "value": null,
+        "threshold_percent": 10,
+        "direction": "higher_is_better"
+      }
+    }
+  }
+}

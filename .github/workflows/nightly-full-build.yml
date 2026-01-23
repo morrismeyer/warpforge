@@ -231,25 +231,86 @@ jobs:
           echo "SUCCESS: warpforge-io tests passed (${COUNT} tests)"
 
       # ========================================
-      # PHASE 4: SnakeGrinder Distribution Tests
+      # PHASE 4: SnakeGrinder Distribution & Packaging
       # ========================================
-      - name: SnakeGrinder distribution tests
+      - name: SnakeGrinder - test PyTorch venv
         run: |
           set -euo pipefail
           cd ~/surfworks/warpforge
 
-          echo "=== SnakeGrinder Tests ==="
+          echo "=== SnakeGrinder PyTorch Venv Tests ==="
 
           VENV_DIR="snakegrinder-dist/.pytorch-venv"
-          if [[ -d "$VENV_DIR" ]]; then
-            echo "PyTorch venv found, running distribution tests..."
-            ./gradlew :snakegrinder-dist:testDist --no-build-cache --no-configuration-cache 2>&1 | tee snakegrinder-test.log
-            echo "SnakeGrinder tests passed"
-          else
-            echo "WARNING: PyTorch venv not found at $VENV_DIR"
-            echo "Skipping snakegrinder-dist tests"
-            echo "To enable, run: ./gradlew :snakegrinder-dist:buildPytorchVenv"
+          if [[ ! -d "$VENV_DIR" ]]; then
+            echo "ERROR: PyTorch venv not found at $VENV_DIR"
+            echo "The venv should have been built in Phase 1.5"
+            exit 1
           fi
+
+          echo "Testing PyTorch venv..."
+          ./gradlew :snakegrinder-dist:testPytorchVenv --no-build-cache --no-configuration-cache 2>&1 | tee snakegrinder-venv-test.log
+
+          echo "PyTorch venv tests passed"
+
+      - name: SnakeGrinder - build native image
+        run: |
+          set -euo pipefail
+          cd ~/surfworks/warpforge
+
+          echo "=== SnakeGrinder Native Image Build ==="
+
+          ./gradlew :snakegrinder-dist:buildNativeImage --no-build-cache --no-configuration-cache 2>&1 | tee snakegrinder-native-build.log || {
+            echo "WARNING: SnakeGrinder native image build failed"
+            echo "This may be expected if native-image is not fully configured"
+          }
+
+          NATIVE_EXE="snakegrinder-dist/build/native/nativeCompile/snakegrinder"
+          if [[ -f "$NATIVE_EXE" ]]; then
+            echo "SnakeGrinder native executable built: $(ls -lh "$NATIVE_EXE" | awk '{print $5}')"
+          fi
+
+      - name: SnakeGrinder - test native image
+        run: |
+          set -euo pipefail
+          cd ~/surfworks/warpforge
+
+          echo "=== SnakeGrinder Native Image Tests ==="
+
+          NATIVE_EXE="snakegrinder-dist/build/native/nativeCompile/snakegrinder"
+          if [[ -f "$NATIVE_EXE" ]]; then
+            ./gradlew :snakegrinder-dist:testNativeImage --no-build-cache --no-configuration-cache 2>&1 | tee snakegrinder-native-test.log
+            echo "SnakeGrinder native image tests passed"
+          else
+            echo "WARNING: Native executable not found, skipping native image tests"
+          fi
+
+      - name: SnakeGrinder - assemble distribution
+        run: |
+          set -euo pipefail
+          cd ~/surfworks/warpforge
+
+          echo "=== SnakeGrinder Distribution Assembly ==="
+
+          ./gradlew :snakegrinder-dist:assembleDist --no-build-cache --no-configuration-cache 2>&1 | tee snakegrinder-assemble.log
+
+          # Verify distribution was created
+          DIST_DIR="snakegrinder-dist/build/dist"
+          if [[ -d "$DIST_DIR" ]]; then
+            echo "Distribution assembled:"
+            ls -la "$DIST_DIR"
+            echo "Total size: $(du -sh "$DIST_DIR" | cut -f1)"
+          fi
+
+      - name: SnakeGrinder - full distribution tests
+        run: |
+          set -euo pipefail
+          cd ~/surfworks/warpforge
+
+          echo "=== SnakeGrinder Full Distribution Tests ==="
+
+          ./gradlew :snakegrinder-dist:testDist --no-build-cache --no-configuration-cache 2>&1 | tee snakegrinder-dist-test.log
+
+          echo "All SnakeGrinder distribution tests passed"
 
       # ========================================
       # PHASE 5: Native Image Build

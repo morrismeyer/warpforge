@@ -14,9 +14,9 @@ on:
         default: 'false'
         type: boolean
 
-  # Weekly schedule - UNCOMMENT AFTER MANUAL TESTING CONFIRMS IT WORKS
-  # schedule:
-  #   - cron: '0 8 * * 0'  # 3 AM EST (8 AM UTC) every Sunday
+  # Weekly schedule - 3 AM EST (8 AM UTC) every Sunday
+  schedule:
+    - cron: '0 8 * * 0'
 
 jobs:
   fresh-clone-build:

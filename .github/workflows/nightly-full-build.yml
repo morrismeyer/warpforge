@@ -24,9 +24,9 @@ on:
         default: false
         type: boolean
 
-  # Nightly schedule - UNCOMMENT AFTER MANUAL TESTING CONFIRMS IT WORKS
-  # schedule:
-  #   - cron: '0 7 * * *'  # 2 AM EST (7 AM UTC) every day
+  # Nightly schedule - 2 AM EST (7 AM UTC) every day
+  schedule:
+    - cron: '0 7 * * *'
 
 jobs:
   nightly-full-build:

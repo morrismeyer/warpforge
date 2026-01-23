@@ -147,6 +147,71 @@ class AtanOp(nn.Module):
     def forward(self, x):
         return torch.atan(x)
 
+class AsinOp(nn.Module):
+    """Produces: stablehlo.asin"""
+    def forward(self, x):
+        return torch.asin(x)
+
+class AcosOp(nn.Module):
+    """Produces: stablehlo.acos"""
+    def forward(self, x):
+        return torch.acos(x)
+
+class AsinhOp(nn.Module):
+    """Produces: asinh composite (log + sqrt + multiply + add)"""
+    def forward(self, x):
+        return torch.asinh(x)
+
+class AcoshOp(nn.Module):
+    """Produces: acosh composite (log + sqrt + multiply + subtract)"""
+    def forward(self, x):
+        return torch.acosh(x)
+
+class AtanhOp(nn.Module):
+    """Produces: atanh composite (log + divide + multiply)"""
+    def forward(self, x):
+        return torch.atanh(x)
+
+class ErfOp(nn.Module):
+    """Produces: stablehlo.erf"""
+    def forward(self, x):
+        return torch.erf(x)
+
+class ErfcOp(nn.Module):
+    """Produces: stablehlo.erf + subtract"""
+    def forward(self, x):
+        return torch.erfc(x)
+
+class Exp2Op(nn.Module):
+    """Produces: exp(x * ln(2))"""
+    def forward(self, x):
+        return torch.exp2(x)
+
+class LgammaOp(nn.Module):
+    """Produces: stablehlo.custom_call @lgamma"""
+    def forward(self, x):
+        return torch.lgamma(x)
+
+class DigammaOp(nn.Module):
+    """Produces: stablehlo.custom_call @digamma"""
+    def forward(self, x):
+        return torch.digamma(x)
+
+class FmodOp(nn.Module):
+    """Produces: stablehlo.remainder"""
+    def forward(self, x, y):
+        return torch.fmod(x, y)
+
+class TrueDivideOp(nn.Module):
+    """Produces: stablehlo.divide"""
+    def forward(self, x, y):
+        return torch.true_divide(x, y)
+
+class LogicalXorOp(nn.Module):
+    """Produces: stablehlo.xor"""
+    def forward(self, x, y):
+        return torch.logical_xor(x > 0, y > 0)
+
 class SigmoidOp(nn.Module):
     """Produces: stablehlo.logistic"""
     def forward(self, x):
@@ -334,6 +399,31 @@ class TileOp(nn.Module):
     def forward(self, x):
         return x.repeat(1, 2)
 
+class NarrowOp(nn.Module):
+    """Produces: stablehlo.slice"""
+    def forward(self, x):
+        return torch.narrow(x, dim=1, start=1, length=3)
+
+class UnbindOp(nn.Module):
+    """Produces: stablehlo.custom_call @unbind"""
+    def forward(self, x):
+        return torch.unbind(x, dim=0)[0]
+
+class SelectDimOp(nn.Module):
+    """Produces: stablehlo.slice (for torch.select)"""
+    def forward(self, x):
+        return torch.select(x, dim=1, index=2)
+
+class MovedimOp(nn.Module):
+    """Produces: stablehlo.transpose"""
+    def forward(self, x):
+        return torch.movedim(x, 0, 2)
+
+class SwapaxesOp(nn.Module):
+    """Produces: stablehlo.transpose"""
+    def forward(self, x):
+        return torch.swapaxes(x, 0, 1)
+
 # =============================================================================
 # Slicing and Indexing Operations
 # =============================================================================
@@ -373,6 +463,21 @@ class MaskedSelectOp(nn.Module):
     def forward(self, x, mask):
         return torch.masked_select(x, mask > 0)
 
+class IndexCopyOp(nn.Module):
+    """Produces: stablehlo.scatter"""
+    def forward(self, x, indices, src):
+        return x.index_copy(1, indices, src)
+
+class IndexAddOp(nn.Module):
+    """Produces: stablehlo.custom_call @index_add"""
+    def forward(self, x, indices, src):
+        return x.index_add(1, indices, src)
+
+class IndexFillOp(nn.Module):
+    """Produces: stablehlo.scatter"""
+    def forward(self, x, indices):
+        return x.index_fill(1, indices, 0.0)
+
 # =============================================================================
 # Reduction Operations
 # =============================================================================
@@ -406,6 +511,26 @@ class SumAllReduceOp(nn.Module):
     """Produces: stablehlo.reduce over all dims"""
     def forward(self, x):
         return torch.sum(x)
+
+class StdReduceOp(nn.Module):
+    """Produces: stablehlo.custom_call @std"""
+    def forward(self, x):
+        return torch.std(x, dim=1)
+
+class VarReduceOp(nn.Module):
+    """Produces: stablehlo.custom_call @var"""
+    def forward(self, x):
+        return torch.var(x, dim=1)
+
+class ArgmaxOp(nn.Module):
+    """Produces: stablehlo.custom_call @argmax"""
+    def forward(self, x):
+        return torch.argmax(x, dim=1)
+
+class ArgminOp(nn.Module):
+    """Produces: stablehlo.custom_call @argmin"""
+    def forward(self, x):
+        return torch.argmin(x, dim=1)
 
 # =============================================================================
 # Activation Functions (composed operations)
@@ -494,6 +619,16 @@ class PreluOp(nn.Module):
 
     def forward(self, x):
         return self.prelu(x)
+
+class CeluOp(nn.Module):
+    """Produces: stablehlo.select + stablehlo.exponential + stablehlo.divide"""
+    def forward(self, x):
+        return F.celu(x, alpha=1.0)
+
+class LogsigmoidOp(nn.Module):
+    """Produces: stablehlo.negate + stablehlo.exponential + stablehlo.log"""
+    def forward(self, x):
+        return F.logsigmoid(x)
 
 # =============================================================================
 # Additional Reduction Operations
@@ -593,6 +728,42 @@ class DepthwiseConv2dOp(nn.Module):
     def forward(self, x):
         return self.conv(x)
 
+class Conv3dOp(nn.Module):
+    """Produces: stablehlo.convolution (3D)"""
+    def __init__(self):
+        super().__init__()
+        self.conv = nn.Conv3d(1, 4, kernel_size=3, padding=1)
+
+    def forward(self, x):
+        return self.conv(x)
+
+class ConvTranspose1dOp(nn.Module):
+    """Produces: stablehlo.convolution (transpose 1D)"""
+    def __init__(self):
+        super().__init__()
+        self.conv = nn.ConvTranspose1d(4, 1, kernel_size=3, padding=1)
+
+    def forward(self, x):
+        return self.conv(x)
+
+class ConvTranspose2dOp(nn.Module):
+    """Produces: stablehlo.convolution (transpose 2D)"""
+    def __init__(self):
+        super().__init__()
+        self.conv = nn.ConvTranspose2d(16, 3, kernel_size=3, padding=1)
+
+    def forward(self, x):
+        return self.conv(x)
+
+class ConvTranspose3dOp(nn.Module):
+    """Produces: stablehlo.convolution (transpose 3D)"""
+    def __init__(self):
+        super().__init__()
+        self.conv = nn.ConvTranspose3d(4, 1, kernel_size=3, padding=1)
+
+    def forward(self, x):
+        return self.conv(x)
+
 # =============================================================================
 # Pooling Operations
 # =============================================================================
@@ -620,6 +791,42 @@ class AdaptiveAvgPool2dOp(nn.Module):
     def __init__(self):
         super().__init__()
         self.pool = nn.AdaptiveAvgPool2d((1, 1))
+
+    def forward(self, x):
+        return self.pool(x)
+
+class MaxPool1dOp(nn.Module):
+    """Produces: stablehlo.reduce_window (max) 1D"""
+    def __init__(self):
+        super().__init__()
+        self.pool = nn.MaxPool1d(kernel_size=2, stride=2)
+
+    def forward(self, x):
+        return self.pool(x)
+
+class AvgPool1dOp(nn.Module):
+    """Produces: stablehlo.reduce_window (avg) 1D"""
+    def __init__(self):
+        super().__init__()
+        self.pool = nn.AvgPool1d(kernel_size=2, stride=2)
+
+    def forward(self, x):
+        return self.pool(x)
+
+class AdaptiveMaxPool1dOp(nn.Module):
+    """Produces: stablehlo.custom_call @adaptive_max_pool1d"""
+    def __init__(self):
+        super().__init__()
+        self.pool = nn.AdaptiveMaxPool1d(4)
+
+    def forward(self, x):
+        return self.pool(x)
+
+class AdaptiveMaxPool2dOp(nn.Module):
+    """Produces: stablehlo.custom_call @adaptive_max_pool2d"""
+    def __init__(self):
+        super().__init__()
+        self.pool = nn.AdaptiveMaxPool2d((1, 1))
 
     def forward(self, x):
         return self.pool(x)
@@ -657,6 +864,38 @@ class LayerNormOp(nn.Module):
     def forward(self, x):
         return self.ln(x)
 
+class InstanceNorm2dOp(nn.Module):
+    """Produces: stablehlo.custom_call @instance_norm"""
+    def __init__(self):
+        super().__init__()
+        self.norm = nn.InstanceNorm2d(4)
+
+    def forward(self, x):
+        return self.norm(x)
+
+class GroupNormOp(nn.Module):
+    """Produces: stablehlo.custom_call @group_norm"""
+    def __init__(self):
+        super().__init__()
+        self.norm = nn.GroupNorm(2, 8)
+
+    def forward(self, x):
+        return self.norm(x)
+
+# =============================================================================
+# Advanced Matrix Operations
+# =============================================================================
+
+class EinsumOp(nn.Module):
+    """Produces: stablehlo.custom_call @einsum"""
+    def forward(self, x, y):
+        return torch.einsum('ij,jk->ik', x, y)
+
+class TensordotOp(nn.Module):
+    """Produces: stablehlo.custom_call @tensordot"""
+    def forward(self, x, y):
+        return torch.tensordot(x, y, dims=1)
+
 # =============================================================================
 # Padding Operations
 # =============================================================================
@@ -675,6 +914,11 @@ class PadReplicateOp(nn.Module):
     """Produces: pad with edge replication"""
     def forward(self, x):
         return F.pad(x, (1, 1, 1, 1), mode='replicate')
+
+class PadCircularOp(nn.Module):
+    """Produces: stablehlo.custom_call @circular_pad"""
+    def forward(self, x):
+        return F.pad(x, (1, 1, 1, 1), mode='circular')
 
 # =============================================================================
 # Type Conversion Operations
@@ -945,6 +1189,70 @@ OPERATION_REGISTRY = {
 
     # Iota
     'arange': (ArangeOp, [([1, 8], 'f32')]),
+
+    # Inverse Trigonometric
+    'asin': (AsinOp, [([1, 8], 'f32')]),
+    'acos': (AcosOp, [([1, 8], 'f32')]),
+    'asinh': (AsinhOp, [([1, 8], 'f32')]),
+    'acosh': (AcoshOp, [([1, 8], 'f32')]),
+    'atanh': (AtanhOp, [([1, 8], 'f32')]),
+
+    # Special Functions
+    'erf': (ErfOp, [([1, 8], 'f32')]),
+    'erfc': (ErfcOp, [([1, 8], 'f32')]),
+    'exp2': (Exp2Op, [([1, 8], 'f32')]),
+    'lgamma': (LgammaOp, [([1, 8], 'f32')]),
+    'digamma': (DigammaOp, [([1, 8], 'f32')]),
+
+    # Additional Binary Operations
+    'fmod': (FmodOp, [([1, 8], 'f32'), ([1, 8], 'f32')]),
+    'true_divide': (TrueDivideOp, [([1, 8], 'f32'), ([1, 8], 'f32')]),
+    'logical_xor': (LogicalXorOp, [([1, 8], 'bool'), ([1, 8], 'bool')]),
+
+    # Additional Shape Operations
+    'narrow': (NarrowOp, [([2, 8], 'f32')]),
+    'unbind': (UnbindOp, [([2, 8], 'f32')]),
+    'select_dim': (SelectDimOp, [([2, 8], 'f32')]),
+    'movedim': (MovedimOp, [([2, 4, 8], 'f32')]),
+    'swapaxes': (SwapaxesOp, [([2, 4], 'f32')]),
+
+    # Additional Indexing Operations
+    'index_copy': (IndexCopyOp, [([2, 8], 'f32'), ([2], 'i64'), ([2, 8], 'f32')]),
+    'index_add': (IndexAddOp, [([2, 8], 'f32'), ([2], 'i64'), ([2, 8], 'f32')]),
+    'index_fill': (IndexFillOp, [([2, 8], 'f32'), ([2], 'i64')]),
+
+    # Additional Reductions
+    'std_reduce': (StdReduceOp, [([2, 8], 'f32')]),
+    'var_reduce': (VarReduceOp, [([2, 8], 'f32')]),
+    'argmax': (ArgmaxOp, [([2, 8], 'f32')]),
+    'argmin': (ArgminOp, [([2, 8], 'f32')]),
+
+    # Additional Activations
+    'celu': (CeluOp, [([1, 8], 'f32')]),
+    'logsigmoid': (LogsigmoidOp, [([1, 8], 'f32')]),
+
+    # Additional Convolution
+    'conv3d': (Conv3dOp, [([1, 3, 8, 8, 8], 'f32')]),
+    'conv_transpose1d': (ConvTranspose1dOp, [([1, 4, 16], 'f32')]),
+    'conv_transpose2d': (ConvTranspose2dOp, [([1, 4, 8, 8], 'f32')]),
+    'conv_transpose3d': (ConvTranspose3dOp, [([1, 4, 4, 4, 4], 'f32')]),
+
+    # Additional Pooling
+    'max_pool1d': (MaxPool1dOp, [([1, 4, 16], 'f32')]),
+    'avg_pool1d': (AvgPool1dOp, [([1, 4, 16], 'f32')]),
+    'adaptive_max_pool1d': (AdaptiveMaxPool1dOp, [([1, 4, 16], 'f32')]),
+    'adaptive_max_pool2d': (AdaptiveMaxPool2dOp, [([1, 4, 8, 8], 'f32')]),
+
+    # Additional Normalization
+    'instance_norm2d': (InstanceNorm2dOp, [([1, 4, 8, 8], 'f32')]),
+    'group_norm': (GroupNormOp, [([1, 8, 4, 4], 'f32')]),
+
+    # Additional Matrix Operations
+    'einsum': (EinsumOp, [([2, 4, 8], 'f32'), ([2, 8, 4], 'f32')]),
+    'tensordot': (TensordotOp, [([4, 8], 'f32'), ([8, 4], 'f32')]),
+
+    # Additional Padding
+    'pad_circular': (PadCircularOp, [([1, 1, 4, 4], 'f32')]),
 
     # Complex models
     'simple_mlp': (SimpleMLP, [([1, 8], 'f32')]),

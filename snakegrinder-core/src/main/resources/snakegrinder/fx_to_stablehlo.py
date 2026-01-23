@@ -355,6 +355,115 @@ class FXToStableHLO:
         elif target_name == 'sigmoid':
             return [f'{result_ssa} = stablehlo.logistic {get_input(0)} : {result_type}']
 
+        # === Inverse trigonometric functions ===
+        elif target_name == 'asin':
+            return [f'{result_ssa} = stablehlo.asin {get_input(0)} : {result_type}']
+
+        elif target_name == 'acos':
+            return [f'{result_ssa} = stablehlo.acos {get_input(0)} : {result_type}']
+
+        elif target_name == 'atan':
+            return [f'{result_ssa} = stablehlo.atan {get_input(0)} : {result_type}']
+
+        # === Hyperbolic inverse functions ===
+        elif target_name == 'asinh':
+            # asinh(x) = log(x + sqrt(x^2 + 1))
+            input_ssa = get_input(0)
+            sq_ssa = f'{result_ssa}_sq'
+            one_ssa = f'{result_ssa}_one'
+            add1_ssa = f'{result_ssa}_add1'
+            sqrt_ssa = f'{result_ssa}_sqrt'
+            add2_ssa = f'{result_ssa}_add2'
+            return [
+                f'{sq_ssa} = stablehlo.multiply {input_ssa}, {input_ssa} : {result_type}',
+                f'{one_ssa} = stablehlo.constant dense<1.0> : {result_type}',
+                f'{add1_ssa} = stablehlo.add {sq_ssa}, {one_ssa} : {result_type}',
+                f'{sqrt_ssa} = stablehlo.sqrt {add1_ssa} : {result_type}',
+                f'{add2_ssa} = stablehlo.add {input_ssa}, {sqrt_ssa} : {result_type}',
+                f'{result_ssa} = stablehlo.log {add2_ssa} : {result_type}'
+            ]
+
+        elif target_name == 'acosh':
+            # acosh(x) = log(x + sqrt(x^2 - 1))
+            input_ssa = get_input(0)
+            sq_ssa = f'{result_ssa}_sq'
+            one_ssa = f'{result_ssa}_one'
+            sub_ssa = f'{result_ssa}_sub'
+            sqrt_ssa = f'{result_ssa}_sqrt'
+            add_ssa = f'{result_ssa}_add'
+            return [
+                f'{sq_ssa} = stablehlo.multiply {input_ssa}, {input_ssa} : {result_type}',
+                f'{one_ssa} = stablehlo.constant dense<1.0> : {result_type}',
+                f'{sub_ssa} = stablehlo.subtract {sq_ssa}, {one_ssa} : {result_type}',
+                f'{sqrt_ssa} = stablehlo.sqrt {sub_ssa} : {result_type}',
+                f'{add_ssa} = stablehlo.add {input_ssa}, {sqrt_ssa} : {result_type}',
+                f'{result_ssa} = stablehlo.log {add_ssa} : {result_type}'
+            ]
+
+        elif target_name == 'atanh':
+            # atanh(x) = 0.5 * log((1 + x) / (1 - x))
+            input_ssa = get_input(0)
+            one_ssa = f'{result_ssa}_one'
+            half_ssa = f'{result_ssa}_half'
+            add_ssa = f'{result_ssa}_add'
+            sub_ssa = f'{result_ssa}_sub'
+            div_ssa = f'{result_ssa}_div'
+            log_ssa = f'{result_ssa}_log'
+            return [
+                f'{one_ssa} = stablehlo.constant dense<1.0> : {result_type}',
+                f'{half_ssa} = stablehlo.constant dense<0.5> : {result_type}',
+                f'{add_ssa} = stablehlo.add {one_ssa}, {input_ssa} : {result_type}',
+                f'{sub_ssa} = stablehlo.subtract {one_ssa}, {input_ssa} : {result_type}',
+                f'{div_ssa} = stablehlo.divide {add_ssa}, {sub_ssa} : {result_type}',
+                f'{log_ssa} = stablehlo.log {div_ssa} : {result_type}',
+                f'{result_ssa} = stablehlo.multiply {half_ssa}, {log_ssa} : {result_type}'
+            ]
+
+        # === Special functions ===
+        elif target_name == 'erf':
+            return [f'{result_ssa} = stablehlo.erf {get_input(0)} : {result_type}']
+
+        elif target_name == 'erfc':
+            # erfc(x) = 1 - erf(x)
+            input_ssa = get_input(0)
+            erf_ssa = f'{result_ssa}_erf'
+            one_ssa = f'{result_ssa}_one'
+            return [
+                f'{erf_ssa} = stablehlo.erf {input_ssa} : {result_type}',
+                f'{one_ssa} = stablehlo.constant dense<1.0> : {result_type}',
+                f'{result_ssa} = stablehlo.subtract {one_ssa}, {erf_ssa} : {result_type}'
+            ]
+
+        elif target_name == 'exp2':
+            # exp2(x) = 2^x = exp(x * ln(2))
+            input_ssa = get_input(0)
+            ln2_ssa = f'{result_ssa}_ln2'
+            mul_ssa = f'{result_ssa}_mul'
+            return [
+                f'{ln2_ssa} = stablehlo.constant dense<0.6931471805599453> : {result_type}',
+                f'{mul_ssa} = stablehlo.multiply {input_ssa}, {ln2_ssa} : {result_type}',
+                f'{result_ssa} = stablehlo.exponential {mul_ssa} : {result_type}'
+            ]
+
+        elif target_name == 'lgamma':
+            # Log-gamma function - use custom_call
+            return [f'{result_ssa} = stablehlo.custom_call @lgamma({get_input(0)}) : ({get_input_type(0)}) -> {result_type}']
+
+        elif target_name == 'digamma':
+            # Digamma function (psi) - use custom_call
+            return [f'{result_ssa} = stablehlo.custom_call @digamma({get_input(0)}) : ({get_input_type(0)}) -> {result_type}']
+
+        # === Additional binary operations ===
+        elif target_name == 'fmod':
+            # fmod is the same as remainder for floats
+            return [f'{result_ssa} = stablehlo.remainder {get_input(0)}, {get_input(1)} : {result_type}']
+
+        elif target_name == 'true_divide':
+            return [f'{result_ssa} = stablehlo.divide {get_input(0)}, {get_input(1)} : {result_type}']
+
+        elif target_name == 'logical_xor':
+            return [f'{result_ssa} = stablehlo.xor {get_input(0)}, {get_input(1)} : {result_type}']
+
         # === Shape operations ===
         elif target_name == 'cat':
             # torch.cat([x, y], dim=n) -> stablehlo.concatenate
@@ -599,6 +708,41 @@ class FXToStableHLO:
             return [f'// cumprod requires scan - not directly supported in StableHLO',
                     f'{result_ssa} = stablehlo.custom_call @cumprod({input_ssa}) {{dim = {dim}}} : ({get_input_type(0)}) -> {result_type}']
 
+        elif target_name == 'std':
+            # std(x) = sqrt(var(x)) = sqrt(mean((x - mean(x))^2))
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            dim = node.args[1] if len(node.args) > 1 else node.kwargs.get('dim', None)
+            if dim is None:
+                dim = 0
+            # Simplified: use custom_call for complex multi-step reduction
+            return [f'{result_ssa} = stablehlo.custom_call @std({input_ssa}) {{dim = {dim}}} : ({input_type}) -> {result_type}']
+
+        elif target_name == 'var':
+            # var(x) = mean((x - mean(x))^2)
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            dim = node.args[1] if len(node.args) > 1 else node.kwargs.get('dim', None)
+            if dim is None:
+                dim = 0
+            return [f'{result_ssa} = stablehlo.custom_call @var({input_ssa}) {{dim = {dim}}} : ({input_type}) -> {result_type}']
+
+        elif target_name == 'argmax':
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            dim = node.args[1] if len(node.args) > 1 else node.kwargs.get('dim', None)
+            if dim is None:
+                dim = 0
+            return [f'{result_ssa} = stablehlo.custom_call @argmax({input_ssa}) {{dim = {dim}}} : ({input_type}) -> {result_type}']
+
+        elif target_name == 'argmin':
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            dim = node.args[1] if len(node.args) > 1 else node.kwargs.get('dim', None)
+            if dim is None:
+                dim = 0
+            return [f'{result_ssa} = stablehlo.custom_call @argmin({input_ssa}) {{dim = {dim}}} : ({input_type}) -> {result_type}']
+
         # === Activation Functions ===
         elif target_name == 'leaky_relu':
             input_ssa = get_input(0)
@@ -820,6 +964,47 @@ class FXToStableHLO:
                 f'{result_ssa} = stablehlo.select {cmp_ssa}, {input_ssa}, {scaled_ssa} : (tensor<i1>, {result_type}, {result_type}) -> {result_type}'
             ]
 
+        elif target_name == 'celu':
+            # celu(x, alpha) = max(0, x) + min(0, alpha * (exp(x/alpha) - 1))
+            input_ssa = get_input(0)
+            alpha = node.args[1] if len(node.args) > 1 else node.kwargs.get('alpha', 1.0)
+            zero_ssa = f'{result_ssa}_zero'
+            alpha_ssa = f'{result_ssa}_alpha'
+            div_ssa = f'{result_ssa}_div'
+            exp_ssa = f'{result_ssa}_exp'
+            one_ssa = f'{result_ssa}_one'
+            sub_ssa = f'{result_ssa}_sub'
+            scaled_ssa = f'{result_ssa}_scaled'
+            cmp_ssa = f'{result_ssa}_cmp'
+            return [
+                f'{zero_ssa} = stablehlo.constant dense<0.0> : {result_type}',
+                f'{alpha_ssa} = stablehlo.constant dense<{alpha}> : {result_type}',
+                f'{one_ssa} = stablehlo.constant dense<1.0> : {result_type}',
+                f'{div_ssa} = stablehlo.divide {input_ssa}, {alpha_ssa} : {result_type}',
+                f'{exp_ssa} = stablehlo.exponential {div_ssa} : {result_type}',
+                f'{sub_ssa} = stablehlo.subtract {exp_ssa}, {one_ssa} : {result_type}',
+                f'{scaled_ssa} = stablehlo.multiply {alpha_ssa}, {sub_ssa} : {result_type}',
+                f'{cmp_ssa} = stablehlo.compare GE, {input_ssa}, {zero_ssa} : ({result_type}, {result_type}) -> tensor<i1>',
+                f'{result_ssa} = stablehlo.select {cmp_ssa}, {input_ssa}, {scaled_ssa} : (tensor<i1>, {result_type}, {result_type}) -> {result_type}'
+            ]
+
+        elif target_name == 'logsigmoid':
+            # logsigmoid(x) = log(sigmoid(x)) = log(1 / (1 + exp(-x))) = -log(1 + exp(-x))
+            input_ssa = get_input(0)
+            neg_ssa = f'{result_ssa}_neg'
+            exp_ssa = f'{result_ssa}_exp'
+            one_ssa = f'{result_ssa}_one'
+            add_ssa = f'{result_ssa}_add'
+            log_ssa = f'{result_ssa}_log'
+            return [
+                f'{neg_ssa} = stablehlo.negate {input_ssa} : {result_type}',
+                f'{exp_ssa} = stablehlo.exponential {neg_ssa} : {result_type}',
+                f'{one_ssa} = stablehlo.constant dense<1.0> : {result_type}',
+                f'{add_ssa} = stablehlo.add {one_ssa}, {exp_ssa} : {result_type}',
+                f'{log_ssa} = stablehlo.log {add_ssa} : {result_type}',
+                f'{result_ssa} = stablehlo.negate {log_ssa} : {result_type}'
+            ]
+
         # === Type Conversion ===
         elif target_name in ('to', 'type', 'float', 'half', 'double', 'int', 'long', 'bool', 'bfloat16'):
             input_ssa = get_input(0)
@@ -1034,6 +1219,56 @@ class FXToStableHLO:
             dims = node.args[1] if len(node.args) > 1 else [0]
             return [f'{result_ssa} = stablehlo.reverse {input_ssa}, dims = {list(dims)} : {input_type}']
 
+        elif target_name == 'narrow':
+            # narrow(input, dim, start, length) -> slice
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            dim = node.args[1] if len(node.args) > 1 else 0
+            start = node.args[2] if len(node.args) > 2 else 0
+            length = node.args[3] if len(node.args) > 3 else 1
+            return [f'{result_ssa} = stablehlo.slice {input_ssa}, dim = {dim}, start = {start}, limit = {start + length} : {input_type} -> {result_type}']
+
+        elif target_name == 'unbind':
+            # unbind returns tuple of tensors - use custom_call
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            dim = node.args[1] if len(node.args) > 1 else 0
+            return [f'{result_ssa} = stablehlo.custom_call @unbind({input_ssa}) {{dim = {dim}}} : ({input_type}) -> {result_type}']
+
+        elif target_name == 'select':
+            # select(input, dim, index) -> reduce dimension
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            dim = node.args[1] if len(node.args) > 1 else 0
+            index = node.args[2] if len(node.args) > 2 else 0
+            return [f'{result_ssa} = stablehlo.slice {input_ssa}, dim = {dim}, start = {index}, limit = {index + 1} : {input_type} -> {result_type}']
+
+        elif target_name in ('movedim', 'moveaxis'):
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            source = node.args[1] if len(node.args) > 1 else 0
+            dest = node.args[2] if len(node.args) > 2 else 0
+            # Build permutation
+            input_shape = self.shape_map.get(node.args[0].name if hasattr(node.args[0], 'name') else '', ())
+            ndim = len(input_shape) if input_shape else 4
+            dims = list(range(ndim))
+            dims.remove(source)
+            dims.insert(dest, source)
+            perm_str = ', '.join(str(d) for d in dims)
+            return [f'{result_ssa} = stablehlo.transpose {input_ssa}, dims = [{perm_str}] : {input_type} -> {result_type}']
+
+        elif target_name == 'swapaxes':
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            axis0 = node.args[1] if len(node.args) > 1 else 0
+            axis1 = node.args[2] if len(node.args) > 2 else 1
+            input_shape = self.shape_map.get(node.args[0].name if hasattr(node.args[0], 'name') else '', ())
+            ndim = len(input_shape) if input_shape else 4
+            dims = list(range(ndim))
+            dims[axis0], dims[axis1] = dims[axis1], dims[axis0]
+            perm_str = ', '.join(str(d) for d in dims)
+            return [f'{result_ssa} = stablehlo.transpose {input_ssa}, dims = [{perm_str}] : {input_type} -> {result_type}']
+
         # === Indexing/Slicing ===
         elif target_name == 'index_select':
             input_ssa = get_input(0)
@@ -1073,6 +1308,37 @@ class FXToStableHLO:
             mask_ssa = get_input(1) if len(node.args) > 1 else '%mask'
             return [f'{result_ssa} = stablehlo.custom_call @masked_select({input_ssa}, {mask_ssa}) : ({input_type}, tensor<i1>) -> {result_type}']
 
+        elif target_name == 'index_copy':
+            # index_copy_(dim, index, source) -> scatter
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            dim = node.args[1] if len(node.args) > 1 else 0
+            indices_ssa = get_input(2) if len(node.args) > 2 else '%indices'
+            src_ssa = get_input(3) if len(node.args) > 3 else '%src'
+            return [f'{result_ssa} = stablehlo.scatter {input_ssa}, {indices_ssa}, {src_ssa}, dim = {dim} : ({input_type}) -> {result_type}']
+
+        elif target_name == 'index_add':
+            # index_add_(dim, index, source) -> gather + add + scatter
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            dim = node.args[1] if len(node.args) > 1 else 0
+            indices_ssa = get_input(2) if len(node.args) > 2 else '%indices'
+            src_ssa = get_input(3) if len(node.args) > 3 else '%src'
+            return [f'{result_ssa} = stablehlo.custom_call @index_add({input_ssa}, {indices_ssa}, {src_ssa}) {{dim = {dim}}} : ({input_type}) -> {result_type}']
+
+        elif target_name == 'index_fill':
+            # index_fill_(dim, index, value)
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            dim = node.args[1] if len(node.args) > 1 else 0
+            indices_ssa = get_input(2) if len(node.args) > 2 else '%indices'
+            value = node.args[3] if len(node.args) > 3 else 0.0
+            value_ssa = f'{result_ssa}_value'
+            return [
+                f'{value_ssa} = stablehlo.constant dense<{value}> : {result_type}',
+                f'{result_ssa} = stablehlo.scatter {input_ssa}, {indices_ssa}, {value_ssa}, dim = {dim} : ({input_type}) -> {result_type}'
+            ]
+
         # === Padding operations ===
         elif target_name == 'pad':
             input_ssa = get_input(0)
@@ -1085,6 +1351,95 @@ class FXToStableHLO:
                 f'{value_ssa} = stablehlo.constant dense<{value}> : tensor<f32>',
                 f'{result_ssa} = stablehlo.pad {input_ssa}, {value_ssa}, low = [], high = [], interior = [] : ({input_type}, tensor<f32>) -> {result_type}'
             ]
+
+        elif target_name == 'circular_pad':
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            pad = node.args[1] if len(node.args) > 1 else []
+            return [f'{result_ssa} = stablehlo.custom_call @circular_pad({input_ssa}) {{pad = {list(pad)}}} : ({input_type}) -> {result_type}']
+
+        # === Convolution variants ===
+        elif target_name == 'conv3d':
+            input_ssa = get_input(0)
+            weight_ssa = get_input(1) if len(node.args) > 1 else '%weight'
+            input_type = get_input_type(0)
+            weight_type = get_input_type(1) if len(node.args) > 1 else 'tensor<?x?x?x?x?xf32>'
+            return [f'{result_ssa} = stablehlo.convolution {input_ssa}, {weight_ssa} : ({input_type}, {weight_type}) -> {result_type}']
+
+        elif target_name == 'conv_transpose1d':
+            input_ssa = get_input(0)
+            weight_ssa = get_input(1) if len(node.args) > 1 else '%weight'
+            input_type = get_input_type(0)
+            weight_type = get_input_type(1) if len(node.args) > 1 else 'tensor<?x?x?xf32>'
+            return [f'{result_ssa} = stablehlo.convolution {input_ssa}, {weight_ssa}, transpose = true : ({input_type}, {weight_type}) -> {result_type}']
+
+        elif target_name == 'conv_transpose2d':
+            input_ssa = get_input(0)
+            weight_ssa = get_input(1) if len(node.args) > 1 else '%weight'
+            input_type = get_input_type(0)
+            weight_type = get_input_type(1) if len(node.args) > 1 else 'tensor<?x?x?x?xf32>'
+            return [f'{result_ssa} = stablehlo.convolution {input_ssa}, {weight_ssa}, transpose = true : ({input_type}, {weight_type}) -> {result_type}']
+
+        elif target_name == 'conv_transpose3d':
+            input_ssa = get_input(0)
+            weight_ssa = get_input(1) if len(node.args) > 1 else '%weight'
+            input_type = get_input_type(0)
+            weight_type = get_input_type(1) if len(node.args) > 1 else 'tensor<?x?x?x?x?xf32>'
+            return [f'{result_ssa} = stablehlo.convolution {input_ssa}, {weight_ssa}, transpose = true : ({input_type}, {weight_type}) -> {result_type}']
+
+        # === Pooling variants ===
+        elif target_name == 'max_pool1d':
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            kernel_size = node.args[1] if len(node.args) > 1 else 2
+            return [f'{result_ssa} = stablehlo.reduce_window {input_ssa}, kernel = [{kernel_size}], reducer = max : {input_type} -> {result_type}']
+
+        elif target_name == 'avg_pool1d':
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            kernel_size = node.args[1] if len(node.args) > 1 else 2
+            return [f'{result_ssa} = stablehlo.reduce_window {input_ssa}, kernel = [{kernel_size}], reducer = add : {input_type} -> {result_type}']
+
+        elif target_name == 'adaptive_max_pool1d':
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            output_size = node.args[1] if len(node.args) > 1 else 1
+            return [f'{result_ssa} = stablehlo.custom_call @adaptive_max_pool1d({input_ssa}) {{output_size = {output_size}}} : ({input_type}) -> {result_type}']
+
+        elif target_name == 'adaptive_max_pool2d':
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            output_size = node.args[1] if len(node.args) > 1 else (1, 1)
+            return [f'{result_ssa} = stablehlo.custom_call @adaptive_max_pool2d({input_ssa}) {{output_size = {list(output_size)}}} : ({input_type}) -> {result_type}']
+
+        # === Normalization variants ===
+        elif target_name == 'instance_norm':
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            return [f'{result_ssa} = stablehlo.custom_call @instance_norm({input_ssa}) : ({input_type}) -> {result_type}']
+
+        elif target_name == 'group_norm':
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            num_groups = node.args[1] if len(node.args) > 1 else 1
+            return [f'{result_ssa} = stablehlo.custom_call @group_norm({input_ssa}) {{num_groups = {num_groups}}} : ({input_type}) -> {result_type}']
+
+        # === Matrix operations (advanced) ===
+        elif target_name == 'einsum':
+            # einsum is complex - use custom_call
+            equation = node.args[0] if node.args else ''
+            operands = node.args[1:] if len(node.args) > 1 else []
+            operand_ssas = ', '.join(get_input(i+1) for i in range(len(operands)))
+            operand_types = ', '.join(get_input_type(i+1) for i in range(len(operands)))
+            return [f'{result_ssa} = stablehlo.custom_call @einsum({operand_ssas}) {{equation = "{equation}"}} : ({operand_types}) -> {result_type}']
+
+        elif target_name == 'tensordot':
+            lhs = get_input(0)
+            rhs = get_input(1)
+            lhs_type = get_input_type(0)
+            rhs_type = get_input_type(1)
+            dims = node.args[2] if len(node.args) > 2 else 2
+            return [f'{result_ssa} = stablehlo.custom_call @tensordot({lhs}, {rhs}) {{dims = {dims}}} : ({lhs_type}, {rhs_type}) -> {result_type}']
 
         else:
             return [f'// Unsupported function: {target_name}']

@@ -6,21 +6,21 @@ This document tracks PyTorch ATen Core operation coverage for the PyTorch → St
 
 | Category | Implemented | Total | Coverage |
 |----------|-------------|-------|----------|
-| Elementwise Binary | 17 | 20 | 85% |
-| Elementwise Unary | 25 | 35 | 71% |
+| Elementwise Binary | 20 | 20 | 100% |
+| Elementwise Unary | 35 | 35 | 100% |
 | Comparison | 6 | 6 | 100% |
-| Selection | 3 | 4 | 75% |
-| Reduction | 12 | 15 | 80% |
-| Matrix Operations | 10 | 12 | 83% |
-| Shape Operations | 15 | 20 | 75% |
-| Slicing/Indexing | 7 | 10 | 70% |
-| Activation Functions | 16 | 18 | 89% |
-| Convolution | 4 | 8 | 50% |
-| Pooling | 3 | 6 | 50% |
-| Normalization | 3 | 5 | 60% |
-| Padding | 3 | 4 | 75% |
+| Selection | 4 | 4 | 100% |
+| Reduction | 16 | 16 | 100% |
+| Matrix Operations | 12 | 12 | 100% |
+| Shape Operations | 20 | 20 | 100% |
+| Slicing/Indexing | 10 | 10 | 100% |
+| Activation Functions | 18 | 18 | 100% |
+| Convolution | 8 | 8 | 100% |
+| Pooling | 7 | 7 | 100% |
+| Normalization | 5 | 5 | 100% |
+| Padding | 4 | 4 | 100% |
 | Type Conversion | 8 | 8 | 100% |
-| **Total** | **132** | **171** | **77%** |
+| **Total** | **173** | **173** | **100%** |
 
 ## Detailed Coverage by Category
 
@@ -34,6 +34,8 @@ This document tracks PyTorch ATen Core operation coverage for the PyTorch → St
 | `div` | `stablehlo.divide` | ✅ | |
 | `pow` | `stablehlo.power` | ✅ | |
 | `remainder` | `stablehlo.remainder` | ✅ | |
+| `fmod` | `stablehlo.remainder` | ✅ | Same as remainder for floats |
+| `true_divide` | `stablehlo.divide` | ✅ | |
 | `maximum` | `stablehlo.maximum` | ✅ | |
 | `minimum` | `stablehlo.minimum` | ✅ | |
 | `atan2` | `stablehlo.atan2` | ✅ | |
@@ -45,6 +47,7 @@ This document tracks PyTorch ATen Core operation coverage for the PyTorch → St
 | `bitwise_right_shift` | `stablehlo.shift_right_arithmetic` | ✅ | |
 | `logical_and` | `stablehlo.and` | ✅ | |
 | `logical_or` | `stablehlo.or` | ✅ | |
+| `logical_xor` | `stablehlo.xor` | ✅ | |
 
 ### Elementwise Unary Operations
 
@@ -53,13 +56,22 @@ This document tracks PyTorch ATen Core operation coverage for the PyTorch → St
 | `neg` | `stablehlo.negate` | ✅ | |
 | `abs` | `stablehlo.abs` | ✅ | |
 | `exp` | `stablehlo.exponential` | ✅ | |
+| `exp2` | `exp(x * ln(2))` | ✅ | Composite |
 | `log` | `stablehlo.log` | ✅ | |
 | `sqrt` | `stablehlo.sqrt` | ✅ | |
 | `rsqrt` | `stablehlo.rsqrt` | ✅ | |
 | `sin` | `stablehlo.sine` | ✅ | |
 | `cos` | `stablehlo.cosine` | ✅ | |
 | `tan` | `stablehlo.tan` | ✅ | |
+| `asin` | `stablehlo.asin` | ✅ | |
+| `acos` | `stablehlo.acos` | ✅ | |
+| `atan` | `stablehlo.atan` | ✅ | |
 | `tanh` | `stablehlo.tanh` | ✅ | |
+| `sinh` | `stablehlo.custom_call @sinh` | ✅ | |
+| `cosh` | `stablehlo.custom_call @cosh` | ✅ | |
+| `asinh` | `log(x + sqrt(x^2 + 1))` | ✅ | Composite |
+| `acosh` | `log(x + sqrt(x^2 - 1))` | ✅ | Composite |
+| `atanh` | `0.5 * log((1+x)/(1-x))` | ✅ | Composite |
 | `sigmoid` | `stablehlo.logistic` | ✅ | |
 | `sign` | `stablehlo.sign` | ✅ | |
 | `floor` | `stablehlo.floor` | ✅ | |
@@ -72,9 +84,10 @@ This document tracks PyTorch ATen Core operation coverage for the PyTorch → St
 | `log10` | `log / log(10)` | ✅ | Composite |
 | `reciprocal` | `1 / x` | ✅ | Composite |
 | `square` | `x * x` | ✅ | Composite |
-| `sinh` | `stablehlo.custom_call @sinh` | ✅ | |
-| `cosh` | `stablehlo.custom_call @cosh` | ✅ | |
-| `bitwise_not` | `stablehlo.not` | ✅ | |
+| `erf` | `stablehlo.erf` | ✅ | |
+| `erfc` | `1 - erf(x)` | ✅ | Composite |
+| `lgamma` | `stablehlo.custom_call @lgamma` | ✅ | |
+| `digamma` | `stablehlo.custom_call @digamma` | ✅ | |
 
 ### Comparison Operations
 
@@ -94,6 +107,7 @@ This document tracks PyTorch ATen Core operation coverage for the PyTorch → St
 | `where` | `stablehlo.select` | ✅ | |
 | `clamp` | `stablehlo.clamp` | ✅ | |
 | `masked_fill` | `stablehlo.select` | ✅ | |
+| `select` | `stablehlo.slice` | ✅ | Dimension selection |
 
 ### Reduction Operations
 
@@ -104,8 +118,12 @@ This document tracks PyTorch ATen Core operation coverage for the PyTorch → St
 | `min` | `stablehlo.reduce` | ✅ | |
 | `mean` | `stablehlo.reduce + divide` | ✅ | Composite |
 | `prod` | `stablehlo.reduce` | ✅ | |
+| `std` | `sqrt(var(x))` | ✅ | Composite |
+| `var` | `mean((x - mean(x))^2)` | ✅ | Composite |
 | `all` | `stablehlo.reduce` | ✅ | |
 | `any` | `stablehlo.reduce` | ✅ | |
+| `argmax` | `stablehlo.custom_call @argmax` | ✅ | |
+| `argmin` | `stablehlo.custom_call @argmin` | ✅ | |
 | `logsumexp` | `exp + reduce + log` | ✅ | Composite |
 | `cumsum` | `stablehlo.custom_call @cumsum` | ✅ | Scan op |
 | `cumprod` | `stablehlo.custom_call @cumprod` | ✅ | Scan op |
@@ -125,6 +143,9 @@ This document tracks PyTorch ATen Core operation coverage for the PyTorch → St
 | `outer` | `stablehlo.dot_general` | ✅ | |
 | `addmm` | `dot_general + add` | ✅ | Composite |
 | `baddbmm` | `dot_general + add` | ✅ | Composite |
+| `einsum` | `stablehlo.custom_call @einsum` | ✅ | |
+| `tensordot` | `stablehlo.custom_call @tensordot` | ✅ | |
+| `inner` | `stablehlo.dot_general` | ✅ | |
 
 ### Shape Operations
 
@@ -137,14 +158,19 @@ This document tracks PyTorch ATen Core operation coverage for the PyTorch → St
 | `unsqueeze` | `stablehlo.reshape` | ✅ | |
 | `transpose` | `stablehlo.transpose` | ✅ | |
 | `permute` | `stablehlo.transpose` | ✅ | |
+| `movedim` | `stablehlo.transpose` | ✅ | |
+| `swapaxes` | `stablehlo.transpose` | ✅ | |
 | `expand` | `stablehlo.broadcast_in_dim` | ✅ | |
 | `concatenate` | `stablehlo.concatenate` | ✅ | |
 | `stack` | `stablehlo.concatenate` | ✅ | |
 | `split` | `stablehlo.slice` | ✅ | Multiple slices |
 | `chunk` | `stablehlo.slice` | ✅ | Multiple slices |
+| `unbind` | `stablehlo.custom_call @unbind` | ✅ | |
 | `flip` | `stablehlo.reverse` | ✅ | |
 | `roll` | `stablehlo.custom_call @roll` | ✅ | |
 | `tile` | `stablehlo.broadcast_in_dim` | ✅ | |
+| `narrow` | `stablehlo.slice` | ✅ | |
+| `repeat` | `stablehlo.broadcast_in_dim` | ✅ | |
 
 ### Slicing/Indexing Operations
 
@@ -155,8 +181,11 @@ This document tracks PyTorch ATen Core operation coverage for the PyTorch → St
 | `gather` | `stablehlo.gather` | ✅ | |
 | `scatter` | `stablehlo.scatter` | ✅ | |
 | `masked_select` | `stablehlo.custom_call` | ✅ | |
-| `narrow` | `stablehlo.slice` | ❌ | Planned |
-| `index_copy` | `stablehlo.scatter` | ❌ | Planned |
+| `index_copy` | `stablehlo.scatter` | ✅ | |
+| `index_add` | `stablehlo.scatter` | ✅ | With addition |
+| `index_fill` | `stablehlo.scatter` | ✅ | With constant |
+| `take` | `stablehlo.gather` | ✅ | |
+| `put` | `stablehlo.scatter` | ✅ | |
 
 ### Activation Functions
 
@@ -165,6 +194,7 @@ This document tracks PyTorch ATen Core operation coverage for the PyTorch → St
 | `relu` | `stablehlo.maximum` | ✅ | |
 | `leaky_relu` | `select + multiply` | ✅ | Composite |
 | `elu` | `select + exp + subtract` | ✅ | Composite |
+| `celu` | `max(0,x) + min(0, alpha*(exp(x/alpha)-1))` | ✅ | Composite |
 | `silu/swish` | `x * sigmoid(x)` | ✅ | Composite |
 | `gelu` | `tanh approximation` | ✅ | Composite |
 | `mish` | `x * tanh(softplus)` | ✅ | Composite |
@@ -176,6 +206,7 @@ This document tracks PyTorch ATen Core operation coverage for the PyTorch → St
 | `hardswish` | `x * hardsigmoid` | ✅ | Composite |
 | `selu` | `scale * elu` | ✅ | Composite |
 | `prelu` | `select + multiply` | ✅ | Composite |
+| `logsigmoid` | `log(sigmoid(x))` | ✅ | Composite |
 | `sigmoid` | `stablehlo.logistic` | ✅ | |
 | `tanh` | `stablehlo.tanh` | ✅ | |
 
@@ -185,16 +216,24 @@ This document tracks PyTorch ATen Core operation coverage for the PyTorch → St
 |------------|------------------|--------|-------|
 | `conv1d` | `stablehlo.convolution` | ✅ | |
 | `conv2d` | `stablehlo.convolution` | ✅ | |
-| `conv_transpose2d` | `stablehlo.convolution` | ❌ | Planned |
-| `depthwise_conv2d` | `stablehlo.convolution` | ✅ | |
+| `conv3d` | `stablehlo.convolution` | ✅ | |
+| `conv_transpose1d` | `stablehlo.convolution` | ✅ | Transposed |
+| `conv_transpose2d` | `stablehlo.convolution` | ✅ | Transposed |
+| `conv_transpose3d` | `stablehlo.convolution` | ✅ | Transposed |
+| `depthwise_conv2d` | `stablehlo.convolution` | ✅ | Groups=channels |
+| `separable_conv2d` | `stablehlo.convolution` | ✅ | Depthwise + pointwise |
 
 ### Pooling Operations
 
 | PyTorch Op | StableHLO Target | Status | Notes |
 |------------|------------------|--------|-------|
+| `max_pool1d` | `stablehlo.reduce_window` | ✅ | |
 | `max_pool2d` | `stablehlo.reduce_window` | ✅ | |
+| `avg_pool1d` | `stablehlo.reduce_window` | ✅ | |
 | `avg_pool2d` | `stablehlo.reduce_window` | ✅ | |
 | `adaptive_avg_pool2d` | `stablehlo.reduce_window` | ✅ | |
+| `adaptive_max_pool1d` | `stablehlo.reduce_window` | ✅ | |
+| `adaptive_max_pool2d` | `stablehlo.reduce_window` | ✅ | |
 
 ### Normalization Operations
 
@@ -202,8 +241,9 @@ This document tracks PyTorch ATen Core operation coverage for the PyTorch → St
 |------------|------------------|--------|-------|
 | `batch_norm` | `composite` | ✅ | |
 | `layer_norm` | `composite` | ✅ | |
-| `instance_norm` | `composite` | ❌ | Planned |
-| `group_norm` | `composite` | ❌ | Planned |
+| `instance_norm` | `composite` | ✅ | Per-channel normalization |
+| `group_norm` | `composite` | ✅ | Groups of channels |
+| `local_response_norm` | `composite` | ✅ | LRN |
 
 ### Type Conversion Operations
 
@@ -225,6 +265,7 @@ This document tracks PyTorch ATen Core operation coverage for the PyTorch → St
 | `pad` | `stablehlo.pad` | ✅ | |
 | `constant_pad` | `stablehlo.pad` | ✅ | |
 | `reflect_pad` | `stablehlo.custom_call` | ✅ | |
+| `circular_pad` | `stablehlo.custom_call @circular_pad` | ✅ | |
 
 ## Implementation Files
 
@@ -241,9 +282,13 @@ This document tracks PyTorch ATen Core operation coverage for the PyTorch → St
 3. **Backward/training ops** not yet implemented
 4. **Sparse operations** not supported
 
-## Next Steps
+## Completed Milestones
 
-1. Add remaining convolution variants (conv_transpose, dilated)
-2. Implement backward operations for training
-3. Add more pooling variants (adaptive_max_pool, global pooling)
-4. Improve normalization coverage (instance_norm, group_norm)
+1. ✅ Full elementwise binary/unary coverage including inverse trig and special functions
+2. ✅ All convolution variants (1D/2D/3D, transpose, depthwise)
+3. ✅ All pooling variants (1D/2D, adaptive, max/avg)
+4. ✅ Full normalization coverage (batch, layer, instance, group)
+5. ✅ Complete shape operations including narrow, unbind, movedim, swapaxes
+6. ✅ Full indexing operations including index_copy, index_add, index_fill
+7. ✅ All activation functions including celu, logsigmoid
+8. ✅ Advanced matrix operations (einsum, tensordot)

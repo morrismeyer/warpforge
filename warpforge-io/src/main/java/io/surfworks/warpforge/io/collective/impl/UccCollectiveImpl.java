@@ -288,8 +288,7 @@ public class UccCollectiveImpl implements CollectiveApi {
 
                 // Initialize and post collective
                 MemorySegment requestPtr = opArena.allocate(ValueLayout.ADDRESS);
-                int status = Ucc.ucc_collective_init_and_post(args, requestPtr, uccTeam);
-                UccHelper.checkStatusAllowInProgress(status, "allreduce init_and_post");
+                UccHelper.initAndPostCollective(args, requestPtr, uccTeam, "allreduce");
 
                 // Wait for completion
                 MemorySegment request = requestPtr.get(ValueLayout.ADDRESS, 0);
@@ -335,8 +334,7 @@ public class UccCollectiveImpl implements CollectiveApi {
 
                 // Initialize and post collective
                 MemorySegment requestPtr = opArena.allocate(ValueLayout.ADDRESS);
-                int status = Ucc.ucc_collective_init_and_post(args, requestPtr, uccTeam);
-                UccHelper.checkStatusAllowInProgress(status, "allreduce_inplace init_and_post");
+                UccHelper.initAndPostCollective(args, requestPtr, uccTeam, "allreduce_inplace");
 
                 // Wait for completion
                 MemorySegment request = requestPtr.get(ValueLayout.ADDRESS, 0);
@@ -381,8 +379,7 @@ public class UccCollectiveImpl implements CollectiveApi {
 
                 // Initialize and post collective
                 MemorySegment requestPtr = opArena.allocate(ValueLayout.ADDRESS);
-                int status = Ucc.ucc_collective_init_and_post(args, requestPtr, uccTeam);
-                UccHelper.checkStatusAllowInProgress(status, "allreduce_raw init_and_post");
+                UccHelper.initAndPostCollective(args, requestPtr, uccTeam, "allreduce_raw");
 
                 // Wait for completion
                 MemorySegment request = requestPtr.get(ValueLayout.ADDRESS, 0);
@@ -433,8 +430,7 @@ public class UccCollectiveImpl implements CollectiveApi {
 
                 // Initialize and post collective
                 MemorySegment requestPtr = opArena.allocate(ValueLayout.ADDRESS);
-                int status = Ucc.ucc_collective_init_and_post(args, requestPtr, uccTeam);
-                UccHelper.checkStatusAllowInProgress(status, "allgather init_and_post");
+                UccHelper.initAndPostCollective(args, requestPtr, uccTeam, "allgather");
 
                 // Wait for completion
                 MemorySegment request = requestPtr.get(ValueLayout.ADDRESS, 0);
@@ -481,8 +477,7 @@ public class UccCollectiveImpl implements CollectiveApi {
 
                 // Initialize and post collective
                 MemorySegment requestPtr = opArena.allocate(ValueLayout.ADDRESS);
-                int status = Ucc.ucc_collective_init_and_post(args, requestPtr, uccTeam);
-                UccHelper.checkStatusAllowInProgress(status, "allgather_into init_and_post");
+                UccHelper.initAndPostCollective(args, requestPtr, uccTeam, "allgather_into");
 
                 // Wait for completion
                 MemorySegment request = requestPtr.get(ValueLayout.ADDRESS, 0);
@@ -534,8 +529,7 @@ public class UccCollectiveImpl implements CollectiveApi {
 
                 // Initialize and post collective
                 MemorySegment requestPtr = opArena.allocate(ValueLayout.ADDRESS);
-                int status = Ucc.ucc_collective_init_and_post(args, requestPtr, uccTeam);
-                UccHelper.checkStatusAllowInProgress(status, "broadcast init_and_post");
+                UccHelper.initAndPostCollective(args, requestPtr, uccTeam, "broadcast");
 
                 // Wait for completion
                 MemorySegment request = requestPtr.get(ValueLayout.ADDRESS, 0);
@@ -582,8 +576,7 @@ public class UccCollectiveImpl implements CollectiveApi {
 
                 // Initialize and post collective
                 MemorySegment requestPtr = opArena.allocate(ValueLayout.ADDRESS);
-                int status = Ucc.ucc_collective_init_and_post(args, requestPtr, uccTeam);
-                UccHelper.checkStatusAllowInProgress(status, "broadcast_inplace init_and_post");
+                UccHelper.initAndPostCollective(args, requestPtr, uccTeam, "broadcast_inplace");
 
                 // Wait for completion
                 MemorySegment request = requestPtr.get(ValueLayout.ADDRESS, 0);
@@ -633,8 +626,7 @@ public class UccCollectiveImpl implements CollectiveApi {
 
                 // Initialize and post collective
                 MemorySegment requestPtr = opArena.allocate(ValueLayout.ADDRESS);
-                int status = Ucc.ucc_collective_init_and_post(args, requestPtr, uccTeam);
-                UccHelper.checkStatusAllowInProgress(status, "reduce_scatter init_and_post");
+                UccHelper.initAndPostCollective(args, requestPtr, uccTeam, "reduce_scatter");
 
                 // Wait for completion
                 MemorySegment request = requestPtr.get(ValueLayout.ADDRESS, 0);
@@ -681,8 +673,7 @@ public class UccCollectiveImpl implements CollectiveApi {
 
                 // Initialize and post collective
                 MemorySegment requestPtr = opArena.allocate(ValueLayout.ADDRESS);
-                int status = Ucc.ucc_collective_init_and_post(args, requestPtr, uccTeam);
-                UccHelper.checkStatusAllowInProgress(status, "reduce_scatter_into init_and_post");
+                UccHelper.initAndPostCollective(args, requestPtr, uccTeam, "reduce_scatter_into");
 
                 // Wait for completion
                 MemorySegment request = requestPtr.get(ValueLayout.ADDRESS, 0);
@@ -729,8 +720,7 @@ public class UccCollectiveImpl implements CollectiveApi {
 
                 // Initialize and post collective
                 MemorySegment requestPtr = opArena.allocate(ValueLayout.ADDRESS);
-                int status = Ucc.ucc_collective_init_and_post(args, requestPtr, uccTeam);
-                UccHelper.checkStatusAllowInProgress(status, "alltoall init_and_post");
+                UccHelper.initAndPostCollective(args, requestPtr, uccTeam, "alltoall");
 
                 // Wait for completion
                 MemorySegment request = requestPtr.get(ValueLayout.ADDRESS, 0);
@@ -773,8 +763,7 @@ public class UccCollectiveImpl implements CollectiveApi {
 
                 // Initialize and post collective
                 MemorySegment requestPtr = opArena.allocate(ValueLayout.ADDRESS);
-                int status = Ucc.ucc_collective_init_and_post(args, requestPtr, uccTeam);
-                UccHelper.checkStatusAllowInProgress(status, "alltoall_into init_and_post");
+                UccHelper.initAndPostCollective(args, requestPtr, uccTeam, "alltoall_into");
 
                 // Wait for completion
                 MemorySegment request = requestPtr.get(ValueLayout.ADDRESS, 0);
@@ -821,8 +810,7 @@ public class UccCollectiveImpl implements CollectiveApi {
 
                 // Initialize and post collective
                 MemorySegment requestPtr = opArena.allocate(ValueLayout.ADDRESS);
-                int status = Ucc.ucc_collective_init_and_post(args, requestPtr, uccTeam);
-                UccHelper.checkStatusAllowInProgress(status, "reduce init_and_post");
+                UccHelper.initAndPostCollective(args, requestPtr, uccTeam, "reduce");
 
                 // Wait for completion
                 MemorySegment request = requestPtr.get(ValueLayout.ADDRESS, 0);
@@ -877,8 +865,7 @@ public class UccCollectiveImpl implements CollectiveApi {
 
                 // Initialize and post collective
                 MemorySegment requestPtr = opArena.allocate(ValueLayout.ADDRESS);
-                int status = Ucc.ucc_collective_init_and_post(args, requestPtr, uccTeam);
-                UccHelper.checkStatusAllowInProgress(status, "scatter init_and_post");
+                UccHelper.initAndPostCollective(args, requestPtr, uccTeam, "scatter");
 
                 // Wait for completion
                 MemorySegment request = requestPtr.get(ValueLayout.ADDRESS, 0);
@@ -937,8 +924,7 @@ public class UccCollectiveImpl implements CollectiveApi {
 
                 // Initialize and post collective
                 MemorySegment requestPtr = opArena.allocate(ValueLayout.ADDRESS);
-                int status = Ucc.ucc_collective_init_and_post(args, requestPtr, uccTeam);
-                UccHelper.checkStatusAllowInProgress(status, "gather init_and_post");
+                UccHelper.initAndPostCollective(args, requestPtr, uccTeam, "gather");
 
                 // Wait for completion
                 MemorySegment request = requestPtr.get(ValueLayout.ADDRESS, 0);
@@ -967,33 +953,40 @@ public class UccCollectiveImpl implements CollectiveApi {
             // Multi-rank: implement barrier via allreduce
             // UCC's native barrier (CL_HIER) requires sbgp node which isn't available
             // in our 2-node 1-process-per-node setup. Use allreduce as a barrier instead.
+            // Note: Must use separate src/dst buffers (not in-place) for TL_UCP compatibility.
             try (Arena opArena = Arena.ofConfined()) {
-                // Allocate a single int for the dummy allreduce
-                MemorySegment buffer = opArena.allocate(ValueLayout.JAVA_INT);
-                buffer.set(ValueLayout.JAVA_INT, 0, 1);  // Dummy value
+                // Allocate separate src and dst buffers for allreduce
+                MemorySegment srcBuffer = opArena.allocate(ValueLayout.JAVA_INT);
+                MemorySegment dstBuffer = opArena.allocate(ValueLayout.JAVA_INT);
+                srcBuffer.set(ValueLayout.JAVA_INT, 0, 1);  // Dummy value
 
                 MemorySegment args = ucc_coll_args.allocate(opArena);
                 UccHelper.setupCollectiveArgsWithOp(args, UccConstants.COLL_TYPE_ALLREDUCE, UccConstants.OP_SUM);
-                ucc_coll_args.flags(args, UccConstants.COLL_ARGS_FLAG_IN_PLACE);
+                // Don't set IN_PLACE flag - use separate buffers
 
-                // Configure buffers - same buffer for in-place allreduce
+                // Configure source buffer
                 MemorySegment srcInfo = UccHelper.getSrcBufferInfo(args);
-                ucc_coll_buffer_info.buffer(srcInfo, buffer);
+                ucc_coll_buffer_info.buffer(srcInfo, srcBuffer);
                 ucc_coll_buffer_info.count(srcInfo, 1L);
                 ucc_coll_buffer_info.datatype(srcInfo, UccConstants.DT_INT32);
                 ucc_coll_buffer_info.mem_type(srcInfo, UccConstants.MEMORY_TYPE_HOST);
 
+                // Configure destination buffer (separate from source)
                 MemorySegment dstInfo = UccHelper.getDstBufferInfo(args);
-                ucc_coll_buffer_info.buffer(dstInfo, buffer);
+                ucc_coll_buffer_info.buffer(dstInfo, dstBuffer);
                 ucc_coll_buffer_info.count(dstInfo, 1L);
                 ucc_coll_buffer_info.datatype(dstInfo, UccConstants.DT_INT32);
                 ucc_coll_buffer_info.mem_type(dstInfo, UccConstants.MEMORY_TYPE_HOST);
 
+                // Use two-step init + post (some UCC builds don't implement init_and_post)
                 MemorySegment requestPtr = opArena.allocate(ValueLayout.ADDRESS);
-                int status = Ucc.ucc_collective_init_and_post(args, requestPtr, uccTeam);
-                UccHelper.checkStatusAllowInProgress(status, "barrier (via allreduce) init_and_post");
+                int status = Ucc.ucc_collective_init(args, requestPtr, uccTeam);
+                UccHelper.checkStatusAllowInProgress(status, "barrier (via allreduce) init");
 
                 MemorySegment request = requestPtr.get(ValueLayout.ADDRESS, 0);
+                status = Ucc.ucc_collective_post(request);
+                UccHelper.checkStatusAllowInProgress(status, "barrier (via allreduce) post");
+
                 UccHelper.waitForCompletionWithProgress(request, uccContext);
 
                 barrierCount.incrementAndGet();

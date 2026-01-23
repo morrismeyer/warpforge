@@ -63,6 +63,33 @@ public final class UccHelper {
     }
 
     // ========================================================================
+    // Collective Init + Post
+    // ========================================================================
+
+    /**
+     * Initialize and post a collective operation using two-step API.
+     *
+     * <p>This uses the separate {@code ucc_collective_init} and {@code ucc_collective_post}
+     * calls instead of {@code ucc_collective_init_and_post}. Some UCC builds don't
+     * implement the combined function.
+     *
+     * @param args the collective arguments
+     * @param requestPtr pointer to store the request handle
+     * @param team the UCC team handle
+     * @param operation description of the operation for error messages
+     * @throws CollectiveException if init or post fails
+     */
+    public static void initAndPostCollective(MemorySegment args, MemorySegment requestPtr,
+                                              MemorySegment team, String operation) {
+        int status = Ucc.ucc_collective_init(args, requestPtr, team);
+        checkStatusAllowInProgress(status, operation + " init");
+
+        MemorySegment request = requestPtr.get(ValueLayout.ADDRESS, 0);
+        status = Ucc.ucc_collective_post(request);
+        checkStatusAllowInProgress(status, operation + " post");
+    }
+
+    // ========================================================================
     // Completion Polling
     // ========================================================================
 

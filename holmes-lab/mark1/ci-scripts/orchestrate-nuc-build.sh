@@ -85,6 +85,45 @@ else
   exit 1
 fi
 
+# 1b) Diagnostic: Check UCC/UCX library status before build
+log "=== Native Library Diagnostics (Pre-Build) ==="
+UCC_LIB_PATH="$NUC_REPO_DIR/../ucc/install/lib/libucc.so"
+UCX_LIB_PATH="$NUC_REPO_DIR/../openucx/install/lib/libucp.so"
+
+log "Checking UCC library..."
+if [[ -f "$UCC_LIB_PATH" ]]; then
+  log "UCC library found at: $UCC_LIB_PATH"
+  log "UCC dependencies:"
+  ldd "$UCC_LIB_PATH" 2>&1 | tee -a "$LOG_FILE" || log "ldd failed for UCC"
+  # Check for missing dependencies
+  MISSING=$(ldd "$UCC_LIB_PATH" 2>&1 | grep "not found" || true)
+  if [[ -n "$MISSING" ]]; then
+    log "WARNING: UCC has missing dependencies:"
+    echo "$MISSING" | tee -a "$LOG_FILE"
+  else
+    log "UCC dependencies OK"
+  fi
+else
+  log "UCC library NOT found at expected path: $UCC_LIB_PATH"
+fi
+
+log "Checking UCX library..."
+if [[ -f "$UCX_LIB_PATH" ]]; then
+  log "UCX library found at: $UCX_LIB_PATH"
+  MISSING=$(ldd "$UCX_LIB_PATH" 2>&1 | grep "not found" || true)
+  if [[ -n "$MISSING" ]]; then
+    log "WARNING: UCX has missing dependencies:"
+    echo "$MISSING" | tee -a "$LOG_FILE"
+  else
+    log "UCX dependencies OK"
+  fi
+else
+  log "UCX library NOT found at expected path: $UCX_LIB_PATH"
+fi
+
+log "LD_LIBRARY_PATH: ${LD_LIBRARY_PATH:-<not set>}"
+log "=== End Native Library Diagnostics ==="
+
 # 2) Build + smoke test on NUC
 log "Running NUC build: ${NUC_BUILD_CMD}"
 bash -lc "${NUC_BUILD_CMD}" 2>&1 | tee -a "$LOG_FILE"

@@ -84,12 +84,6 @@ test {
         excludeTags 'integration', 'rdma', 'rdma-perf', 'ray-integration'
     }
 
-    // Use mock backends for unit tests - real RDMA/UCC requires hardware and
-    // properly installed native libraries. The jextract FFM bindings will crash
-    // the JVM if the native library can't be properly loaded (e.g., missing deps).
-    systemProperty 'warpforge.rdma.mode', 'mock'
-    systemProperty 'warpforge.collective.mode', 'mock'
-
     testLogging {
         events 'passed', 'skipped', 'failed'
         showStandardStreams = true

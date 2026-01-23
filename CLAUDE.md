@@ -318,6 +318,32 @@ Allowing test failures to accumulate is a dangerous development practice that le
 - `warpforge-io`: 150+ tests
 - `warpforge-core`: 100+ tests
 
+### Fix the Root Cause, Not the Symptom
+
+**When a build fails due to missing dependencies or environment issues, fix the underlying problem—never skip or disable tests to make the build pass.**
+
+This applies to:
+- Missing tools or binaries (e.g., GraalPy, native libraries)
+- Missing environment configuration
+- Unavailable external dependencies
+
+**Wrong approach:**
+```bash
+# BAD: Skip tests when dependency is missing
+if [[ ! -f "$GRAALPY_BIN" ]]; then
+  log "Skipping tests because GraalPy is missing"
+fi
+```
+
+**Correct approach:**
+```bash
+# GOOD: Download the dependency as part of the build
+./gradlew :snakegrinder-dist:downloadGraalPy
+./gradlew :snakegrinder-dist:testDist
+```
+
+The build system should be self-healing: if a required dependency is missing, download or build it automatically. Tests should always run—if they can't run due to missing infrastructure, that's a build system bug to fix, not a test to skip.
+
 ## CI/CD
 
 ### Nightly Full Build: Clone-to-Run Verification

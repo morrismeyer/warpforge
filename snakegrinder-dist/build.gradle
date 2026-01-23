@@ -43,8 +43,58 @@ if (osName.contains('mac')) {
 }
 
 def graalPyHome = "${projectDir}/tools/graalpy-${graalPyVersion}-${graalPyPlatform}"
+def graalPyBinPath = "${graalPyHome}/bin/graalpy"
+def graalPyDownloadUrl = "https://github.com/oracle/graalpython/releases/download/graal-${graalPyVersion}/graalpy-${graalPyVersion}-${graalPyPlatform}.tar.gz"
 def pytorchVenvDir = file("${projectDir}/.pytorch-venv")
 def distDir = file("${buildDir}/dist")
+
+// ============================================================================
+// GraalPy Download (prerequisite for venv and tests)
+// ============================================================================
+
+tasks.register('downloadGraalPy') {
+    group = 'snakegrinder-dist'
+    description = 'Download GraalPy if not present (required for PyTorch venv and tests)'
+
+    outputs.file(graalPyBinPath)
+
+    doLast {
+        def graalPyBin = file(graalPyBinPath)
+        if (graalPyBin.exists()) {
+            println "GraalPy already exists at ${graalPyHome}"
+            return
+        }
+
+        println "Downloading GraalPy ${graalPyVersion} for ${graalPyPlatform}..."
+        println "URL: ${graalPyDownloadUrl}"
+
+        def toolsDir = file("${projectDir}/tools")
+        toolsDir.mkdirs()
+
+        def tarball = file("/tmp/graalpy-${graalPyVersion}-${graalPyPlatform}.tar.gz")
+
+        // Download if not cached
+        if (!tarball.exists()) {
+            exec {
+                commandLine 'curl', '-L', '--progress-bar', '-o', tarball.absolutePath, graalPyDownloadUrl
+            }
+        } else {
+            println "Using cached download: ${tarball}"
+        }
+
+        // Extract
+        println "Extracting to ${graalPyHome}..."
+        exec {
+            commandLine 'tar', '-xzf', tarball.absolutePath, '-C', toolsDir.absolutePath
+        }
+
+        if (!graalPyBin.exists()) {
+            throw new GradleException("GraalPy extraction failed. Expected: ${graalPyBinPath}")
+        }
+
+        println "GraalPy ${graalPyVersion} installed successfully"
+    }
+}
 
 // ============================================================================
 // PyTorch Venv Management

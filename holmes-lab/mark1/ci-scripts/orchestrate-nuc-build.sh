@@ -234,10 +234,9 @@ fi
 
 log "NUC build + tests SUCCESS"
 
-# 2b) SnakeGrinder distribution tests (requires pre-built PyTorch venv AND GraalPy)
+# 2b) SnakeGrinder distribution tests (requires pre-built PyTorch venv)
 log "Running snakegrinder-dist tests..."
 SNAKEGRINDER_VENV="$NUC_REPO_DIR/snakegrinder-dist/.pytorch-venv"
-GRAALPY_BIN="$NUC_REPO_DIR/snakegrinder-dist/tools/graalpy-25.0.1-linux-amd64/bin/graalpy"
 PRUNE_MARKER="$SNAKEGRINDER_VENV/.prune-marker"
 
 # Check for stale venv (missing prune marker = pre-validation era venv)
@@ -248,25 +247,23 @@ if [[ -d "$SNAKEGRINDER_VENV" && ! -f "$PRUNE_MARKER" ]]; then
   log "Stale venv deleted. Will skip tests this run."
 fi
 
-# Check both venv AND GraalPy exist
-if [[ -d "$SNAKEGRINDER_VENV" && -f "$GRAALPY_BIN" ]]; then
+if [[ -d "$SNAKEGRINDER_VENV" ]]; then
   log "PyTorch venv found at $SNAKEGRINDER_VENV"
-  log "GraalPy found at $GRAALPY_BIN"
   if [[ -f "$PRUNE_MARKER" ]]; then
     log "Prune marker contents:"
     cat "$PRUNE_MARKER" | tee -a "$LOG_FILE"
   fi
+  # Download GraalPy if missing (it's a build dependency for tests)
+  log "Ensuring GraalPy is downloaded..."
+  bash -lc "./gradlew :snakegrinder-dist:downloadGraalPy --no-configuration-cache 2>&1" | tee -a "$LOG_FILE"
+  # Run the full distribution tests
   bash -lc "./gradlew :snakegrinder-dist:testDist --no-configuration-cache --no-build-cache 2>&1" | tee -a "$LOG_FILE"
   log "snakegrinder-dist tests SUCCESS"
-elif [[ ! -d "$SNAKEGRINDER_VENV" ]]; then
+else
   log "WARNING: PyTorch venv not found at $SNAKEGRINDER_VENV"
   log "Skipping snakegrinder-dist tests. To enable, run:"
   log "  cd $NUC_REPO_DIR && ./gradlew :snakegrinder-dist:buildPytorchVenv"
   log "  cd $NUC_REPO_DIR && ./gradlew :snakegrinder-dist:prunePytorchVenv"
-elif [[ ! -f "$GRAALPY_BIN" ]]; then
-  log "WARNING: GraalPy not found at $GRAALPY_BIN"
-  log "Skipping snakegrinder-dist tests. GraalPy is downloaded during venv build."
-  log "To fix, run: cd $NUC_REPO_DIR && ./gradlew :snakegrinder-dist:buildPytorchVenv"
 fi
 
 # 3) NVIDIA tier

@@ -1,6 +1,7 @@
 package io.surfworks.warpforge.io.collective;
 
-import io.surfworks.warpforge.io.collective.impl.UccCollectiveImpl;
+import java.lang.reflect.Constructor;
+
 import io.surfworks.warpforge.io.collective.mock.CollectiveMock;
 import io.surfworks.warpforge.io.rdma.Rdma;
 
@@ -50,9 +51,18 @@ public final class Collective {
 
         if (canUseRealUcc()) {
             try {
-                return new UccCollectiveImpl(config);
+                // Use reflection to load UccCollectiveImpl to avoid loading Ucc class
+                // (which triggers native library loading) unless we're actually using it.
+                // This allows us to catch class loading errors gracefully.
+                Class<?> implClass = Class.forName("io.surfworks.warpforge.io.collective.impl.UccCollectiveImpl");
+                Constructor<?> constructor = implClass.getConstructor(CollectiveConfig.class);
+                return (CollectiveApi) constructor.newInstance(config);
             } catch (Exception e) {
                 System.err.println("Failed to initialize UCC, falling back to mock: " + e.getMessage());
+                return new CollectiveMock(config);
+            } catch (Error e) {
+                // Catch native library loading errors (UnsatisfiedLinkError, etc.)
+                System.err.println("Failed to load UCC native library, falling back to mock: " + e.getMessage());
                 return new CollectiveMock(config);
             }
         }
@@ -97,7 +107,17 @@ public final class Collective {
         if (!hasUccLibraries()) {
             throw new CollectiveException("UCC libraries not found", CollectiveException.ErrorCode.NOT_SUPPORTED);
         }
-        return new UccCollectiveImpl(config);
+        try {
+            Class<?> implClass = Class.forName("io.surfworks.warpforge.io.collective.impl.UccCollectiveImpl");
+            Constructor<?> constructor = implClass.getConstructor(CollectiveConfig.class);
+            return (CollectiveApi) constructor.newInstance(config);
+        } catch (Exception e) {
+            throw new CollectiveException("Failed to load UCC: " + e.getMessage(),
+                CollectiveException.ErrorCode.NOT_SUPPORTED);
+        } catch (Error e) {
+            throw new CollectiveException("Failed to load UCC native library: " + e.getMessage(),
+                CollectiveException.ErrorCode.NOT_SUPPORTED);
+        }
     }
 
     /**

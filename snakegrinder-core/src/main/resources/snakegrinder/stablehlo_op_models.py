@@ -659,6 +659,49 @@ class CumprodOp(nn.Module):
     def forward(self, x):
         return torch.cumprod(x, dim=1)
 
+
+class CummaxOp(nn.Module):
+    """Cumulative maximum along a dimension.
+    Produces: stablehlo.custom_call @cummax
+    """
+    def forward(self, x):
+        values, indices = torch.cummax(x, dim=1)
+        return values
+
+
+class CumminOp(nn.Module):
+    """Cumulative minimum along a dimension.
+    Produces: stablehlo.custom_call @cummin
+    """
+    def forward(self, x):
+        values, indices = torch.cummin(x, dim=1)
+        return values
+
+
+class LogcumsumexpOp(nn.Module):
+    """Log of cumulative sum of exponentials (numerically stable).
+    Produces: stablehlo.custom_call @logcumsumexp
+    """
+    def forward(self, x):
+        return torch.logcumsumexp(x, dim=1)
+
+
+class DiffOp(nn.Module):
+    """Discrete difference along a dimension.
+    Produces: stablehlo.custom_call @diff
+    """
+    def forward(self, x):
+        return torch.diff(x, dim=1)
+
+
+class DiffN2Op(nn.Module):
+    """Second-order discrete difference.
+    Produces: stablehlo.custom_call @diff
+    """
+    def forward(self, x):
+        return torch.diff(x, n=2, dim=1)
+
+
 # =============================================================================
 # Type Conversion Operations
 # =============================================================================
@@ -1871,6 +1914,11 @@ OPERATION_REGISTRY = {
     'logsumexp': (LogsumexpOp, [([2, 8], 'f32')]),
     'cumsum': (CumsumOp, [([2, 8], 'f32')]),
     'cumprod': (CumprodOp, [([2, 8], 'f32')]),
+    'cummax': (CummaxOp, [([2, 8], 'f32')]),
+    'cummin': (CumminOp, [([2, 8], 'f32')]),
+    'logcumsumexp': (LogcumsumexpOp, [([2, 8], 'f32')]),
+    'diff': (DiffOp, [([2, 8], 'f32')]),
+    'diff_n2': (DiffN2Op, [([2, 10], 'f32')]),  # Need extra elements for n=2
 
     # Type Conversion
     'to_float': (ToFloatOp, [([1, 8], 'i32')]),

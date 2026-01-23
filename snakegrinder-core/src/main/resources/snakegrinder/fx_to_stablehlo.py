@@ -872,17 +872,57 @@ class FXToStableHLO:
                 f'{result_ssa} = stablehlo.log {sum_ssa} : {result_type}'
             ]
 
+        # ===== SCAN/CUMULATIVE OPERATIONS =====
+        # StableHLO lacks native scan operations. We use custom_call which backends
+        # can implement using their native scan primitives (e.g., thrust::inclusive_scan
+        # on CUDA, parallel_scan on CPU). Alternative: decompose using stablehlo.while.
+
         elif target_name == 'cumsum':
             input_ssa = get_input(0)
+            input_type = get_input_type(0)
             dim = node.args[1] if len(node.args) > 1 else node.kwargs.get('dim', 0)
-            return [f'// cumsum requires scan - not directly supported in StableHLO',
-                    f'{result_ssa} = stablehlo.custom_call @cumsum({input_ssa}) {{dim = {dim}}} : ({get_input_type(0)}) -> {result_type}']
+            dtype = node.kwargs.get('dtype', None)
+            dtype_attr = f', dtype = "{dtype}"' if dtype else ''
+            return [f'{result_ssa} = stablehlo.custom_call @cumsum({input_ssa}) '
+                    f'{{dim = {dim}{dtype_attr}}} : ({input_type}) -> {result_type}']
 
         elif target_name == 'cumprod':
             input_ssa = get_input(0)
+            input_type = get_input_type(0)
             dim = node.args[1] if len(node.args) > 1 else node.kwargs.get('dim', 0)
-            return [f'// cumprod requires scan - not directly supported in StableHLO',
-                    f'{result_ssa} = stablehlo.custom_call @cumprod({input_ssa}) {{dim = {dim}}} : ({get_input_type(0)}) -> {result_type}']
+            dtype = node.kwargs.get('dtype', None)
+            dtype_attr = f', dtype = "{dtype}"' if dtype else ''
+            return [f'{result_ssa} = stablehlo.custom_call @cumprod({input_ssa}) '
+                    f'{{dim = {dim}{dtype_attr}}} : ({input_type}) -> {result_type}']
+
+        elif target_name == 'cummax':
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            dim = node.args[1] if len(node.args) > 1 else node.kwargs.get('dim', 0)
+            return [f'{result_ssa} = stablehlo.custom_call @cummax({input_ssa}) '
+                    f'{{dim = {dim}}} : ({input_type}) -> {result_type}']
+
+        elif target_name == 'cummin':
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            dim = node.args[1] if len(node.args) > 1 else node.kwargs.get('dim', 0)
+            return [f'{result_ssa} = stablehlo.custom_call @cummin({input_ssa}) '
+                    f'{{dim = {dim}}} : ({input_type}) -> {result_type}']
+
+        elif target_name == 'logcumsumexp':
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            dim = node.args[1] if len(node.args) > 1 else node.kwargs.get('dim', 0)
+            return [f'{result_ssa} = stablehlo.custom_call @logcumsumexp({input_ssa}) '
+                    f'{{dim = {dim}}} : ({input_type}) -> {result_type}']
+
+        elif target_name == 'diff':
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            n = node.args[1] if len(node.args) > 1 else node.kwargs.get('n', 1)
+            dim = node.args[2] if len(node.args) > 2 else node.kwargs.get('dim', -1)
+            return [f'{result_ssa} = stablehlo.custom_call @diff({input_ssa}) '
+                    f'{{n = {n}, dim = {dim}}} : ({input_type}) -> {result_type}']
 
         elif target_name == 'std':
             # std(x) = sqrt(var(x)) = sqrt(mean((x - mean(x))^2))

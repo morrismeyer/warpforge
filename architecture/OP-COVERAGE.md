@@ -278,7 +278,7 @@ This document tracks PyTorch ATen Core operation coverage for the PyTorch → St
 
 ## Known Limitations
 
-1. **Scan operations** (cumsum, cumprod) use custom_call as StableHLO lacks native scan
+1. **Scan operations** use `custom_call` since StableHLO lacks native scan primitives (backends implement via thrust/CUB on CUDA, parallel_scan on CPU)
 
 ## Completed Milestones
 
@@ -296,6 +296,7 @@ This document tracks PyTorch ATen Core operation coverage for the PyTorch → St
 12. ✅ Sparse tensor operations (COO, CSR, CSC, BSR, semi-structured)
 13. ✅ Complex tensor operations (complex64/complex128) - native StableHLO support
 14. ✅ FFT operations (torch.fft module) - native StableHLO FFT support
+15. ✅ Scan/cumulative operations (cumsum, cumprod, cummax, cummin, logcumsumexp, diff)
 
 ## Dynamic Shape Support
 
@@ -631,3 +632,53 @@ StableHLO's native FFT operation maps directly to:
 - **XLA**: Native XLA FFT lowering
 
 The helper operations (fftshift, ifftshift, fftfreq, rfftfreq) use custom_call and can be implemented using standard array operations (roll/concatenate for shift, iota/divide for frequency).
+
+## Scan/Cumulative Operations Support
+
+### Overview
+
+WarpForge supports scan (cumulative) operations via `stablehlo.custom_call`. StableHLO does not have native scan primitives, so backends must provide their own implementations. This is the standard approach used by JAX/XLA.
+
+### Why custom_call?
+
+Scan operations are inherently sequential in their naive form, but efficient parallel implementations (parallel prefix scan, Brent-Kung algorithm) are hardware-specific:
+
+- **GPU**: thrust::inclusive_scan, CUB DeviceScan (NVIDIA), hipcub (AMD)
+- **TPU**: HLO ReduceWindow with causal masking
+- **CPU**: std::inclusive_scan (C++17), OpenMP parallel prefix
+
+Using `custom_call` allows each backend to use its optimal implementation.
+
+### Implemented Operations
+
+| PyTorch Op | StableHLO Target | Description |
+|------------|------------------|-------------|
+| `torch.cumsum` | `custom_call @cumsum` | Cumulative sum |
+| `torch.cumprod` | `custom_call @cumprod` | Cumulative product |
+| `torch.cummax` | `custom_call @cummax` | Cumulative maximum |
+| `torch.cummin` | `custom_call @cummin` | Cumulative minimum |
+| `torch.logcumsumexp` | `custom_call @logcumsumexp` | Log of cumulative sum of exp |
+| `torch.diff` | `custom_call @diff` | N-th discrete difference |
+
+### Test Models
+
+| Model | Description |
+|-------|-------------|
+| `cumsum` / `cumprod` | Cumulative sum/product along dim 1 |
+| `cummax` / `cummin` | Cumulative max/min (returns values) |
+| `logcumsumexp` | Numerically stable log-sum-exp scan |
+| `diff` / `diff_n2` | First/second-order discrete difference |
+
+### Backend Implementation Notes
+
+**NVIDIA (CUDA)**:
+```cpp
+thrust::inclusive_scan(input, input + n, output, op);
+// Or CUB for better performance
+cub::DeviceScan::InclusiveScan(d_temp, temp_bytes, d_in, d_out, op, n);
+```
+
+**CPU**:
+```cpp
+std::inclusive_scan(input, input + n, output, op);  // C++17
+```

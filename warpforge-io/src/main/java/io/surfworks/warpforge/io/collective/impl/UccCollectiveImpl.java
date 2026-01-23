@@ -139,18 +139,27 @@ public class UccCollectiveImpl implements CollectiveApi {
         Ucc.ucc_lib_config_release(libConfig);
         LOG.fine("UCC library initialized (API version " + Ucc.UCC_API_MAJOR() + "." + Ucc.UCC_API_MINOR() + ")");
 
-        // 2. Create OOB coordinator for team formation
-        this.oobCoordinator = new OobCoordinator(config, arena);
-        LOG.fine("OOB coordinator created");
+        // 2. Create OOB coordinator for team formation (only needed for multi-rank)
+        MemorySegment oobStruct = null;
+        if (config.worldSize() > 1) {
+            this.oobCoordinator = new OobCoordinator(config, arena);
+            oobStruct = oobCoordinator.getOobStruct();
+            LOG.fine("OOB coordinator created for multi-rank setup");
+        } else {
+            LOG.fine("Single-rank mode - skipping OOB coordinator");
+        }
 
         // 3. Create UCC context
         MemorySegment ctxParams = ucc_context_params.allocate(arena);
         ctxParams.fill((byte) 0);  // Zero-fill to prevent garbage values
-        ucc_context_params.mask(ctxParams, Ucc.UCC_CONTEXT_PARAM_FIELD_OOB());
 
-        // Copy OOB structure from coordinator to context params
-        MemorySegment oobStruct = oobCoordinator.getOobStruct();
-        ucc_context_params.oob(ctxParams, oobStruct);
+        // Only set OOB field for multi-rank
+        if (config.worldSize() > 1 && oobStruct != null) {
+            ucc_context_params.mask(ctxParams, Ucc.UCC_CONTEXT_PARAM_FIELD_OOB());
+            ucc_context_params.oob(ctxParams, oobStruct);
+        } else {
+            ucc_context_params.mask(ctxParams, 0L);  // No OOB for single-rank
+        }
 
         MemorySegment ctxHandlePtr = arena.allocate(ValueLayout.ADDRESS);
         status = Ucc.ucc_context_create(uccLib, ctxParams, MemorySegment.NULL, ctxHandlePtr);
@@ -161,17 +170,25 @@ public class UccCollectiveImpl implements CollectiveApi {
         // 4. Create UCC team
         MemorySegment teamParams = ucc_team_params.allocate(arena);
         teamParams.fill((byte) 0);  // Zero-fill to prevent garbage values
+
         long teamMask = Ucc.UCC_TEAM_PARAM_FIELD_EP()
                       | Ucc.UCC_TEAM_PARAM_FIELD_EP_RANGE()
-                      | Ucc.UCC_TEAM_PARAM_FIELD_TEAM_SIZE()
-                      | Ucc.UCC_TEAM_PARAM_FIELD_OOB();
+                      | Ucc.UCC_TEAM_PARAM_FIELD_TEAM_SIZE();
+
+        // Only include OOB for multi-rank
+        if (config.worldSize() > 1 && oobStruct != null) {
+            teamMask |= Ucc.UCC_TEAM_PARAM_FIELD_OOB();
+        }
+
         ucc_team_params.mask(teamParams, teamMask);
         ucc_team_params.ep(teamParams, config.rank());
         ucc_team_params.ep_range(teamParams, UccConstants.EP_RANGE_CONTIG);
         ucc_team_params.team_size(teamParams, config.worldSize());
 
-        // Copy OOB structure from coordinator to team params
-        ucc_team_params.oob(teamParams, oobStruct);
+        // Copy OOB structure to team params only for multi-rank
+        if (config.worldSize() > 1 && oobStruct != null) {
+            ucc_team_params.oob(teamParams, oobStruct);
+        }
 
         // Allocate array of context pointers (we have 1 context)
         MemorySegment ctxArray = arena.allocate(ValueLayout.ADDRESS);

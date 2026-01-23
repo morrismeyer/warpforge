@@ -135,6 +135,27 @@ tasks.register('rdmaTest', Test) {
     systemProperty 'junit.jupiter.execution.timeout.default', '5m'
 }
 
+// UCC integration tests require Linux with UCC libraries installed
+tasks.register('uccTest', Test) {
+    description = 'Run UCC integration tests (requires Linux with UCC libraries)'
+    group = 'verification'
+
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+
+    useJUnitPlatform {
+        includeTags 'ucc'
+    }
+
+    // Longer timeout for collective tests
+    systemProperty 'junit.jupiter.execution.timeout.default', '5m'
+
+    testLogging {
+        events 'passed', 'skipped', 'failed'
+        showStandardStreams = true
+    }
+}
+
 // Performance tests
 tasks.register('rdmaPerfTest', Test) {
     description = 'Run RDMA performance tests (measures throughput vs ibperf baseline)'

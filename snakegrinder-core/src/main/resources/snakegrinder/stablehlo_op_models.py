@@ -3553,6 +3553,178 @@ class MatrixRankOp(nn.Module):
 
 
 # =============================================================================
+# Tensor Creation Operations
+# =============================================================================
+
+class ZerosOp(nn.Module):
+    """Create tensor of zeros.
+    Produces: stablehlo.constant
+    """
+    def forward(self, x):
+        return torch.zeros_like(x)
+
+
+class OnesOp(nn.Module):
+    """Create tensor of ones.
+    Produces: stablehlo.constant
+    """
+    def forward(self, x):
+        return torch.ones_like(x)
+
+
+class FullOp(nn.Module):
+    """Create tensor filled with value.
+    Produces: stablehlo.constant
+    """
+    def forward(self, x):
+        return torch.full_like(x, 3.14)
+
+
+class EmptyLikeOp(nn.Module):
+    """Create uninitialized tensor (zeros in practice).
+    Produces: stablehlo.constant
+    """
+    def forward(self, x):
+        return torch.empty_like(x)
+
+
+class ArangeOp(nn.Module):
+    """Create 1D tensor with evenly spaced values.
+    Produces: stablehlo.custom_call @arange
+    """
+    def forward(self, x):
+        # Return arange based on input size
+        n = x.shape[-1]
+        return torch.arange(n, dtype=x.dtype, device=x.device)
+
+
+class LinspaceOp(nn.Module):
+    """Create 1D tensor with linearly spaced values.
+    Produces: stablehlo.custom_call @linspace
+    """
+    def forward(self, x):
+        return torch.linspace(0, 1, steps=x.shape[-1], dtype=x.dtype, device=x.device)
+
+
+class LogspaceOp(nn.Module):
+    """Create 1D tensor with logarithmically spaced values.
+    Produces: stablehlo.custom_call @logspace
+    """
+    def forward(self, x):
+        return torch.logspace(0, 2, steps=x.shape[-1], dtype=x.dtype, device=x.device)
+
+
+class EyeOp(nn.Module):
+    """Create identity matrix.
+    Produces: stablehlo.custom_call @eye
+    """
+    def forward(self, x):
+        n = x.shape[-1]
+        return torch.eye(n, dtype=x.dtype, device=x.device)
+
+
+class EyeRectOp(nn.Module):
+    """Create rectangular identity matrix.
+    Produces: stablehlo.custom_call @eye
+    """
+    def forward(self, x):
+        return torch.eye(x.shape[-2], x.shape[-1], dtype=x.dtype, device=x.device)
+
+
+# =============================================================================
+# Random Operations
+# =============================================================================
+
+class RandOp(nn.Module):
+    """Uniform random [0, 1).
+    Produces: stablehlo.custom_call @rand
+    """
+    def forward(self, x):
+        return torch.rand_like(x)
+
+
+class RandnOp(nn.Module):
+    """Standard normal random.
+    Produces: stablehlo.custom_call @randn
+    """
+    def forward(self, x):
+        return torch.randn_like(x)
+
+
+class RandintOp(nn.Module):
+    """Random integers in range.
+    Produces: stablehlo.custom_call @randint
+    """
+    def forward(self, x):
+        return torch.randint_like(x.to(torch.int64), low=0, high=10)
+
+
+class RandpermOp(nn.Module):
+    """Random permutation.
+    Produces: stablehlo.custom_call @randperm
+    """
+    def forward(self, x):
+        n = x.shape[-1]
+        return torch.randperm(n, device=x.device)
+
+
+class BernoulliOp(nn.Module):
+    """Bernoulli random (0 or 1).
+    Produces: stablehlo.custom_call @bernoulli
+    """
+    def forward(self, x):
+        # x is probability of 1
+        probs = torch.sigmoid(x)  # ensure [0, 1]
+        return torch.bernoulli(probs)
+
+
+class MultinomialOp(nn.Module):
+    """Sample from multinomial distribution.
+    Produces: stablehlo.custom_call @multinomial
+    """
+    def forward(self, x):
+        # x is unnormalized log probabilities
+        probs = torch.softmax(x, dim=-1)
+        return torch.multinomial(probs, num_samples=3, replacement=True)
+
+
+class NormalOp(nn.Module):
+    """Normal distribution sampling.
+    Produces: stablehlo.custom_call @normal
+    """
+    def forward(self, mean, std):
+        return torch.normal(mean, std.abs() + 0.1)
+
+
+class UniformOp(nn.Module):
+    """Uniform random in range.
+    Produces: stablehlo.custom_call @uniform
+    """
+    def forward(self, x):
+        result = torch.empty_like(x)
+        return result.uniform_(-1, 1)
+
+
+class ExponentialOp(nn.Module):
+    """Exponential distribution.
+    Produces: stablehlo.custom_call @exponential
+    """
+    def forward(self, x):
+        result = torch.empty_like(x)
+        return result.exponential_(lambd=1.0)
+
+
+class PoissonOp(nn.Module):
+    """Poisson distribution.
+    Produces: stablehlo.custom_call @poisson
+    """
+    def forward(self, x):
+        # x is the rate parameter (must be positive)
+        rates = x.abs() + 0.1
+        return torch.poisson(rates)
+
+
+# =============================================================================
 # Operation Registry
 # =============================================================================
 # Maps operation names to (ModelClass, input_specs) tuples
@@ -4088,6 +4260,35 @@ OPERATION_REGISTRY = {
     'triu': (TriuOp, [([4, 4], 'f32')]),
     'pinv': (PinvOp, [([2, 4, 4], 'f32')]),
     'matrix_rank': (MatrixRankOp, [([2, 4, 4], 'f32')]),
+
+    # ===== TENSOR CREATION OPERATIONS =====
+    'zeros': (ZerosOp, [([2, 8], 'f32')]),
+    'ones': (OnesOp, [([2, 8], 'f32')]),
+    'full': (FullOp, [([2, 8], 'f32')]),
+    'zeros_like': (ZerosLikeOp, [([2, 8], 'f32')]),
+    'ones_like': (OnesLikeOp, [([2, 8], 'f32')]),
+    'full_like': (FullLikeOp, [([2, 8], 'f32')]),
+    'empty_like': (EmptyLikeOp, [([2, 8], 'f32')]),
+    'arange': (ArangeOp, [([16], 'f32')]),
+    'linspace': (LinspaceOp, [([10], 'f32')]),
+    'logspace': (LogspaceOp, [([10], 'f32')]),
+    'eye': (EyeOp, [([4, 4], 'f32')]),
+    'eye_rect': (EyeRectOp, [([4, 6], 'f32')]),
+
+    # ===== RANDOM OPERATIONS =====
+    'rand': (RandOp, [([2, 8], 'f32')]),
+    'randn': (RandnOp, [([2, 8], 'f32')]),
+    'rand_like': (RandLikeOp, [([2, 8], 'f32')]),
+    'randn_like': (RandnLikeOp, [([2, 8], 'f32')]),
+    'randint': (RandintOp, [([2, 8], 'i64')]),
+    'randint_like': (RandintLikeOp, [([2, 8], 'i64')]),
+    'randperm': (RandpermOp, [([10], 'i64')]),
+    'bernoulli': (BernoulliOp, [([2, 8], 'f32')]),
+    'multinomial': (MultinomialOp, [([2, 8], 'f32')]),
+    'normal': (NormalOp, [([2, 8], 'f32')]),
+    'uniform': (UniformOp, [([2, 8], 'f32')]),
+    'exponential': (ExponentialOp, [([2, 8], 'f32')]),
+    'poisson': (PoissonOp, [([2, 8], 'f32')]),
 }
 
 # Registry of dynamic dimensions for models that need them

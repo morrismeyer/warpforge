@@ -32,7 +32,9 @@ This document tracks PyTorch ATen Core operation coverage for the PyTorch → St
 | Sorting | 7 | 7 | 100% |
 | Unique/Set | 5 | 5 | 100% |
 | Linear Algebra | 18 | 18 | 100% |
-| **Total** | **382** | **382** | **100%** |
+| Tensor Creation | 12 | 12 | 100% |
+| Random | 13 | 13 | 100% |
+| **Total** | **407** | **407** | **100%** |
 
 ## Detailed Coverage by Category
 
@@ -1064,3 +1066,107 @@ WarpForge supports grid sampling operations via `stablehlo.custom_call`. Grid sa
 24. ✅ Sorting operations (sort, argsort, topk, kthvalue, msort, searchsorted)
 25. ✅ Unique/set operations (unique, unique_consecutive, bincount, histc, histogram)
 26. ✅ Linear algebra operations (SVD, QR, Cholesky, LU, eigendecomposition, solve, lstsq, etc.)
+27. ✅ Tensor creation operations (zeros, ones, full, *_like variants, arange, linspace, eye)
+28. ✅ Random operations (rand, randn, randint, randperm, bernoulli, multinomial, distributions)
+
+## Tensor Creation Operations Support
+
+### Overview
+
+WarpForge supports tensor creation operations that generate new tensors. Many of these map to `stablehlo.constant` or `stablehlo.iota`, while others use `stablehlo.custom_call` for shape-dependent generation.
+
+### Implemented Operations
+
+| PyTorch Op | StableHLO Target | Description |
+|------------|------------------|-------------|
+| `torch.zeros` | `stablehlo.constant dense<0>` | Tensor filled with zeros |
+| `torch.ones` | `stablehlo.constant dense<1>` | Tensor filled with ones |
+| `torch.full` | `stablehlo.constant dense<val>` | Tensor filled with value |
+| `torch.zeros_like` | `stablehlo.constant` | Zeros matching input shape |
+| `torch.ones_like` | `stablehlo.constant` | Ones matching input shape |
+| `torch.full_like` | `stablehlo.constant` | Fill value matching input shape |
+| `torch.empty_like` | `stablehlo.custom_call @empty` | Uninitialized matching shape |
+| `torch.arange` | `stablehlo.iota` | Range of values |
+| `torch.linspace` | `custom_call @linspace` | Linear interpolation |
+| `torch.logspace` | `custom_call @logspace` | Logarithmic interpolation |
+| `torch.eye` | `custom_call @eye` | Identity matrix |
+| `torch.eye(n, m)` | `custom_call @eye` | Rectangular identity matrix |
+
+### Test Models (12 total)
+
+| Model | Description |
+|-------|-------------|
+| `zeros` | torch.zeros_like |
+| `ones` | torch.ones_like |
+| `full` | torch.full_like with value |
+| `zeros_like` | torch.zeros_like explicit |
+| `ones_like` | torch.ones_like explicit |
+| `full_like` | torch.full_like with value |
+| `empty_like` | torch.empty_like |
+| `arange` | torch.arange based on input size |
+| `linspace` | torch.linspace 0→1 |
+| `logspace` | torch.logspace base 10 |
+| `eye` | torch.eye square identity |
+| `eye_rect` | torch.eye rectangular |
+
+## Random Operations Support
+
+### Overview
+
+WarpForge supports random number generation operations via `stablehlo.custom_call`. These operations are inherently non-deterministic and require backend-specific RNG implementations.
+
+### Implemented Operations
+
+| PyTorch Op | StableHLO Target | Description |
+|------------|------------------|-------------|
+| `torch.rand` | `custom_call @rand` | Uniform [0, 1) random |
+| `torch.randn` | `custom_call @randn` | Standard normal random |
+| `torch.rand_like` | `custom_call @rand` | Uniform matching shape |
+| `torch.randn_like` | `custom_call @randn` | Normal matching shape |
+| `torch.randint` | `custom_call @randint` | Random integers [low, high) |
+| `torch.randint_like` | `custom_call @randint` | Integer random matching shape |
+| `torch.randperm` | `custom_call @randperm` | Random permutation |
+| `torch.bernoulli` | `custom_call @bernoulli` | Bernoulli sampling |
+| `torch.multinomial` | `custom_call @multinomial` | Multinomial sampling |
+| `Tensor.normal_` | `custom_call @normal` | Normal distribution fill |
+| `Tensor.uniform_` | `custom_call @uniform` | Uniform distribution fill |
+| `Tensor.exponential_` | `custom_call @exponential` | Exponential distribution fill |
+| `torch.poisson` | `custom_call @poisson` | Poisson distribution |
+
+### Test Models (13 total)
+
+| Model | Description |
+|-------|-------------|
+| `rand` | torch.rand_like uniform |
+| `randn` | torch.randn_like normal |
+| `rand_like` | torch.rand_like explicit |
+| `randn_like` | torch.randn_like explicit |
+| `randint` | torch.randint in range |
+| `randint_like` | torch.randint_like |
+| `randperm` | torch.randperm permutation |
+| `bernoulli` | torch.bernoulli sampling |
+| `multinomial` | torch.multinomial from logits |
+| `normal` | Normal distribution initialization |
+| `uniform` | Uniform distribution initialization |
+| `exponential` | Exponential distribution |
+| `poisson` | Poisson distribution |
+
+### Backend Implementation Notes
+
+**NVIDIA (cuRAND)**:
+```cpp
+curandGenerateUniform(gen, devData, n);      // rand
+curandGenerateNormal(gen, devData, n, 0, 1); // randn
+```
+
+**AMD (rocRAND)**:
+```cpp
+rocrand_generate_uniform(gen, devData, n);
+rocrand_generate_normal(gen, devData, n, 0, 1);
+```
+
+**CPU (std::random)**:
+```cpp
+std::uniform_real_distribution<float> dist(0.0f, 1.0f);
+std::normal_distribution<float> normal(0.0f, 1.0f);
+```

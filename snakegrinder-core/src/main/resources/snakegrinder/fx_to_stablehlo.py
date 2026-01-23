@@ -3570,6 +3570,200 @@ class FXToStableHLO:
             return [f'{result_ssa} = stablehlo.custom_call @triu({input_ssa}) '
                     f'{{{attrs}}} : ({input_type}) -> {result_type}']
 
+        # ===== TENSOR CREATION OPERATIONS =====
+        elif target_name in ('zeros',):
+            # torch.zeros -> create tensor of zeros
+            size = node.args[0] if node.args else node.kwargs.get('size')
+            size_str = str(list(size)) if isinstance(size, (list, tuple)) else str([size])
+            dtype = node.kwargs.get('dtype', 'f32')
+            return [f'{result_ssa} = stablehlo.constant dense<0.0> : {result_type}']
+
+        elif target_name in ('zeros_like',):
+            # torch.zeros_like -> create tensor of zeros with same shape as input
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            return [f'{result_ssa} = stablehlo.constant dense<0.0> : {result_type}']
+
+        elif target_name in ('ones',):
+            # torch.ones -> create tensor of ones
+            size = node.args[0] if node.args else node.kwargs.get('size')
+            return [f'{result_ssa} = stablehlo.constant dense<1.0> : {result_type}']
+
+        elif target_name in ('ones_like',):
+            # torch.ones_like -> create tensor of ones with same shape as input
+            input_ssa = get_input(0)
+            return [f'{result_ssa} = stablehlo.constant dense<1.0> : {result_type}']
+
+        elif target_name in ('full',):
+            # torch.full -> create tensor filled with specific value
+            size = node.args[0] if node.args else node.kwargs.get('size')
+            fill_value = node.args[1] if len(node.args) > 1 else node.kwargs.get('fill_value', 0)
+            return [f'{result_ssa} = stablehlo.constant dense<{fill_value}> : {result_type}']
+
+        elif target_name in ('full_like',):
+            # torch.full_like -> create tensor filled with value, same shape as input
+            input_ssa = get_input(0)
+            fill_value = node.args[1] if len(node.args) > 1 else node.kwargs.get('fill_value', 0)
+            return [f'{result_ssa} = stablehlo.constant dense<{fill_value}> : {result_type}']
+
+        elif target_name in ('empty', 'empty_like'):
+            # torch.empty -> uninitialized tensor (treated as zeros in StableHLO)
+            return [f'{result_ssa} = stablehlo.constant dense<0.0> : {result_type}']
+
+        elif target_name in ('arange',):
+            # torch.arange -> 1D tensor with evenly spaced values
+            start = node.args[0] if node.args else node.kwargs.get('start', 0)
+            end = node.args[1] if len(node.args) > 1 else node.kwargs.get('end', start)
+            step = node.args[2] if len(node.args) > 2 else node.kwargs.get('step', 1)
+            if len(node.args) == 1:
+                # arange(end) -> arange(0, end, 1)
+                end = start
+                start = 0
+            attrs = f'start = {start}, end = {end}, step = {step}'
+            return [f'{result_ssa} = stablehlo.custom_call @arange() {{{attrs}}} : () -> {result_type}']
+
+        elif target_name in ('linspace',):
+            # torch.linspace -> 1D tensor with linearly spaced values
+            start = node.args[0] if node.args else node.kwargs.get('start', 0)
+            end = node.args[1] if len(node.args) > 1 else node.kwargs.get('end', 1)
+            steps = node.args[2] if len(node.args) > 2 else node.kwargs.get('steps', 100)
+            attrs = f'start = {start}, end = {end}, steps = {steps}'
+            return [f'{result_ssa} = stablehlo.custom_call @linspace() {{{attrs}}} : () -> {result_type}']
+
+        elif target_name in ('logspace',):
+            # torch.logspace -> 1D tensor with logarithmically spaced values
+            start = node.args[0] if node.args else node.kwargs.get('start', 0)
+            end = node.args[1] if len(node.args) > 1 else node.kwargs.get('end', 1)
+            steps = node.args[2] if len(node.args) > 2 else node.kwargs.get('steps', 100)
+            base = node.kwargs.get('base', 10.0)
+            attrs = f'start = {start}, end = {end}, steps = {steps}, base = {base}'
+            return [f'{result_ssa} = stablehlo.custom_call @logspace() {{{attrs}}} : () -> {result_type}']
+
+        elif target_name in ('eye',):
+            # torch.eye -> 2D identity matrix
+            n = node.args[0] if node.args else node.kwargs.get('n')
+            m = node.args[1] if len(node.args) > 1 else node.kwargs.get('m', n)
+            attrs = f'n = {n}, m = {m}'
+            return [f'{result_ssa} = stablehlo.custom_call @eye() {{{attrs}}} : () -> {result_type}']
+
+        elif target_name in ('iota',):
+            # stablehlo.iota -> generate indices along a dimension
+            iota_dim = node.kwargs.get('iota_dimension', 0)
+            return [f'{result_ssa} = stablehlo.iota dim = {iota_dim} : {result_type}']
+
+        # ===== RANDOM OPERATIONS =====
+        elif target_name in ('rand',):
+            # torch.rand -> uniform random [0, 1)
+            size = node.args[0] if node.args else node.kwargs.get('size')
+            size_str = str(list(size)) if isinstance(size, (list, tuple)) else str([size])
+            return [f'{result_ssa} = stablehlo.custom_call @rand() {{size = {size_str}}} : () -> {result_type}']
+
+        elif target_name in ('rand_like',):
+            # torch.rand_like -> uniform random with same shape as input
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            return [f'{result_ssa} = stablehlo.custom_call @rand_like({input_ssa}) : ({input_type}) -> {result_type}']
+
+        elif target_name in ('randn',):
+            # torch.randn -> standard normal random
+            size = node.args[0] if node.args else node.kwargs.get('size')
+            size_str = str(list(size)) if isinstance(size, (list, tuple)) else str([size])
+            return [f'{result_ssa} = stablehlo.custom_call @randn() {{size = {size_str}}} : () -> {result_type}']
+
+        elif target_name in ('randn_like',):
+            # torch.randn_like -> standard normal with same shape as input
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            return [f'{result_ssa} = stablehlo.custom_call @randn_like({input_ssa}) : ({input_type}) -> {result_type}']
+
+        elif target_name in ('randint',):
+            # torch.randint -> random integers in [low, high)
+            low = node.args[0] if node.args else node.kwargs.get('low', 0)
+            high = node.args[1] if len(node.args) > 1 else node.kwargs.get('high')
+            size = node.args[2] if len(node.args) > 2 else node.kwargs.get('size')
+            if len(node.args) == 2 and isinstance(node.args[1], (list, tuple)):
+                # randint(high, size) form
+                high = low
+                low = 0
+                size = node.args[1]
+            size_str = str(list(size)) if isinstance(size, (list, tuple)) else str([size])
+            attrs = f'low = {low}, high = {high}, size = {size_str}'
+            return [f'{result_ssa} = stablehlo.custom_call @randint() {{{attrs}}} : () -> {result_type}']
+
+        elif target_name in ('randint_like',):
+            # torch.randint_like -> random integers with same shape as input
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            low = node.args[1] if len(node.args) > 1 else node.kwargs.get('low', 0)
+            high = node.args[2] if len(node.args) > 2 else node.kwargs.get('high')
+            attrs = f'low = {low}, high = {high}'
+            return [f'{result_ssa} = stablehlo.custom_call @randint_like({input_ssa}) '
+                    f'{{{attrs}}} : ({input_type}) -> {result_type}']
+
+        elif target_name in ('randperm',):
+            # torch.randperm -> random permutation of integers [0, n)
+            n = node.args[0] if node.args else node.kwargs.get('n')
+            return [f'{result_ssa} = stablehlo.custom_call @randperm() {{n = {n}}} : () -> {result_type}']
+
+        elif target_name in ('bernoulli',):
+            # torch.bernoulli -> Bernoulli distributed random (0 or 1)
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            return [f'{result_ssa} = stablehlo.custom_call @bernoulli({input_ssa}) : ({input_type}) -> {result_type}']
+
+        elif target_name in ('multinomial',):
+            # torch.multinomial -> sample from multinomial distribution
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            num_samples = node.args[1] if len(node.args) > 1 else node.kwargs.get('num_samples', 1)
+            replacement = node.kwargs.get('replacement', False)
+            attrs = f'num_samples = {num_samples}, replacement = {str(replacement).lower()}'
+            return [f'{result_ssa} = stablehlo.custom_call @multinomial({input_ssa}) '
+                    f'{{{attrs}}} : ({input_type}) -> {result_type}']
+
+        elif target_name in ('normal',):
+            # torch.normal -> normal distributed random
+            mean = node.args[0] if node.args else node.kwargs.get('mean', 0.0)
+            std = node.args[1] if len(node.args) > 1 else node.kwargs.get('std', 1.0)
+            size = node.args[2] if len(node.args) > 2 else node.kwargs.get('size')
+            if isinstance(mean, (int, float)) and isinstance(std, (int, float)):
+                size_str = str(list(size)) if size else 'null'
+                attrs = f'mean = {mean}, std = {std}, size = {size_str}'
+                return [f'{result_ssa} = stablehlo.custom_call @normal() {{{attrs}}} : () -> {result_type}']
+            else:
+                # mean and std are tensors
+                mean_ssa = get_input(0)
+                std_ssa = get_input(1)
+                mean_type = get_input_type(0)
+                std_type = get_input_type(1)
+                return [f'{result_ssa} = stablehlo.custom_call @normal({mean_ssa}, {std_ssa}) : '
+                        f'({mean_type}, {std_type}) -> {result_type}']
+
+        elif target_name in ('uniform', 'uniform_'):
+            # torch.Tensor.uniform_ -> fill with uniform random
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            low = node.args[1] if len(node.args) > 1 else node.kwargs.get('from', 0.0)
+            high = node.args[2] if len(node.args) > 2 else node.kwargs.get('to', 1.0)
+            attrs = f'low = {low}, high = {high}'
+            return [f'{result_ssa} = stablehlo.custom_call @uniform({input_ssa}) '
+                    f'{{{attrs}}} : ({input_type}) -> {result_type}']
+
+        elif target_name in ('exponential', 'exponential_'):
+            # torch.Tensor.exponential_ -> fill with exponential random
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            lambd = node.args[1] if len(node.args) > 1 else node.kwargs.get('lambd', 1.0)
+            attrs = f'lambd = {lambd}'
+            return [f'{result_ssa} = stablehlo.custom_call @exponential({input_ssa}) '
+                    f'{{{attrs}}} : ({input_type}) -> {result_type}']
+
+        elif target_name in ('poisson',):
+            # torch.poisson -> Poisson distributed random
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            return [f'{result_ssa} = stablehlo.custom_call @poisson({input_ssa}) : ({input_type}) -> {result_type}']
+
         else:
             return [f'// Unsupported function: {target_name}']
 

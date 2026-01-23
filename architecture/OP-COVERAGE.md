@@ -279,8 +279,7 @@ This document tracks PyTorch ATen Core operation coverage for the PyTorch → St
 ## Known Limitations
 
 1. **Scan operations** (cumsum, cumprod) use custom_call as StableHLO lacks native scan
-2. **Complex tensor ops** not yet implemented (Complex64/Complex128)
-3. **FFT operations** not yet implemented (torch.fft module)
+2. **FFT operations** not yet implemented (torch.fft module)
 
 ## Completed Milestones
 
@@ -296,6 +295,7 @@ This document tracks PyTorch ATen Core operation coverage for the PyTorch → St
 10. ✅ Dynamic shape support (dynamic_reshape, dynamic_slice, dynamic_broadcast, etc.)
 11. ✅ Quantization operations (INT8/INT4) - bridges to Babylon ONNX quantization
 12. ✅ Sparse tensor operations (COO, CSR, CSC, BSR, semi-structured)
+13. ✅ Complex tensor operations (complex64/complex128) - native StableHLO support
 
 ## Dynamic Shape Support
 
@@ -532,3 +532,33 @@ Backends should implement sparse custom_calls using:
 - **AMD**: hipSPARSE, rocSPARSE
 - **CPU**: Intel MKL Sparse, oneDNN
 - **Generic**: MLIR sparse_tensor dialect lowering
+
+## Complex Tensor Support
+
+### Overview
+
+WarpForge supports complex tensor operations using StableHLO's native complex number types (`complex<f32>` for complex64, `complex<f64>` for complex128).
+
+### Implemented Operations
+
+| PyTorch Op | StableHLO Target | Description |
+|------------|------------------|-------------|
+| `torch.complex(real, imag)` | `stablehlo.complex` | Create complex from parts |
+| `torch.real(x)` | `stablehlo.real` | Extract real part |
+| `torch.imag(x)` | `stablehlo.imag` | Extract imaginary part |
+| `torch.conj(x)` | composite | Complex conjugate |
+| `torch.angle(x)` | composite | Phase angle |
+| `torch.polar(abs, angle)` | composite | From polar coords |
+| `torch.view_as_real(x)` | `custom_call` | View as real tensor |
+| `torch.view_as_complex(x)` | `custom_call` | View as complex tensor |
+
+### Test Models
+
+| Model | Description |
+|-------|-------------|
+| `complex` | Create complex from real/imag |
+| `real` / `imag` | Extract components |
+| `conj` | Complex conjugate |
+| `angle` / `polar` | Polar coordinates |
+| `complex_abs` / `complex_mul` / `complex_add` | Arithmetic |
+| `complex_exp` / `complex_log` / `complex_sqrt` | Transcendentals |

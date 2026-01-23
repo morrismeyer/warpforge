@@ -1525,6 +1525,100 @@ class SparseMaskedMmOp(nn.Module):
 
 
 # =============================================================================
+# Complex Tensor Operations
+# =============================================================================
+
+class ComplexOp(nn.Module):
+    """Creates a complex tensor from real and imaginary parts."""
+    def forward(self, real, imag):
+        return torch.complex(real, imag)
+
+
+class RealOp(nn.Module):
+    """Extracts the real part of a complex tensor."""
+    def forward(self, x):
+        return torch.real(x)
+
+
+class ImagOp(nn.Module):
+    """Extracts the imaginary part of a complex tensor."""
+    def forward(self, x):
+        return torch.imag(x)
+
+
+class ConjOp(nn.Module):
+    """Computes the complex conjugate."""
+    def forward(self, x):
+        return torch.conj(x)
+
+
+class ViewAsRealOp(nn.Module):
+    """Views complex tensor as real tensor with trailing dim of size 2."""
+    def forward(self, x):
+        return torch.view_as_real(x)
+
+
+class ViewAsComplexOp(nn.Module):
+    """Views real tensor with trailing dim of size 2 as complex tensor."""
+    def forward(self, x):
+        return torch.view_as_complex(x)
+
+
+class AngleOp(nn.Module):
+    """Computes the angle (phase) of complex numbers."""
+    def forward(self, x):
+        return torch.angle(x)
+
+
+class PolarOp(nn.Module):
+    """Creates complex tensor from polar coordinates (abs, angle)."""
+    def forward(self, abs_val, angle):
+        return torch.polar(abs_val, angle)
+
+
+class ComplexAbsOp(nn.Module):
+    """Computes the absolute value (modulus) of complex numbers."""
+    def forward(self, x):
+        return torch.abs(x)
+
+
+class ComplexMulOp(nn.Module):
+    """Complex multiplication."""
+    def forward(self, x, y):
+        return x * y
+
+
+class ComplexAddOp(nn.Module):
+    """Complex addition."""
+    def forward(self, x, y):
+        return x + y
+
+
+class ComplexMatmulOp(nn.Module):
+    """Complex matrix multiplication."""
+    def forward(self, x, y):
+        return torch.matmul(x, y)
+
+
+class ComplexExpOp(nn.Module):
+    """Complex exponential."""
+    def forward(self, x):
+        return torch.exp(x)
+
+
+class ComplexLogOp(nn.Module):
+    """Complex logarithm."""
+    def forward(self, x):
+        return torch.log(x)
+
+
+class ComplexSqrtOp(nn.Module):
+    """Complex square root."""
+    def forward(self, x):
+        return torch.sqrt(x)
+
+
+# =============================================================================
 # Operation Registry
 # =============================================================================
 # Maps operation names to (ModelClass, input_specs) tuples
@@ -1817,6 +1911,23 @@ OPERATION_REGISTRY = {
     'sparse_to_dense': (ToDenseOp, [([4, 4], 'f32')]),
     'semi_structured_sparse': (SemiStructuredSparseOp, [([1, 16], 'f32')]),
     'sparse_masked_mm': (SparseMaskedMmOp, [([4, 4], 'f32'), ([4, 4], 'f32'), ([4, 4], 'f32')]),
+
+    # Complex tensor operations
+    'complex': (ComplexOp, [([2, 4], 'f32'), ([2, 4], 'f32')]),
+    'real': (RealOp, [([2, 4], 'c64')]),
+    'imag': (ImagOp, [([2, 4], 'c64')]),
+    'conj': (ConjOp, [([2, 4], 'c64')]),
+    'view_as_real': (ViewAsRealOp, [([2, 4], 'c64')]),
+    'view_as_complex': (ViewAsComplexOp, [([2, 4, 2], 'f32')]),
+    'angle': (AngleOp, [([2, 4], 'c64')]),
+    'polar': (PolarOp, [([2, 4], 'f32'), ([2, 4], 'f32')]),
+    'complex_abs': (ComplexAbsOp, [([2, 4], 'c64')]),
+    'complex_mul': (ComplexMulOp, [([2, 4], 'c64'), ([2, 4], 'c64')]),
+    'complex_add': (ComplexAddOp, [([2, 4], 'c64'), ([2, 4], 'c64')]),
+    'complex_matmul': (ComplexMatmulOp, [([2, 4, 8], 'c64'), ([2, 8, 4], 'c64')]),
+    'complex_exp': (ComplexExpOp, [([2, 4], 'c64')]),
+    'complex_log': (ComplexLogOp, [([2, 4], 'c64')]),
+    'complex_sqrt': (ComplexSqrtOp, [([2, 4], 'c64')]),
 }
 
 # Registry of dynamic dimensions for models that need them

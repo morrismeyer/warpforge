@@ -75,7 +75,7 @@ tasks.register('downloadGraalPy') {
 
         // Download if not cached
         if (!tarball.exists()) {
-            exec {
+            project.exec {
                 commandLine 'curl', '-L', '--progress-bar', '-o', tarball.absolutePath, graalPyDownloadUrl
             }
         } else {
@@ -84,7 +84,7 @@ tasks.register('downloadGraalPy') {
 
         // Extract
         println "Extracting to ${graalPyHome}..."
-        exec {
+        project.exec {
             commandLine 'tar', '-xzf', tarball.absolutePath, '-C', toolsDir.absolutePath
         }
 

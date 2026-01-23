@@ -162,8 +162,9 @@ run_c_baseline() {
     log "Running UCC C baseline benchmark..."
 
     local baseline_dir="$REMOTE_REPO/holmes-lab/mark1/ucx-baseline"
-    local nvidia_ip=$(ssh_cmd "$NVIDIA_HOST" "hostname -I | awk '{print \$1}'")
-    local amd_ip=$(ssh_cmd "$AMD_HOST" "hostname -I | awk '{print \$1}'")
+    # Use RDMA network (10.0.0.x) instead of management network
+    local nvidia_ip=$(ssh_cmd "$NVIDIA_HOST" "ip addr | grep '10.0.0' | awk '{print \$2}' | cut -d'/' -f1")
+    local amd_ip=$(ssh_cmd "$AMD_HOST" "ip addr | grep '10.0.0' | awk '{print \$2}' | cut -d'/' -f1")
 
     log "  NVIDIA IP: $nvidia_ip"
     log "  AMD IP: $amd_ip"
@@ -226,8 +227,8 @@ run_java_benchmark() {
         return 1
     }
 
-    # Get IPs
-    local nvidia_ip=$(ssh_cmd "$NVIDIA_HOST" "hostname -I | awk '{print \$1}'")
+    # Get RDMA interface IP (10.0.0.x network)
+    local nvidia_ip=$(ssh_cmd "$NVIDIA_HOST" "ip addr | grep '10.0.0' | awk '{print \$2}' | cut -d'/' -f1")
 
     # Start master on NVIDIA
     log "  Starting Java master on $NVIDIA_HOST..."

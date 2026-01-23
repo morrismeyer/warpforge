@@ -525,6 +525,7 @@ graalvmNative {
                 // Enable native access for FFM - CRITICAL for jextract-generated code
                 '-H:+UnlockExperimentalVMOptions',
                 '-H:+ForeignAPISupport',
+                '-H:+SharedArenaSupport',
                 '--enable-native-access=ALL-UNNAMED',
                 '-J--enable-native-access=ALL-UNNAMED',
                 // Include incubator vector module

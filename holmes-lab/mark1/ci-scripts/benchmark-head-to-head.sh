@@ -293,8 +293,8 @@ build_native_image() {
 run_native_benchmark() {
     log "Running native-image compiled Java benchmark..."
 
-    # Get IPs
-    local nvidia_ip=$(ssh_cmd "$NVIDIA_HOST" "hostname -I | awk '{print \$1}'")
+    # Get RDMA interface IP (10.0.0.x network)
+    local nvidia_ip=$(ssh_cmd "$NVIDIA_HOST" "ip addr | grep '10.0.0' | awk '{print \$2}' | cut -d'/' -f1")
 
     local exe_path="$REMOTE_REPO/warpforge-io/build/native/nativeCompile/ucc-perf-test"
     local lib_path="${OPENUCX_PATH:-/usr/local}/lib:${UCC_PATH:-/usr/local}/lib"

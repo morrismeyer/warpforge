@@ -122,6 +122,33 @@ allreduce.close();
 
 **Expected Impact:** 30-50% latency reduction for repeated operations
 
+### 10. Batch Collective Operations (2026-01-23)
+
+**Implementation:** `BatchCollective.java`
+
+For executing multiple collectives in sequence:
+- Queue multiple operations, execute all in batch
+- Single progress loop drives all pending operations
+- Reduces context progress call overhead
+- Early completion of faster operations while waiting for slower ones
+
+**Usage:**
+```java
+BatchCollective batch = new BatchCollective(team, context);
+
+// Queue multiple operations
+batch.queueAllReduceInPlace(buf1, count, dtype, op);
+batch.queueAllReduceInPlace(buf2, count, dtype, op);
+batch.queueBroadcast(buf3, count, dtype, root);
+
+// Execute all and wait
+batch.executeAll();
+
+batch.close();
+```
+
+**Expected Impact:** 10-20% improvement for multi-operation sequences
+
 ---
 
 ## All Optimizations Complete
@@ -139,6 +166,7 @@ Total expected improvement for 1MB+ operations: **50-75%**
 | Request segment cache | Done | 2-5% |
 | Improved arena pooling | Done | 1-3% |
 | Persistent collectives | Done | 30-50% (repeated ops) |
+| Batch collective operations | Done | 10-20% (multi-op sequences) |
 
 ---
 
@@ -211,6 +239,7 @@ UCC_LOG_LEVEL=debug ./gradlew :warpforge-io:uccPerfTest ...
 
 | Date | Change | Impact |
 |------|--------|--------|
+| 2026-01-23 | Batch collective operations (BatchCollective) | 10-20% for multi-op |
 | 2026-01-23 | Persistent collectives (PersistentCollective) | 30-50% for repeated ops |
 | 2026-01-23 | Request segment cache (RequestSegmentCache) | 2-5% latency |
 | 2026-01-23 | Enhanced arena pooling (pre-allocated structs) | 1-3% additional |

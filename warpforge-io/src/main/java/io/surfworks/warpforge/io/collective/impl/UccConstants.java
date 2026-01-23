@@ -146,6 +146,11 @@ public final class UccConstants {
             case I32 -> DT_INT32;
             case I64 -> DT_INT64;
             case I1, BOOL -> DT_INT8; // Treat boolean as byte
+            // 8-bit float formats can be transferred as raw bytes
+            case F8_E5M2, F8_E4M3, F8_E4M3FN, F8_E8M0 -> DT_UINT8;
+            // Sub-byte formats are not directly supported by UCC
+            case F4_E2M1, F4_E1M2, F6_E3M2, F6_E2M3 ->
+                throw new IllegalArgumentException("Sub-byte format " + type + " not supported by UCC");
         };
     }
 

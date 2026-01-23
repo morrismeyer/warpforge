@@ -279,9 +279,11 @@ This document tracks PyTorch ATen Core operation coverage for the PyTorch → St
 ## Known Limitations
 
 1. **Scan operations** (cumsum, cumprod) use custom_call as StableHLO lacks native scan
-2. **Dynamic shapes** are not fully supported
-3. **Backward/training ops** not yet implemented
-4. **Sparse operations** not supported
+2. **Dynamic shapes** are not fully supported - see Dynamic Shape Support section below
+3. **Sparse operations** not supported (COO/CSR tensors)
+4. **Quantization ops** not yet implemented (INT8/INT4)
+5. **Complex tensor ops** not yet implemented (Complex64/Complex128)
+6. **FFT operations** not yet implemented (torch.fft module)
 
 ## Completed Milestones
 
@@ -293,3 +295,73 @@ This document tracks PyTorch ATen Core operation coverage for the PyTorch → St
 6. ✅ Full indexing operations including index_copy, index_add, index_fill
 7. ✅ All activation functions including celu, logsigmoid
 8. ✅ Advanced matrix operations (einsum, tensordot)
+9. ✅ Training/backward operations (~45 gradient ops for autograd support)
+
+## Dynamic Shape Support
+
+### Current State
+
+The converter currently assumes **static shapes** at trace time. All tensor dimensions are concrete integers:
+
+```mlir
+// Current output - all dimensions are concrete
+func.func @forward(%arg0: tensor<1x3x224x224xf32>) -> tensor<1x1000xf32>
+```
+
+### Target State
+
+Support **dynamic dimensions** using StableHLO's `?` marker for unknown sizes:
+
+```mlir
+// Target output - batch dimension is dynamic
+func.func @forward(%arg0: tensor<?x3x224x224xf32>) -> tensor<?x1000xf32>
+```
+
+### Implementation Requirements
+
+1. **Shape Tracking**: Track which dimensions are dynamic vs static through the graph
+2. **Type Inference**: Propagate dynamic dimensions through operations
+3. **Symbolic Shapes**: Use `stablehlo.get_dimension_size` for runtime shape queries
+4. **Shape Constraints**: Emit `stablehlo.dynamic_*` variants where needed
+
+### Operations Requiring Dynamic Variants
+
+| Static Op | Dynamic Variant | Notes |
+|-----------|-----------------|-------|
+| `reshape` | `dynamic_reshape` | Target shape from tensor |
+| `slice` | `dynamic_slice` | Bounds from tensors |
+| `broadcast_in_dim` | `dynamic_broadcast_in_dim` | Output shape from tensor |
+| `pad` | `dynamic_pad` | Padding from tensors |
+| `gather` | `dynamic_gather` | Slice sizes from tensor |
+| `iota` | `dynamic_iota` | Output shape from tensor |
+
+### PyTorch Dynamic Shape Sources
+
+- `torch.export` with dynamic batch dim: `dynamic_shapes={"x": {0: Dim("batch")}}`
+- Variable sequence lengths in NLP models
+- Dynamic image sizes in detection models
+
+### Implementation Status
+
+| Feature | Status | Notes |
+|---------|--------|-------|
+| Dynamic dimension tracking | ✅ | `dynamic_dims` parameter in FXToStableHLO |
+| `?` emission in type signatures | ✅ | `tensor<?x8xf32>` format |
+| Dynamic dim propagation | ✅ | Through elementwise, reduction, transpose |
+| `dynamic_reshape` | ✅ | Emitted when input/output has dynamic dims |
+| `dynamic_slice` | ⏳ | Planned |
+| `dynamic_broadcast_in_dim` | ⏳ | Planned |
+| `get_dimension_size` | ✅ | For runtime shape queries |
+
+### Test Models
+
+| Model | Dynamic Dims | Description |
+|-------|--------------|-------------|
+| `dynamic_batch_mlp` | batch | MLP with variable batch size |
+| `dynamic_batch_conv` | batch | Conv2d with variable batch |
+| `dynamic_seq_transformer` | batch, seq | Transformer with variable sequence |
+| `dynamic_reshape` | batch | Reshape preserving batch dim |
+| `dynamic_matmul` | batch | Batched matmul |
+| `dynamic_reduction` | batch | Reduction preserving batch |
+| `dynamic_broadcast` | batch | Broadcasting with dynamic batch |
+| `dynamic_transpose` | batch, seq | Transpose with dimension remapping |

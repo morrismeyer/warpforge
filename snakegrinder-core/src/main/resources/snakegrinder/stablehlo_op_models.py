@@ -1112,10 +1112,105 @@ class ResidualBlock(nn.Module):
         return x + residual
 
 # =============================================================================
+# Dynamic Shape Test Models
+# =============================================================================
+# Models for testing dynamic dimension support (batch size, sequence length)
+
+class DynamicBatchMLP(nn.Module):
+    """MLP that works with variable batch size.
+    Tests: dynamic batch dim propagation through linear layers.
+    """
+    def __init__(self):
+        super().__init__()
+        self.fc1 = nn.Linear(8, 16)
+        self.fc2 = nn.Linear(16, 4)
+
+    def forward(self, x):
+        # x: [batch, 8] -> [batch, 4]
+        x = F.relu(self.fc1(x))
+        return self.fc2(x)
+
+
+class DynamicBatchConv(nn.Module):
+    """Conv2d that works with variable batch size.
+    Tests: dynamic batch dim through convolution.
+    """
+    def __init__(self):
+        super().__init__()
+        self.conv = nn.Conv2d(3, 16, 3, padding=1)
+
+    def forward(self, x):
+        # x: [batch, 3, H, W] -> [batch, 16, H, W]
+        return F.relu(self.conv(x))
+
+
+class DynamicSeqTransformerBlock(nn.Module):
+    """Simplified transformer block with dynamic sequence length.
+    Tests: dynamic seq dim through attention and linear layers.
+    """
+    def __init__(self):
+        super().__init__()
+        self.attn = nn.Linear(8, 8)
+        self.ff = nn.Linear(8, 8)
+
+    def forward(self, x):
+        # x: [batch, seq, 8] -> [batch, seq, 8]
+        attn_out = self.attn(x)
+        return F.relu(self.ff(attn_out))
+
+
+class DynamicReshape(nn.Module):
+    """Test dynamic reshape operation.
+    Tests: dynamic_reshape emission when batch dim is dynamic.
+    """
+    def forward(self, x):
+        # x: [batch, 4, 4] -> [batch, 16]
+        batch = x.shape[0]
+        return x.view(batch, -1)
+
+
+class DynamicMatmul(nn.Module):
+    """Test matmul with dynamic batch dimension.
+    Tests: batch dim preservation through matmul.
+    """
+    def forward(self, x, y):
+        # x: [batch, 4, 8], y: [batch, 8, 4] -> [batch, 4, 4]
+        return torch.matmul(x, y)
+
+
+class DynamicReduction(nn.Module):
+    """Test reduction with dynamic batch dimension.
+    Tests: batch dim preservation when reducing other dims.
+    """
+    def forward(self, x):
+        # x: [batch, 4, 8] -> [batch, 4] (reduce last dim)
+        return x.sum(dim=-1)
+
+
+class DynamicBroadcast(nn.Module):
+    """Test broadcasting with dynamic batch dimension.
+    Tests: broadcast_in_dim with dynamic dims.
+    """
+    def forward(self, x, scale):
+        # x: [batch, 8], scale: [8] -> [batch, 8]
+        return x * scale
+
+
+class DynamicTranspose(nn.Module):
+    """Test transpose with dynamic dimensions.
+    Tests: dimension index remapping for dynamic dims.
+    """
+    def forward(self, x):
+        # x: [batch, seq, 8] -> [batch, 8, seq]
+        return x.transpose(1, 2)
+
+
+# =============================================================================
 # Operation Registry
 # =============================================================================
 # Maps operation names to (ModelClass, input_specs) tuples
 # input_specs format: list of (shape, dtype) tuples
+# For dynamic shape tests, we use a sample batch size of 2 but mark dim 0 as dynamic
 
 OPERATION_REGISTRY = {
     # Elementwise Binary
@@ -1355,6 +1450,30 @@ OPERATION_REGISTRY = {
     'simple_convnet': (SimpleConvNet, [([1, 3, 16, 16], 'f32')]),
     'attention_block': (AttentionBlock, [([1, 4, 8], 'f32')]),
     'residual_block': (ResidualBlock, [([1, 8], 'f32')]),
+
+    # Dynamic shape models (use sample batch=2, but batch dim is dynamic)
+    # Note: These require dynamic_dims parameter when converting
+    'dynamic_batch_mlp': (DynamicBatchMLP, [([2, 8], 'f32')]),
+    'dynamic_batch_conv': (DynamicBatchConv, [([2, 3, 16, 16], 'f32')]),
+    'dynamic_seq_transformer': (DynamicSeqTransformerBlock, [([2, 4, 8], 'f32')]),
+    'dynamic_reshape': (DynamicReshape, [([2, 4, 4], 'f32')]),
+    'dynamic_matmul': (DynamicMatmul, [([2, 4, 8], 'f32'), ([2, 8, 4], 'f32')]),
+    'dynamic_reduction': (DynamicReduction, [([2, 4, 8], 'f32')]),
+    'dynamic_broadcast': (DynamicBroadcast, [([2, 8], 'f32'), ([8], 'f32')]),
+    'dynamic_transpose': (DynamicTranspose, [([2, 4, 8], 'f32')]),
+}
+
+# Registry of dynamic dimensions for models that need them
+# Maps op_name -> dict mapping input_index -> set of dynamic dim indices
+DYNAMIC_DIMS_REGISTRY = {
+    'dynamic_batch_mlp': {0: {0}},           # input 0, dim 0 is dynamic
+    'dynamic_batch_conv': {0: {0}},          # batch dim is dynamic
+    'dynamic_seq_transformer': {0: {0, 1}},  # batch and seq dims are dynamic
+    'dynamic_reshape': {0: {0}},             # batch dim is dynamic
+    'dynamic_matmul': {0: {0}, 1: {0}},      # batch dim is dynamic for both inputs
+    'dynamic_reduction': {0: {0}},           # batch dim is dynamic
+    'dynamic_broadcast': {0: {0}},           # batch dim is dynamic (scale is static)
+    'dynamic_transpose': {0: {0, 1}},        # batch and seq dims are dynamic
 }
 
 def get_model_source(op_name):
@@ -1382,3 +1501,15 @@ def _get_class_source(cls):
 def list_operations():
     """List all available operations."""
     return list(OPERATION_REGISTRY.keys())
+
+def get_dynamic_dims(op_name):
+    """Get dynamic dimensions for a model, if any.
+
+    Returns:
+        dict mapping input_index -> set of dynamic dim indices, or None if static
+    """
+    return DYNAMIC_DIMS_REGISTRY.get(op_name, None)
+
+def list_dynamic_operations():
+    """List operations that have dynamic dimension support."""
+    return list(DYNAMIC_DIMS_REGISTRY.keys())

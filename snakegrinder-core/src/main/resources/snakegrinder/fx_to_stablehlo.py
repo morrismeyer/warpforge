@@ -6,7 +6,7 @@ models, then converts to StableHLO MLIR text format.
 """
 from __future__ import annotations  # PEP 563: Postponed evaluation of annotations
 
-from typing import Dict, List, Tuple, Any, TYPE_CHECKING
+from typing import Dict, List, Tuple, Any, Optional, Set, TYPE_CHECKING
 
 if TYPE_CHECKING:
     import torch
@@ -31,9 +31,18 @@ def _ensure_torch_imported():
 
 
 class FXToStableHLO:
-    """Convert FX graph to StableHLO MLIR text."""
+    """Convert FX graph to StableHLO MLIR text.
 
-    def __init__(self, traced_module, sample_inputs: Tuple[torch.Tensor, ...]):
+    Args:
+        traced_module: The torch.fx traced module
+        sample_inputs: Sample input tensors for shape inference
+        dynamic_dims: Optional dict mapping input index to set of dynamic dimension indices.
+                      Example: {0: {0}} means input 0 has dynamic batch dimension (dim 0).
+                      Example: {0: {0, 1}} means input 0 has dynamic dims 0 and 1.
+    """
+
+    def __init__(self, traced_module, sample_inputs: Tuple[torch.Tensor, ...],
+                 dynamic_dims: Optional[Dict[int, Set[int]]] = None):
         self.traced = traced_module
         self.sample_inputs = sample_inputs
         self.graph = traced_module.graph
@@ -41,28 +50,156 @@ class FXToStableHLO:
         self.ssa_counter = 0
         self.shape_map: Dict[str, Tuple] = {}
         self.dtype_map: Dict[str, str] = {}
+        # Track which (node_name, dim_index) pairs are dynamic
+        self.dynamic_dim_map: Dict[str, Set[int]] = {}
+        self.input_dynamic_dims = dynamic_dims or {}
         self._infer_shapes()
 
     def _infer_shapes(self):
-        """Infer shapes by running the model with ShapeProp."""
+        """Infer shapes by running the model with ShapeProp and track dynamic dimensions."""
         from torch.fx.passes.shape_prop import ShapeProp
         ShapeProp(self.traced).propagate(*self.sample_inputs)
 
+        # First pass: collect shapes and initialize dynamic dims for inputs
+        input_idx = 0
         for node in self.graph.nodes:
+            if node.op == 'placeholder':
+                # Mark input dynamic dimensions
+                if input_idx in self.input_dynamic_dims:
+                    self.dynamic_dim_map[node.name] = self.input_dynamic_dims[input_idx]
+                input_idx += 1
+
             if hasattr(node, 'meta') and 'tensor_meta' in node.meta:
                 meta = node.meta['tensor_meta']
                 if hasattr(meta, 'shape'):
                     self.shape_map[node.name] = tuple(meta.shape)
                     self.dtype_map[node.name] = str(meta.dtype).replace('torch.', '')
 
+        # Second pass: propagate dynamic dimensions through the graph
+        self._propagate_dynamic_dims()
+
+    def _propagate_dynamic_dims(self):
+        """Propagate dynamic dimensions through the graph.
+
+        Rules for dimension propagation:
+        - Elementwise ops: inherit dynamic dims from inputs (must match)
+        - Reduction ops: remove the reduced dimension from dynamic set
+        - Reshape/view: dynamic dims are lost (need explicit tracking)
+        - Transpose/permute: remap dimension indices
+        - Broadcast: new dimensions are static, existing dims keep dynamism
+        - Matmul/dot: contracting dims are removed, batch dims preserved
+        """
+        for node in self.graph.nodes:
+            if node.op in ('placeholder', 'output'):
+                continue
+
+            # Get input dynamic dims
+            input_dynamic_dims: List[Set[int]] = []
+            for arg in node.args:
+                if hasattr(arg, 'name') and arg.name in self.dynamic_dim_map:
+                    input_dynamic_dims.append(self.dynamic_dim_map[arg.name])
+                elif hasattr(arg, 'name'):
+                    input_dynamic_dims.append(set())
+
+            if not input_dynamic_dims:
+                continue
+
+            target_name = self._get_target_name(node)
+            output_dynamic = set()
+
+            # Elementwise operations: inherit dynamic dims from first input
+            if target_name in ('add', 'sub', 'mul', 'div', 'pow', 'maximum', 'minimum',
+                               'eq', 'ne', 'lt', 'le', 'gt', 'ge', 'where',
+                               'neg', 'abs', 'exp', 'log', 'sqrt', 'sin', 'cos', 'tanh',
+                               'sigmoid', 'relu', 'gelu', 'silu'):
+                if input_dynamic_dims:
+                    output_dynamic = input_dynamic_dims[0].copy()
+
+            # Reduction ops: remove reduced dimension
+            elif target_name in ('sum', 'mean', 'max', 'min', 'prod'):
+                if input_dynamic_dims:
+                    output_dynamic = input_dynamic_dims[0].copy()
+                    # Get reduction dim from kwargs or args
+                    dim = node.kwargs.get('dim', None)
+                    if dim is None and len(node.args) > 1:
+                        dim = node.args[1]
+                    if isinstance(dim, int) and dim in output_dynamic:
+                        output_dynamic.remove(dim)
+                    # Adjust indices for dims after the reduced one
+                    if isinstance(dim, int):
+                        output_dynamic = {d - 1 if d > dim else d for d in output_dynamic}
+
+            # Transpose/permute: remap dimension indices
+            elif target_name in ('transpose', 'permute', 't'):
+                if input_dynamic_dims:
+                    input_shape = self.shape_map.get(node.args[0].name if hasattr(node.args[0], 'name') else '', ())
+                    if target_name == 't' and len(input_shape) == 2:
+                        # Simple 2D transpose: swap dims 0 and 1
+                        output_dynamic = {1 if d == 0 else 0 if d == 1 else d
+                                          for d in input_dynamic_dims[0]}
+                    elif target_name == 'transpose' and len(node.args) >= 3:
+                        dim0, dim1 = node.args[1], node.args[2]
+                        output_dynamic = set()
+                        for d in input_dynamic_dims[0]:
+                            if d == dim0:
+                                output_dynamic.add(dim1)
+                            elif d == dim1:
+                                output_dynamic.add(dim0)
+                            else:
+                                output_dynamic.add(d)
+                    elif target_name == 'permute' and len(node.args) >= 2:
+                        perm = node.args[1]
+                        if isinstance(perm, (list, tuple)):
+                            output_dynamic = set()
+                            for new_idx, old_idx in enumerate(perm):
+                                if old_idx in input_dynamic_dims[0]:
+                                    output_dynamic.add(new_idx)
+
+            # Reshape/view: preserve dynamic dims that map 1:1
+            elif target_name in ('reshape', 'view', 'flatten'):
+                # Conservative: if any input dim is dynamic, mark corresponding output dims
+                if input_dynamic_dims and 0 in input_dynamic_dims[0]:
+                    # Batch dimension typically stays at position 0
+                    output_dynamic.add(0)
+
+            # Matmul: batch dims preserved, contracting dims removed
+            elif target_name in ('matmul', 'mm', 'bmm', 'linear'):
+                if input_dynamic_dims:
+                    # Batch dimensions (all except last 2) are preserved
+                    output_shape = self.shape_map.get(node.name, ())
+                    for d in input_dynamic_dims[0]:
+                        if d < len(output_shape):
+                            output_dynamic.add(d)
+
+            # Default: inherit from first input
+            elif input_dynamic_dims:
+                output_dynamic = input_dynamic_dims[0].copy()
+
+            if output_dynamic:
+                self.dynamic_dim_map[node.name] = output_dynamic
+
+    def _get_target_name(self, node) -> str:
+        """Extract target name from node for operation identification."""
+        if node.op == 'call_function':
+            target = node.target
+            if hasattr(target, '__name__'):
+                return target.__name__
+            return str(target).split('.')[-1]
+        elif node.op == 'call_method':
+            return str(node.target)
+        elif node.op == 'call_module':
+            return node.target
+        return ''
+
     def _new_ssa(self) -> str:
         self.ssa_counter += 1
         return f"%{self.ssa_counter}"
 
     def _tensor_type(self, node_name: str) -> str:
-        """Get MLIR tensor type string."""
+        """Get MLIR tensor type string, using '?' for dynamic dimensions."""
         shape = self.shape_map.get(node_name, ())
         dtype = self.dtype_map.get(node_name, 'f32')
+        dynamic_dims = self.dynamic_dim_map.get(node_name, set())
 
         dtype_map = {
             'float32': 'f32', 'float64': 'f64', 'float16': 'f16',
@@ -73,8 +210,47 @@ class FXToStableHLO:
 
         if not shape:
             return f'tensor<{mlir_dtype}>'
-        shape_str = 'x'.join(str(d) for d in shape)
+
+        # Build shape string, using '?' for dynamic dimensions
+        shape_parts = []
+        for i, d in enumerate(shape):
+            if i in dynamic_dims:
+                shape_parts.append('?')
+            else:
+                shape_parts.append(str(d))
+        shape_str = 'x'.join(shape_parts)
         return f'tensor<{shape_str}x{mlir_dtype}>'
+
+    def _is_dynamic_shape(self, node_name: str) -> bool:
+        """Check if a node has any dynamic dimensions."""
+        return bool(self.dynamic_dim_map.get(node_name, set()))
+
+    def _get_shape_tensor(self, node_name: str, result_ssa: str) -> List[str]:
+        """Generate stablehlo.get_dimension_size ops for dynamic dimensions."""
+        lines = []
+        shape = self.shape_map.get(node_name, ())
+        dynamic_dims = self.dynamic_dim_map.get(node_name, set())
+        input_ssa = self.ssa_map.get(node_name, '%unknown')
+
+        dim_ssas = []
+        for i, d in enumerate(shape):
+            if i in dynamic_dims:
+                dim_ssa = f'{result_ssa}_dim{i}'
+                lines.append(f'{dim_ssa} = stablehlo.get_dimension_size {input_ssa}, dim = {i} : '
+                             f'({self._tensor_type(node_name)}) -> tensor<i32>')
+                dim_ssas.append(dim_ssa)
+            else:
+                dim_ssa = f'{result_ssa}_dim{i}'
+                lines.append(f'{dim_ssa} = stablehlo.constant dense<{d}> : tensor<i32>')
+                dim_ssas.append(dim_ssa)
+
+        # Concatenate into shape tensor
+        if dim_ssas:
+            concat_ssa = f'{result_ssa}_shape'
+            lines.append(f'{concat_ssa} = stablehlo.concatenate {", ".join(dim_ssas)}, '
+                         f'dim = 0 : ({", ".join(["tensor<i32>"] * len(dim_ssas))}) -> tensor<{len(dim_ssas)}xi32>')
+
+        return lines
 
     def convert(self) -> str:
         """Convert FX graph to StableHLO MLIR."""
@@ -1139,16 +1315,49 @@ class FXToStableHLO:
         elif target_name == 'reshape':
             input_ssa = get_input(0)
             input_type = get_input_type(0)
+            input_node = node.args[0] if hasattr(node.args[0], 'name') else None
+            input_name = input_node.name if input_node else ''
+
+            # Use dynamic_reshape if input or output has dynamic dimensions
+            if self._is_dynamic_shape(node.name) or self._is_dynamic_shape(input_name):
+                lines = self._get_shape_tensor(node.name, result_ssa)
+                shape_ssa = f'{result_ssa}_shape'
+                output_shape = self.shape_map.get(node.name, ())
+                lines.append(f'{result_ssa} = stablehlo.dynamic_reshape {input_ssa}, {shape_ssa} : '
+                             f'({input_type}, tensor<{len(output_shape)}xi32>) -> {result_type}')
+                return lines
             return [f'{result_ssa} = stablehlo.reshape {input_ssa} : {input_type} -> {result_type}']
 
         elif target_name == 'view':
             input_ssa = get_input(0)
             input_type = get_input_type(0)
+            input_node = node.args[0] if hasattr(node.args[0], 'name') else None
+            input_name = input_node.name if input_node else ''
+
+            # Use dynamic_reshape if input or output has dynamic dimensions
+            if self._is_dynamic_shape(node.name) or self._is_dynamic_shape(input_name):
+                lines = self._get_shape_tensor(node.name, result_ssa)
+                shape_ssa = f'{result_ssa}_shape'
+                output_shape = self.shape_map.get(node.name, ())
+                lines.append(f'{result_ssa} = stablehlo.dynamic_reshape {input_ssa}, {shape_ssa} : '
+                             f'({input_type}, tensor<{len(output_shape)}xi32>) -> {result_type}')
+                return lines
             return [f'{result_ssa} = stablehlo.reshape {input_ssa} : {input_type} -> {result_type}']
 
         elif target_name == 'flatten':
             input_ssa = get_input(0)
             input_type = get_input_type(0)
+            input_node = node.args[0] if hasattr(node.args[0], 'name') else None
+            input_name = input_node.name if input_node else ''
+
+            # Use dynamic_reshape if input or output has dynamic dimensions
+            if self._is_dynamic_shape(node.name) or self._is_dynamic_shape(input_name):
+                lines = self._get_shape_tensor(node.name, result_ssa)
+                shape_ssa = f'{result_ssa}_shape'
+                output_shape = self.shape_map.get(node.name, ())
+                lines.append(f'{result_ssa} = stablehlo.dynamic_reshape {input_ssa}, {shape_ssa} : '
+                             f'({input_type}, tensor<{len(output_shape)}xi32>) -> {result_type}')
+                return lines
             return [f'{result_ssa} = stablehlo.reshape {input_ssa} : {input_type} -> {result_type}']
 
         elif target_name == 'squeeze':

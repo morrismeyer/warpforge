@@ -8,6 +8,7 @@
 
 plugins {
     id 'java-library'
+    id 'org.graalvm.buildtools.native' version '0.10.4'
 }
 
 group = 'io.surfworks.warpforge'
@@ -52,10 +53,19 @@ dependencies {
 
 // ===== Java Configuration =====
 
+import org.gradle.jvm.toolchain.JvmVendorSpec
+
 java {
     toolchain {
         languageVersion = JavaLanguageVersion.of(25)
+        vendor = JvmVendorSpec.matching("GraalVM")
     }
+}
+
+// GraalVM toolchain launcher for native-image
+def graalLauncher = javaToolchains.launcherFor {
+    languageVersion = JavaLanguageVersion.of(25)
+    vendor = JvmVendorSpec.matching("GraalVM")
 }
 
 tasks.withType(JavaCompile).configureEach {
@@ -446,6 +456,148 @@ tasks.register('uccPerfWorker', JavaExec) {
     classpath = sourceSets.main.runtimeClasspath
     mainClass = 'io.surfworks.warpforge.io.test.UccPerfTest'
     jvmArgs '--enable-native-access=ALL-UNNAMED', '--enable-preview', '-Xmx4g', '-Xms1g'
+    environment uccEnv
+
+    def master = project.hasProperty('master') ? project.property('master') : '10.0.0.1'
+    def port = project.hasProperty('port') ? project.property('port') : '29500'
+    def size = project.hasProperty('size') ? project.property('size') : '16777216'
+    def iterations = project.hasProperty('iterations') ? project.property('iterations') : '100'
+    def warmup = project.hasProperty('warmup') ? project.property('warmup') : '10'
+    args '--rank', '1', '--world-size', '2', '--master', master, '--port', port,
+         '--size', size, '--iterations', iterations, '--warmup', warmup
+}
+
+// ===== GraalVM Native Image for Performance Tests =====
+
+// Fix broken native-image symlink in Gradle-provisioned GraalVM
+// Gradle auto-provisions GraalVM with a 0-byte native-image placeholder instead of a proper symlink
+tasks.register('fixNativeImageSymlink') {
+    description = 'Fixes broken native-image symlink in Gradle-provisioned GraalVM'
+    doLast {
+        def launcher = graalLauncher.get()
+        def javaHome = launcher.metadata.installationPath.asFile
+        def binNativeImage = new File(javaHome, 'bin/native-image')
+        def svmNativeImage = new File(javaHome, 'lib/svm/bin/native-image')
+
+        if (!svmNativeImage.exists()) {
+            logger.warn("No native-image found at ${svmNativeImage} - skipping symlink fix")
+            return
+        }
+
+        // Fix if bin/native-image is missing, empty, or not a working symlink
+        def needsFix = !binNativeImage.exists() ||
+                       (binNativeImage.isFile() && binNativeImage.length() == 0) ||
+                       (!binNativeImage.canExecute() && !java.nio.file.Files.isSymbolicLink(binNativeImage.toPath()))
+
+        if (needsFix) {
+            logger.lifecycle("Fixing broken native-image symlink in ${javaHome}")
+            binNativeImage.delete()
+            java.nio.file.Files.createSymbolicLink(
+                binNativeImage.toPath(),
+                binNativeImage.parentFile.toPath().relativize(svmNativeImage.toPath())
+            )
+            logger.lifecycle("Created symlink: ${binNativeImage} -> ${svmNativeImage}")
+        }
+    }
+}
+
+tasks.named('nativeCompile') {
+    dependsOn 'fixNativeImageSymlink'
+}
+
+// Native image configuration for UCC performance test
+graalvmNative {
+    binaries {
+        main {
+            imageName = 'ucc-perf-test'
+            mainClass = 'io.surfworks.warpforge.io.test.UccPerfTest'
+            javaLauncher.set(graalLauncher)
+
+            // Force executable output (not shared library)
+            sharedLibrary = false
+
+            // Native image build options for FFM support
+            buildArgs.addAll([
+                '-H:+ReportExceptionStackTraces',
+                '--no-fallback',
+                // Enable preview features (required for FFM)
+                '--enable-preview',
+                // Enable native access for FFM
+                '-H:+UnlockExperimentalVMOptions',
+                '-H:+ForeignAPISupport',
+                '-J--enable-native-access=ALL-UNNAMED',
+                // Include incubator vector module
+                '--add-modules', 'jdk.incubator.vector',
+                // Initialize FFM classes at runtime (required for dynamic symbol lookup)
+                '--initialize-at-run-time=io.surfworks.warpforge.io.ffi.ucc',
+                '--initialize-at-run-time=io.surfworks.warpforge.io.ffi.ucx',
+                // Optimization flags
+                '-O2',
+                '-march=native'
+            ])
+        }
+    }
+
+    toolchainDetection = false
+}
+
+// Task to build native UCC perf test executable
+tasks.register('buildNativeUccPerfTest') {
+    description = 'Build native-image executable for UCC performance test'
+    group = 'build'
+    dependsOn 'nativeCompile'
+}
+
+// Run native UCC performance test
+tasks.register('runNativeUccPerfTest', Exec) {
+    description = 'Run native-compiled UCC performance test'
+    group = 'verification'
+    dependsOn 'nativeCompile'
+
+    def nativeExe = file("${buildDir}/native/nativeCompile/ucc-perf-test")
+    def libPath = "${ucxLibPath.get()}:${uccLibPath.get()}"
+
+    commandLine nativeExe
+    environment 'LD_LIBRARY_PATH', "${libPath}:${System.getenv('LD_LIBRARY_PATH') ?: ''}"
+    environment uccEnv
+
+    // Default args - can be overridden via -Pargs
+    args = project.hasProperty('args') ? project.property('args').split(' ') : ['--help']
+}
+
+// Convenience task for native master perf test
+tasks.register('nativeUccPerfMaster', Exec) {
+    description = 'Run native UCC perf test as master (rank 0)'
+    group = 'verification'
+    dependsOn 'nativeCompile'
+
+    def nativeExe = file("${buildDir}/native/nativeCompile/ucc-perf-test")
+    def libPath = "${ucxLibPath.get()}:${uccLibPath.get()}"
+
+    commandLine nativeExe
+    environment 'LD_LIBRARY_PATH', "${libPath}:${System.getenv('LD_LIBRARY_PATH') ?: ''}"
+    environment uccEnv
+
+    def master = project.hasProperty('master') ? project.property('master') : '10.0.0.1'
+    def port = project.hasProperty('port') ? project.property('port') : '29500'
+    def size = project.hasProperty('size') ? project.property('size') : '16777216'
+    def iterations = project.hasProperty('iterations') ? project.property('iterations') : '100'
+    def warmup = project.hasProperty('warmup') ? project.property('warmup') : '10'
+    args '--rank', '0', '--world-size', '2', '--master', master, '--port', port,
+         '--size', size, '--iterations', iterations, '--warmup', warmup
+}
+
+// Convenience task for native worker perf test
+tasks.register('nativeUccPerfWorker', Exec) {
+    description = 'Run native UCC perf test as worker (rank 1)'
+    group = 'verification'
+    dependsOn 'nativeCompile'
+
+    def nativeExe = file("${buildDir}/native/nativeCompile/ucc-perf-test")
+    def libPath = "${ucxLibPath.get()}:${uccLibPath.get()}"
+
+    commandLine nativeExe
+    environment 'LD_LIBRARY_PATH', "${libPath}:${System.getenv('LD_LIBRARY_PATH') ?: ''}"
     environment uccEnv
 
     def master = project.hasProperty('master') ? project.property('master') : '10.0.0.1'

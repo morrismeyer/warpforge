@@ -36,6 +36,7 @@ WARMUP="${WARMUP:-10}"
 # Mode flags
 RUN_C_BASELINE=true
 RUN_JAVA=true
+RUN_NATIVE=false
 QUICK_MODE=false
 
 # Colors
@@ -80,6 +81,17 @@ parse_args() {
                 ;;
             --c-only)
                 RUN_JAVA=false
+                RUN_NATIVE=false
+                shift
+                ;;
+            --native)
+                RUN_NATIVE=true
+                shift
+                ;;
+            --native-only)
+                RUN_JAVA=false
+                RUN_C_BASELINE=false
+                RUN_NATIVE=true
                 shift
                 ;;
             --size)
@@ -97,6 +109,8 @@ parse_args() {
                 echo "  --quick          Quick test with fewer iterations"
                 echo "  --java-only      Skip C baseline benchmark"
                 echo "  --c-only         Skip Java benchmark"
+                echo "  --native         Also run native-image compiled Java"
+                echo "  --native-only    Only run native-image compiled Java"
                 echo "  --size BYTES     Message size (default: 16777216)"
                 echo "  --iterations N   Number of iterations (default: 100)"
                 echo "  -h, --help       Show this help"
@@ -249,6 +263,94 @@ run_java_benchmark() {
 }
 
 # =============================================================================
+# Native Image Benchmark (AOT-compiled Java via GraalVM native-image)
+# =============================================================================
+
+build_native_image() {
+    log "Building native-image executable on both nodes..."
+
+    # Build on NVIDIA node
+    log "  Building native-image on $NVIDIA_HOST..."
+    ssh_cmd "$NVIDIA_HOST" "cd ~/warpforge && ./gradlew :warpforge-io:nativeCompile --no-configuration-cache" || {
+        error "Native-image build failed on $NVIDIA_HOST"
+        return 1
+    }
+
+    # Build on AMD node
+    log "  Building native-image on $AMD_HOST..."
+    ssh_cmd "$AMD_HOST" "cd ~/warpforge && ./gradlew :warpforge-io:nativeCompile --no-configuration-cache" || {
+        error "Native-image build failed on $AMD_HOST"
+        return 1
+    }
+
+    success "Native-image built on both nodes"
+    return 0
+}
+
+run_native_benchmark() {
+    log "Running native-image compiled Java benchmark..."
+
+    # Get IPs
+    local nvidia_ip=$(ssh_cmd "$NVIDIA_HOST" "hostname -I | awk '{print \$1}'")
+
+    local exe_path="~/warpforge/warpforge-io/build/native/nativeCompile/ucc-perf-test"
+    local lib_path="${OPENUCX_PATH:-/usr/local}/lib:${UCC_PATH:-/usr/local}/lib"
+
+    # Start master on NVIDIA
+    log "  Starting native master on $NVIDIA_HOST..."
+    ssh_cmd "$NVIDIA_HOST" "
+        export LD_LIBRARY_PATH=\"$lib_path:\$LD_LIBRARY_PATH\"
+        export UCC_CLS=basic
+        export UCC_TLS=ucp
+        export UCC_TL_UCP_ALLREDUCE_ALG=ring
+        export UCX_RNDV_SCHEME=get_zcopy
+        export UCX_RNDV_THRESH=8192
+
+        $exe_path \
+            --rank 0 --world-size 2 \
+            --master $nvidia_ip --port 29500 \
+            --size $MESSAGE_SIZE \
+            --iterations $ITERATIONS \
+            --warmup $WARMUP
+    " > "${RESULTS_DIR}/native_${TIMESTAMP}.txt" 2>&1 &
+    local master_pid=$!
+
+    # Give master time to start
+    sleep 3
+
+    # Start worker on AMD
+    log "  Starting native worker on $AMD_HOST..."
+    ssh_cmd "$AMD_HOST" "
+        export LD_LIBRARY_PATH=\"$lib_path:\$LD_LIBRARY_PATH\"
+        export UCC_CLS=basic
+        export UCC_TLS=ucp
+        export UCC_TL_UCP_ALLREDUCE_ALG=ring
+        export UCX_RNDV_SCHEME=get_zcopy
+        export UCX_RNDV_THRESH=8192
+
+        $exe_path \
+            --rank 1 --world-size 2 \
+            --master $nvidia_ip --port 29500 \
+            --size $MESSAGE_SIZE \
+            --iterations $ITERATIONS \
+            --warmup $WARMUP
+    " >> "${RESULTS_DIR}/native_${TIMESTAMP}.txt" 2>&1 &
+    local worker_pid=$!
+
+    # Wait for both
+    wait $master_pid || warn "Native master process exited with error"
+    wait $worker_pid || warn "Native worker process exited with error"
+
+    success "Native-image benchmark complete"
+
+    # Show results
+    log "Native-image Java Results:"
+    echo ""
+    cat "${RESULTS_DIR}/native_${TIMESTAMP}.txt"
+    echo ""
+}
+
+# =============================================================================
 # Results Comparison
 # =============================================================================
 
@@ -277,9 +379,17 @@ compare_results() {
 
         if [[ "$RUN_JAVA" == "true" ]] && [[ -f "${RESULTS_DIR}/java_${TIMESTAMP}.txt" ]]; then
             echo "------------------------------------------------------------------------------"
-            echo "Java Implementation (warpforge-io UCC)"
+            echo "Java Implementation (warpforge-io UCC on JVM)"
             echo "------------------------------------------------------------------------------"
             cat "${RESULTS_DIR}/java_${TIMESTAMP}.txt"
+            echo ""
+        fi
+
+        if [[ "$RUN_NATIVE" == "true" ]] && [[ -f "${RESULTS_DIR}/native_${TIMESTAMP}.txt" ]]; then
+            echo "------------------------------------------------------------------------------"
+            echo "Native-Image Java (warpforge-io AOT compiled)"
+            echo "------------------------------------------------------------------------------"
+            cat "${RESULTS_DIR}/native_${TIMESTAMP}.txt"
             echo ""
         fi
 
@@ -293,6 +403,12 @@ compare_results() {
             echo "To calculate overhead: (C_Gbps - Java_Gbps) / C_Gbps * 100"
             echo ""
             echo "Target: Java should achieve >85% of C baseline throughput"
+            echo ""
+        fi
+
+        if [[ "$RUN_NATIVE" == "true" ]]; then
+            echo "Native-image eliminates JVM startup and reduces FFM overhead."
+            echo "Expected: Native should be within 5-10% of C baseline."
             echo ""
         fi
 
@@ -347,6 +463,17 @@ main() {
     # Run Java benchmark
     if [[ "$RUN_JAVA" == "true" ]]; then
         run_java_benchmark
+        echo ""
+    fi
+
+    # Run native-image benchmark
+    if [[ "$RUN_NATIVE" == "true" ]]; then
+        if build_native_image; then
+            run_native_benchmark
+        else
+            warn "Skipping native-image due to build failure"
+            RUN_NATIVE=false
+        fi
         echo ""
     fi
 

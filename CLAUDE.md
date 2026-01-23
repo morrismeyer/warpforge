@@ -64,12 +64,20 @@ Exceptions are acceptable when:
 
 ## JDK Routing Architecture
 
+**Baseline JDK: Java 25 (GraalVM 25)**
+
+The project uses JDK 25 as the baseline for all modules except SnakeBurger, which requires the experimental Babylon JDK (Java 26). GraalVM 25 is preferred for the baseline because it provides:
+- Native-image compilation for high-performance executables
+- GraalPy for Python interop (SnakeGrinder)
+- Modern FFM (Foreign Function & Memory) API support
+
 The build routes projects to different JDKs via `gradle/jdk-routing.gradle`:
 
 | Project Pattern | JDK Required | Setup |
 |-----------------|--------------|-------|
 | `snakeburger-*` | Java 26 (Babylon) | Build from `../babylon`, source env file |
 | `snakegrinder-*` | Java 25 (GraalVM) | Auto-discovered via toolchain |
+| `warpforge-io` | Java 25 (GraalVM) | Native-image for performance tests |
 | All others | Java 25 | Standard JDK |
 
 ### Babylon JDK Setup (for SnakeBurger)

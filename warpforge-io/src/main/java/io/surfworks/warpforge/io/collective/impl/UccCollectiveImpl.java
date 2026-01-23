@@ -293,7 +293,7 @@ public class UccCollectiveImpl implements CollectiveApi {
 
                 // Wait for completion
                 MemorySegment request = requestPtr.get(ValueLayout.ADDRESS, 0);
-                UccHelper.waitForCompletion(request);
+                UccHelper.waitForCompletionWithProgress(request, uccContext);
 
                 // Update statistics
                 allReduceCount.incrementAndGet();
@@ -340,7 +340,7 @@ public class UccCollectiveImpl implements CollectiveApi {
 
                 // Wait for completion
                 MemorySegment request = requestPtr.get(ValueLayout.ADDRESS, 0);
-                UccHelper.waitForCompletion(request);
+                UccHelper.waitForCompletionWithProgress(request, uccContext);
 
                 // Update statistics
                 allReduceCount.incrementAndGet();
@@ -386,7 +386,7 @@ public class UccCollectiveImpl implements CollectiveApi {
 
                 // Wait for completion
                 MemorySegment request = requestPtr.get(ValueLayout.ADDRESS, 0);
-                UccHelper.waitForCompletion(request);
+                UccHelper.waitForCompletionWithProgress(request, uccContext);
 
                 // Update statistics
                 allReduceCount.incrementAndGet();
@@ -438,7 +438,7 @@ public class UccCollectiveImpl implements CollectiveApi {
 
                 // Wait for completion
                 MemorySegment request = requestPtr.get(ValueLayout.ADDRESS, 0);
-                UccHelper.waitForCompletion(request);
+                UccHelper.waitForCompletionWithProgress(request, uccContext);
 
                 // Update statistics
                 allGatherCount.incrementAndGet();
@@ -486,7 +486,7 @@ public class UccCollectiveImpl implements CollectiveApi {
 
                 // Wait for completion
                 MemorySegment request = requestPtr.get(ValueLayout.ADDRESS, 0);
-                UccHelper.waitForCompletion(request);
+                UccHelper.waitForCompletionWithProgress(request, uccContext);
 
                 allGatherCount.incrementAndGet();
                 totalOps.incrementAndGet();
@@ -539,7 +539,7 @@ public class UccCollectiveImpl implements CollectiveApi {
 
                 // Wait for completion
                 MemorySegment request = requestPtr.get(ValueLayout.ADDRESS, 0);
-                UccHelper.waitForCompletion(request);
+                UccHelper.waitForCompletionWithProgress(request, uccContext);
 
                 // Update statistics
                 broadcastCount.incrementAndGet();
@@ -587,7 +587,7 @@ public class UccCollectiveImpl implements CollectiveApi {
 
                 // Wait for completion
                 MemorySegment request = requestPtr.get(ValueLayout.ADDRESS, 0);
-                UccHelper.waitForCompletion(request);
+                UccHelper.waitForCompletionWithProgress(request, uccContext);
 
                 broadcastCount.incrementAndGet();
                 totalOps.incrementAndGet();
@@ -638,7 +638,7 @@ public class UccCollectiveImpl implements CollectiveApi {
 
                 // Wait for completion
                 MemorySegment request = requestPtr.get(ValueLayout.ADDRESS, 0);
-                UccHelper.waitForCompletion(request);
+                UccHelper.waitForCompletionWithProgress(request, uccContext);
 
                 // Update statistics
                 reduceScatterCount.incrementAndGet();
@@ -686,7 +686,7 @@ public class UccCollectiveImpl implements CollectiveApi {
 
                 // Wait for completion
                 MemorySegment request = requestPtr.get(ValueLayout.ADDRESS, 0);
-                UccHelper.waitForCompletion(request);
+                UccHelper.waitForCompletionWithProgress(request, uccContext);
 
                 reduceScatterCount.incrementAndGet();
                 totalOps.incrementAndGet();
@@ -734,7 +734,7 @@ public class UccCollectiveImpl implements CollectiveApi {
 
                 // Wait for completion
                 MemorySegment request = requestPtr.get(ValueLayout.ADDRESS, 0);
-                UccHelper.waitForCompletion(request);
+                UccHelper.waitForCompletionWithProgress(request, uccContext);
 
                 totalOps.incrementAndGet();
                 totalBytes.addAndGet(input.spec().byteSize());
@@ -778,7 +778,7 @@ public class UccCollectiveImpl implements CollectiveApi {
 
                 // Wait for completion
                 MemorySegment request = requestPtr.get(ValueLayout.ADDRESS, 0);
-                UccHelper.waitForCompletion(request);
+                UccHelper.waitForCompletionWithProgress(request, uccContext);
 
                 totalOps.incrementAndGet();
                 totalBytes.addAndGet(input.spec().byteSize());
@@ -826,7 +826,7 @@ public class UccCollectiveImpl implements CollectiveApi {
 
                 // Wait for completion
                 MemorySegment request = requestPtr.get(ValueLayout.ADDRESS, 0);
-                UccHelper.waitForCompletion(request);
+                UccHelper.waitForCompletionWithProgress(request, uccContext);
 
                 totalOps.incrementAndGet();
                 totalBytes.addAndGet(input.spec().byteSize());
@@ -882,7 +882,7 @@ public class UccCollectiveImpl implements CollectiveApi {
 
                 // Wait for completion
                 MemorySegment request = requestPtr.get(ValueLayout.ADDRESS, 0);
-                UccHelper.waitForCompletion(request);
+                UccHelper.waitForCompletionWithProgress(request, uccContext);
 
                 totalOps.incrementAndGet();
                 totalBytes.addAndGet(input.spec().byteSize() / config.worldSize());
@@ -942,7 +942,7 @@ public class UccCollectiveImpl implements CollectiveApi {
 
                 // Wait for completion
                 MemorySegment request = requestPtr.get(ValueLayout.ADDRESS, 0);
-                UccHelper.waitForCompletion(request);
+                UccHelper.waitForCompletionWithProgress(request, uccContext);
 
                 totalOps.incrementAndGet();
                 totalBytes.addAndGet(input.spec().byteSize());
@@ -964,17 +964,37 @@ public class UccCollectiveImpl implements CollectiveApi {
         }
 
         return VirtualThreads.runAsync(() -> {
-            // Multi-rank: use UCC
+            // Multi-rank: implement barrier via allreduce
+            // UCC's native barrier (CL_HIER) requires sbgp node which isn't available
+            // in our 2-node 1-process-per-node setup. Use allreduce as a barrier instead.
             try (Arena opArena = Arena.ofConfined()) {
+                // Allocate a single int for the dummy allreduce
+                MemorySegment buffer = opArena.allocate(ValueLayout.JAVA_INT);
+                buffer.set(ValueLayout.JAVA_INT, 0, 1);  // Dummy value
+
                 MemorySegment args = ucc_coll_args.allocate(opArena);
-                UccHelper.setupCollectiveArgs(args, UccConstants.COLL_TYPE_BARRIER);
+                UccHelper.setupCollectiveArgsWithOp(args, UccConstants.COLL_TYPE_ALLREDUCE, UccConstants.OP_SUM);
+                ucc_coll_args.flags(args, UccConstants.COLL_ARGS_FLAG_IN_PLACE);
+
+                // Configure buffers - same buffer for in-place allreduce
+                MemorySegment srcInfo = UccHelper.getSrcBufferInfo(args);
+                ucc_coll_buffer_info.buffer(srcInfo, buffer);
+                ucc_coll_buffer_info.count(srcInfo, 1L);
+                ucc_coll_buffer_info.datatype(srcInfo, UccConstants.DT_INT32);
+                ucc_coll_buffer_info.mem_type(srcInfo, UccConstants.MEMORY_TYPE_HOST);
+
+                MemorySegment dstInfo = UccHelper.getDstBufferInfo(args);
+                ucc_coll_buffer_info.buffer(dstInfo, buffer);
+                ucc_coll_buffer_info.count(dstInfo, 1L);
+                ucc_coll_buffer_info.datatype(dstInfo, UccConstants.DT_INT32);
+                ucc_coll_buffer_info.mem_type(dstInfo, UccConstants.MEMORY_TYPE_HOST);
 
                 MemorySegment requestPtr = opArena.allocate(ValueLayout.ADDRESS);
                 int status = Ucc.ucc_collective_init_and_post(args, requestPtr, uccTeam);
-                UccHelper.checkStatusAllowInProgress(status, "barrier init_and_post");
+                UccHelper.checkStatusAllowInProgress(status, "barrier (via allreduce) init_and_post");
 
                 MemorySegment request = requestPtr.get(ValueLayout.ADDRESS, 0);
-                UccHelper.waitForCompletion(request);
+                UccHelper.waitForCompletionWithProgress(request, uccContext);
 
                 barrierCount.incrementAndGet();
                 totalOps.incrementAndGet();

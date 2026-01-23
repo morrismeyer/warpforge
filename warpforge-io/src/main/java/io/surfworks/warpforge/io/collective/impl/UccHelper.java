@@ -124,6 +124,73 @@ public final class UccHelper {
         }
     }
 
+    /**
+     * Wait for a UCC collective operation to complete, driving context progress.
+     *
+     * <p>UCC operations require context progress to be driven for completion.
+     * This method calls {@code ucc_context_progress} in the polling loop.
+     *
+     * @param request the collective request handle
+     * @param context the UCC context handle for driving progress
+     * @throws CollectiveException if the operation fails
+     */
+    public static void waitForCompletionWithProgress(MemorySegment request, MemorySegment context) {
+        while (true) {
+            // Drive context progress
+            Ucc.ucc_context_progress(context);
+
+            int status = Ucc.ucc_collective_finalize(request);
+            if (status == UccConstants.OK) {
+                return;
+            }
+            if (status != UccConstants.INPROGRESS) {
+                throw new CollectiveException(
+                    "Collective operation failed: " + UccConstants.statusToString(status),
+                    CollectiveException.ErrorCode.COMMUNICATION_ERROR,
+                    status
+                );
+            }
+            Thread.onSpinWait();
+        }
+    }
+
+    /**
+     * Wait for a UCC collective operation to complete with progress and timeout.
+     *
+     * @param request the collective request handle
+     * @param context the UCC context handle for driving progress
+     * @param timeoutMs maximum time to wait in milliseconds
+     * @throws CollectiveException if the operation fails or times out
+     */
+    public static void waitForCompletionWithProgressAndTimeout(MemorySegment request,
+                                                                MemorySegment context,
+                                                                long timeoutMs) {
+        long startTime = System.currentTimeMillis();
+        while (true) {
+            // Drive context progress
+            Ucc.ucc_context_progress(context);
+
+            int status = Ucc.ucc_collective_finalize(request);
+            if (status == UccConstants.OK) {
+                return;
+            }
+            if (status != UccConstants.INPROGRESS) {
+                throw new CollectiveException(
+                    "Collective operation failed: " + UccConstants.statusToString(status),
+                    CollectiveException.ErrorCode.COMMUNICATION_ERROR,
+                    status
+                );
+            }
+            if (System.currentTimeMillis() - startTime > timeoutMs) {
+                throw new CollectiveException(
+                    "Collective operation timed out after " + timeoutMs + "ms",
+                    CollectiveException.ErrorCode.TIMEOUT
+                );
+            }
+            Thread.onSpinWait();
+        }
+    }
+
     // ========================================================================
     // Buffer Setup
     // ========================================================================
@@ -251,6 +318,28 @@ public final class UccHelper {
         ucc_coll_args.coll_type(args, collType);
         ucc_coll_args.op(args, reductionOp);
         ucc_coll_args.root(args, root);
+    }
+
+    /**
+     * Set up collective args for barrier operation.
+     *
+     * <p>Barrier doesn't use data buffers, but UCC still needs to know the memory
+     * type to select the appropriate implementation. This method sets up the src
+     * buffer info with HOST memory type and zero count.
+     *
+     * @param args the pre-allocated ucc_coll_args segment
+     */
+    public static void setupBarrierArgs(MemorySegment args) {
+        args.fill((byte) 0);  // Zero-fill to prevent garbage values
+        ucc_coll_args.mask(args, 0L);
+        ucc_coll_args.coll_type(args, UccConstants.COLL_TYPE_BARRIER);
+
+        // Set src buffer info with HOST memory type - UCC needs this to select implementation
+        MemorySegment srcInfo = getSrcBufferInfo(args);
+        ucc_coll_buffer_info.buffer(srcInfo, MemorySegment.NULL);
+        ucc_coll_buffer_info.count(srcInfo, 0L);
+        ucc_coll_buffer_info.datatype(srcInfo, UccConstants.DT_INT8);
+        ucc_coll_buffer_info.mem_type(srcInfo, UccConstants.MEMORY_TYPE_HOST);
     }
 
     // ========================================================================

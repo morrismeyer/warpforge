@@ -109,7 +109,15 @@ public class UccCollectiveImpl implements CollectiveApi {
     private void initializeUccReal() {
         LOG.info("Initializing UCC for rank " + config.rank() + " of " + config.worldSize());
 
-        // 1. Initialize UCC library
+        // 1. Read default UCC library configuration
+        // This is required before ucc_init_version - passing NULL config can crash
+        MemorySegment libConfigPtr = arena.allocate(ValueLayout.ADDRESS);
+        int status = Ucc.ucc_lib_config_read(MemorySegment.NULL, MemorySegment.NULL, libConfigPtr);
+        UccHelper.checkStatus(status, "ucc_lib_config_read");
+        MemorySegment libConfig = libConfigPtr.get(ValueLayout.ADDRESS, 0);
+        LOG.fine("UCC library config read successfully");
+
+        // 2. Initialize UCC library
         // CRITICAL: Must zero-fill the struct - FFM allocate() returns uninitialized memory
         MemorySegment libParams = ucc_lib_params.allocate(arena);
         libParams.fill((byte) 0);  // Zero all fields to prevent garbage values
@@ -117,15 +125,18 @@ public class UccCollectiveImpl implements CollectiveApi {
 
         MemorySegment libHandlePtr = arena.allocate(ValueLayout.ADDRESS);
         // Use correct API version from UCC headers
-        int status = Ucc.ucc_init_version(
+        status = Ucc.ucc_init_version(
             Ucc.UCC_API_MAJOR(),
             Ucc.UCC_API_MINOR(),
             libParams,
-            MemorySegment.NULL,
+            libConfig,  // Pass the config we read, not NULL
             libHandlePtr
         );
         UccHelper.checkStatus(status, "ucc_init_version");
         this.uccLib = libHandlePtr.get(ValueLayout.ADDRESS, 0);
+
+        // Release the config - it's no longer needed after init
+        Ucc.ucc_lib_config_release(libConfig);
         LOG.fine("UCC library initialized (API version " + Ucc.UCC_API_MAJOR() + "." + Ucc.UCC_API_MINOR() + ")");
 
         // 2. Create OOB coordinator for team formation

@@ -30,8 +30,8 @@ jobs:
             cd "$NUC_REPO"
             git fetch origin
             git reset --hard "origin/${GITHUB_REF_NAME:-main}"
-            # Remove ALL untracked/ignored files except venvs and gradle caches
-            git clean -fdx -e '.pytorch-venv' -e '.gradle'
+            # Remove ALL untracked/ignored files except venvs, gradle caches, and GraalPy tools
+            git clean -fdx -e '.pytorch-venv' -e '.gradle' -e 'snakegrinder-dist/tools'
             echo "Pre-clean complete. Git status:"
             git status
           else

@@ -82,8 +82,8 @@ if git show-ref --verify --quiet "refs/remotes/origin/${BRANCH}"; then
   fi
   log "Resetting working tree to origin/${BRANCH}..."
   git reset --hard "origin/${BRANCH}" 2>&1 | tee -a "$LOG_FILE"
-  log "Cleaning untracked files (excluding venvs and build caches)..."
-  git clean -fdx -e '.pytorch-venv' -e '.gradle' 2>&1 | tee -a "$LOG_FILE"
+  log "Cleaning untracked files (excluding venvs, build caches, and GraalPy tools)..."
+  git clean -fdx -e '.pytorch-venv' -e '.gradle' -e 'snakegrinder-dist/tools' 2>&1 | tee -a "$LOG_FILE"
 
   # Diagnostic: Verify clean state
   log "=== Git Status After Reset ==="

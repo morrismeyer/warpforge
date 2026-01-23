@@ -214,7 +214,10 @@ def uccLibPath = providers.gradleProperty('ucc.repo')
         .map { new File(it, 'install/lib').absolutePath }
 
 tasks.withType(Test).configureEach {
-    environment 'LD_LIBRARY_PATH', "${ucxLibPath.get()}:${uccLibPath.get()}:${System.getenv('LD_LIBRARY_PATH') ?: ''}"
+    def libPath = "${ucxLibPath.get()}:${uccLibPath.get()}"
+    environment 'LD_LIBRARY_PATH', "${libPath}:${System.getenv('LD_LIBRARY_PATH') ?: ''}"
+    // Also set java.library.path for FFM SymbolLookup to find native libraries
+    systemProperty 'java.library.path', libPath
 }
 
 tasks.withType(JavaExec).configureEach {

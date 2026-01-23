@@ -1882,6 +1882,169 @@ class FXToStableHLO:
             grad_ssa = get_input(0)
             return [f'{result_ssa} = stablehlo.reshape {grad_ssa} : {get_input_type(0)} -> {result_type}']
 
+        # === QUANTIZATION OPERATIONS ===
+        # These map PyTorch quantization ops to StableHLO uniform_quantize/dequantize
+        # which can then be lowered to Babylon ONNX quantization ops
+
+        elif target_name == 'quantize_per_tensor':
+            # torch.quantize_per_tensor(input, scale, zero_point, dtype)
+            # -> stablehlo.uniform_quantize
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            scale = node.args[1] if len(node.args) > 1 else 1.0
+            zero_point = node.args[2] if len(node.args) > 2 else 0
+            # Determine quantized dtype from node.args[3] or default to int8
+            qdtype = 'i8'
+            if len(node.args) > 3:
+                dtype_arg = str(node.args[3])
+                if 'qint8' in dtype_arg or 'int8' in dtype_arg:
+                    qdtype = 'i8'
+                elif 'quint8' in dtype_arg or 'uint8' in dtype_arg:
+                    qdtype = 'ui8'
+                elif 'qint4' in dtype_arg or 'int4' in dtype_arg:
+                    qdtype = 'i4'
+                elif 'quint4' in dtype_arg or 'uint4' in dtype_arg:
+                    qdtype = 'ui4'
+            # Build quantized tensor type
+            input_shape = self.shape_map.get(node.args[0].name if hasattr(node.args[0], 'name') else '', ())
+            if input_shape:
+                shape_str = 'x'.join(str(d) for d in input_shape)
+                quant_type = f'tensor<{shape_str}x!quant.uniform<{qdtype}:f32, {scale}:{zero_point}>>'
+            else:
+                quant_type = f'tensor<!quant.uniform<{qdtype}:f32, {scale}:{zero_point}>>'
+            return [f'{result_ssa} = stablehlo.uniform_quantize {input_ssa} : {input_type} -> {quant_type}']
+
+        elif target_name == 'dequantize':
+            # tensor.dequantize() or torch.dequantize(tensor)
+            # -> stablehlo.uniform_dequantize
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            return [f'{result_ssa} = stablehlo.uniform_dequantize {input_ssa} : {input_type} -> {result_type}']
+
+        elif target_name == 'fake_quantize_per_tensor_affine':
+            # Used in Quantization-Aware Training (QAT)
+            # fake_quantize_per_tensor_affine(input, scale, zero_point, quant_min, quant_max)
+            # Simulates quantization during training - clamp + round + scale
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            scale = node.args[1] if len(node.args) > 1 else 1.0
+            zero_point = node.args[2] if len(node.args) > 2 else 0
+            quant_min = node.args[3] if len(node.args) > 3 else -128
+            quant_max = node.args[4] if len(node.args) > 4 else 127
+
+            # fake_quant = clamp(round(x / scale) + zero_point, min, max)
+            # output = (fake_quant - zero_point) * scale
+            scale_ssa = f'{result_ssa}_scale'
+            zp_ssa = f'{result_ssa}_zp'
+            scaled_ssa = f'{result_ssa}_scaled'
+            shifted_ssa = f'{result_ssa}_shifted'
+            rounded_ssa = f'{result_ssa}_rounded'
+            clamped_ssa = f'{result_ssa}_clamped'
+            unshifted_ssa = f'{result_ssa}_unshifted'
+
+            return [
+                f'{scale_ssa} = stablehlo.constant dense<{scale}> : {result_type}',
+                f'{zp_ssa} = stablehlo.constant dense<{float(zero_point)}> : {result_type}',
+                f'{scaled_ssa} = stablehlo.divide {input_ssa}, {scale_ssa} : {result_type}',
+                f'{shifted_ssa} = stablehlo.add {scaled_ssa}, {zp_ssa} : {result_type}',
+                f'{rounded_ssa} = stablehlo.round_nearest_even {shifted_ssa} : {result_type}',
+                f'{clamped_ssa} = stablehlo.clamp dense<{float(quant_min)}>, {rounded_ssa}, dense<{float(quant_max)}> : {result_type}',
+                f'{unshifted_ssa} = stablehlo.subtract {clamped_ssa}, {zp_ssa} : {result_type}',
+                f'{result_ssa} = stablehlo.multiply {unshifted_ssa}, {scale_ssa} : {result_type}'
+            ]
+
+        elif target_name == 'fake_quantize_per_channel_affine':
+            # Per-channel fake quantization for weights
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            # Use custom_call for per-channel since it requires broadcasting scales
+            scale_ssa = get_input(1) if len(node.args) > 1 else '%scale'
+            zp_ssa = get_input(2) if len(node.args) > 2 else '%zero_point'
+            axis = node.args[3] if len(node.args) > 3 else 0
+            quant_min = node.args[4] if len(node.args) > 4 else -128
+            quant_max = node.args[5] if len(node.args) > 5 else 127
+            return [f'{result_ssa} = stablehlo.custom_call @fake_quantize_per_channel_affine({input_ssa}, {scale_ssa}, {zp_ssa}) '
+                    f'{{axis = {axis}, quant_min = {quant_min}, quant_max = {quant_max}}} : ({input_type}, tensor<f32>, tensor<i32>) -> {result_type}']
+
+        elif target_name in ('quantized_linear', 'linear_relu_dynamic', 'quantized_linear_dynamic'):
+            # Quantized linear layer
+            # Maps to stablehlo ops that Babylon can lower to ONNX QLinearMatMul
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            weight_ssa = get_input(1) if len(node.args) > 1 else '%weight'
+            weight_type = get_input_type(1) if len(node.args) > 1 else 'tensor<?x?xi8>'
+            bias_ssa = get_input(2) if len(node.args) > 2 else None
+
+            # For quantized linear, we use custom_call that maps to ONNX QLinearMatMul
+            if bias_ssa:
+                return [f'{result_ssa} = stablehlo.custom_call @quantized_linear({input_ssa}, {weight_ssa}, {bias_ssa}) : '
+                        f'({input_type}, {weight_type}, tensor<f32>) -> {result_type}']
+            else:
+                return [f'{result_ssa} = stablehlo.custom_call @quantized_linear({input_ssa}, {weight_ssa}) : '
+                        f'({input_type}, {weight_type}) -> {result_type}']
+
+        elif target_name in ('quantized_conv2d', 'quantized_conv2d_relu'):
+            # Quantized 2D convolution
+            # Maps to ONNX QLinearConv via Babylon
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            weight_ssa = get_input(1) if len(node.args) > 1 else '%weight'
+            weight_type = get_input_type(1) if len(node.args) > 1 else 'tensor<?x?x?x?xi8>'
+            bias_ssa = get_input(2) if len(node.args) > 2 else None
+            stride = node.kwargs.get('stride', (1, 1))
+            padding = node.kwargs.get('padding', (0, 0))
+
+            stride_str = f'{stride[0]}, {stride[1]}' if isinstance(stride, tuple) else f'{stride}, {stride}'
+            pad_str = f'{padding[0]}, {padding[1]}' if isinstance(padding, tuple) else f'{padding}, {padding}'
+
+            if bias_ssa:
+                return [f'{result_ssa} = stablehlo.custom_call @quantized_conv2d({input_ssa}, {weight_ssa}, {bias_ssa}) '
+                        f'{{stride = [{stride_str}], padding = [{pad_str}]}} : ({input_type}, {weight_type}, tensor<f32>) -> {result_type}']
+            else:
+                return [f'{result_ssa} = stablehlo.custom_call @quantized_conv2d({input_ssa}, {weight_ssa}) '
+                        f'{{stride = [{stride_str}], padding = [{pad_str}]}} : ({input_type}, {weight_type}) -> {result_type}']
+
+        elif target_name == 'quantized_batch_norm':
+            # Quantized batch normalization
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            return [f'{result_ssa} = stablehlo.custom_call @quantized_batch_norm({input_ssa}) : ({input_type}) -> {result_type}']
+
+        elif target_name in ('quantized_add', 'quantized_mul'):
+            # Quantized elementwise operations
+            lhs = get_input(0)
+            rhs = get_input(1) if len(node.args) > 1 else '%rhs'
+            lhs_type = get_input_type(0)
+            rhs_type = get_input_type(1) if len(node.args) > 1 else lhs_type
+            op_name = 'add' if 'add' in target_name else 'multiply'
+            return [f'{result_ssa} = stablehlo.custom_call @quantized_{op_name}({lhs}, {rhs}) : ({lhs_type}, {rhs_type}) -> {result_type}']
+
+        elif target_name == 'quantized_relu':
+            # Quantized ReLU - maximum with zero
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            zero_ssa = f'{result_ssa}_zero'
+            return [
+                f'{zero_ssa} = stablehlo.constant dense<0> : {result_type}',
+                f'{result_ssa} = stablehlo.maximum {input_ssa}, {zero_ssa} : {result_type}'
+            ]
+
+        elif target_name in ('int_repr', 'q_per_tensor_affine'):
+            # Get the underlying integer representation of a quantized tensor
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            return [f'{result_ssa} = stablehlo.bitcast_convert {input_ssa} : {input_type} -> {result_type}']
+
+        elif target_name == 'q_scale':
+            # Get the scale of a quantized tensor (returns scalar)
+            input_ssa = get_input(0)
+            return [f'{result_ssa} = stablehlo.custom_call @q_scale({input_ssa}) : (tensor<?xi8>) -> tensor<f32>']
+
+        elif target_name == 'q_zero_point':
+            # Get the zero point of a quantized tensor (returns scalar)
+            input_ssa = get_input(0)
+            return [f'{result_ssa} = stablehlo.custom_call @q_zero_point({input_ssa}) : (tensor<?xi8>) -> tensor<i32>']
+
         else:
             return [f'// Unsupported function: {target_name}']
 

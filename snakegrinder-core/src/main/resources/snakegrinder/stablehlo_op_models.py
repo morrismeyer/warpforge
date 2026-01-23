@@ -1260,6 +1260,128 @@ class DynamicIndexSelect(nn.Module):
 
 
 # =============================================================================
+# Quantization Test Models
+# =============================================================================
+# Models for testing INT8/INT4 quantization support
+# These map to StableHLO uniform_quantize/dequantize and custom_call ops
+# which Babylon can lower to ONNX quantization operators
+
+class QuantizePerTensorOp(nn.Module):
+    """Test quantize_per_tensor operation.
+    Converts float tensor to quantized INT8 tensor.
+    Maps to: stablehlo.uniform_quantize
+    Babylon target: ONNX QuantizeLinear
+    """
+    def forward(self, x):
+        # Quantize to INT8 with scale=0.1, zero_point=0
+        return torch.quantize_per_tensor(x, scale=0.1, zero_point=0, dtype=torch.qint8)
+
+
+class DequantizeOp(nn.Module):
+    """Test dequantize operation.
+    Converts quantized tensor back to float.
+    Maps to: stablehlo.uniform_dequantize
+    Babylon target: ONNX DequantizeLinear
+    """
+    def forward(self, x):
+        # x is a quantized tensor, dequantize to float
+        return x.dequantize()
+
+
+class FakeQuantizePerTensorOp(nn.Module):
+    """Test fake_quantize_per_tensor_affine for QAT.
+    Simulates quantization during training.
+    Maps to: clamp + round + scale sequence in StableHLO
+    """
+    def forward(self, x):
+        # Fake quantize with 8-bit range
+        return torch.fake_quantize_per_tensor_affine(
+            x, scale=0.1, zero_point=0, quant_min=-128, quant_max=127
+        )
+
+
+class QuantizedLinearModel(nn.Module):
+    """Test quantized linear layer.
+    Maps to: stablehlo.custom_call @quantized_linear
+    Babylon target: ONNX QLinearMatMul
+    """
+    def __init__(self):
+        super().__init__()
+        # Create a float linear layer that we'll quantize
+        self.linear = nn.Linear(8, 16)
+
+    def forward(self, x):
+        return self.linear(x)
+
+
+class QuantizedConv2dModel(nn.Module):
+    """Test quantized Conv2d layer.
+    Maps to: stablehlo.custom_call @quantized_conv2d
+    Babylon target: ONNX QLinearConv
+    """
+    def __init__(self):
+        super().__init__()
+        self.conv = nn.Conv2d(3, 16, 3, padding=1)
+
+    def forward(self, x):
+        return self.conv(x)
+
+
+class QuantizedReluOp(nn.Module):
+    """Test quantized ReLU operation.
+    Maps to: stablehlo.maximum with zero
+    """
+    def forward(self, x):
+        return F.relu(x)
+
+
+class QuantizedAddOp(nn.Module):
+    """Test quantized addition.
+    Maps to: stablehlo.custom_call @quantized_add
+    """
+    def forward(self, x, y):
+        return x + y
+
+
+class QuantizedMulOp(nn.Module):
+    """Test quantized multiplication.
+    Maps to: stablehlo.custom_call @quantized_mul
+    """
+    def forward(self, x, y):
+        return x * y
+
+
+class Int8LinearModel(nn.Module):
+    """Full INT8 quantized inference model.
+    Demonstrates the quantize -> compute -> dequantize pattern.
+    """
+    def __init__(self):
+        super().__init__()
+        self.fc1 = nn.Linear(8, 16)
+        self.fc2 = nn.Linear(16, 4)
+
+    def forward(self, x):
+        # In real quantized inference:
+        # 1. Input is quantized
+        # 2. Compute in INT8
+        # 3. Output is dequantized
+        x = F.relu(self.fc1(x))
+        return self.fc2(x)
+
+
+class Int4LinearModel(nn.Module):
+    """INT4 quantized model for ultra-low precision inference.
+    Used for LLM weight compression (e.g., GPTQ, AWQ).
+    """
+    def __init__(self):
+        super().__init__()
+        self.fc = nn.Linear(8, 16)
+
+    def forward(self, x):
+        return self.fc(x)
+
+
+# =============================================================================
 # Operation Registry
 # =============================================================================
 # Maps operation names to (ModelClass, input_specs) tuples
@@ -1521,6 +1643,18 @@ OPERATION_REGISTRY = {
     'dynamic_gather': (DynamicGather, [([2, 8, 4], 'f32'), ([2, 8, 2], 'i64')]),
     'dynamic_expand': (DynamicExpand, [([2, 1, 8], 'f32')]),
     'dynamic_index_select': (DynamicIndexSelect, [([2, 8, 16], 'f32'), ([3], 'i64')]),
+
+    # Quantization models
+    # Note: Some of these use fake_quantize for tracing since real quantized tensors
+    # require special handling in torch.fx
+    'fake_quantize_per_tensor': (FakeQuantizePerTensorOp, [([1, 8], 'f32')]),
+    'quantized_linear': (QuantizedLinearModel, [([1, 8], 'f32')]),
+    'quantized_conv2d': (QuantizedConv2dModel, [([1, 3, 16, 16], 'f32')]),
+    'quantized_relu': (QuantizedReluOp, [([1, 8], 'f32')]),
+    'quantized_add': (QuantizedAddOp, [([1, 8], 'f32'), ([1, 8], 'f32')]),
+    'quantized_mul': (QuantizedMulOp, [([1, 8], 'f32'), ([1, 8], 'f32')]),
+    'int8_linear': (Int8LinearModel, [([1, 8], 'f32')]),
+    'int4_linear': (Int4LinearModel, [([1, 8], 'f32')]),
 }
 
 # Registry of dynamic dimensions for models that need them

@@ -279,11 +279,9 @@ This document tracks PyTorch ATen Core operation coverage for the PyTorch → St
 ## Known Limitations
 
 1. **Scan operations** (cumsum, cumprod) use custom_call as StableHLO lacks native scan
-2. **Dynamic shapes** are not fully supported - see Dynamic Shape Support section below
-3. **Sparse operations** not supported (COO/CSR tensors)
-4. **Quantization ops** not yet implemented (INT8/INT4)
-5. **Complex tensor ops** not yet implemented (Complex64/Complex128)
-6. **FFT operations** not yet implemented (torch.fft module)
+2. **Sparse operations** not supported (COO/CSR tensors)
+3. **Complex tensor ops** not yet implemented (Complex64/Complex128)
+4. **FFT operations** not yet implemented (torch.fft module)
 
 ## Completed Milestones
 
@@ -296,6 +294,8 @@ This document tracks PyTorch ATen Core operation coverage for the PyTorch → St
 7. ✅ All activation functions including celu, logsigmoid
 8. ✅ Advanced matrix operations (einsum, tensordot)
 9. ✅ Training/backward operations (~45 gradient ops for autograd support)
+10. ✅ Dynamic shape support (dynamic_reshape, dynamic_slice, dynamic_broadcast, etc.)
+11. ✅ Quantization operations (INT8/INT4) - bridges to Babylon ONNX quantization
 
 ## Dynamic Shape Support
 
@@ -373,3 +373,78 @@ func.func @forward(%arg0: tensor<?x3x224x224xf32>) -> tensor<?x1000xf32>
 | `dynamic_gather` | batch | Gather with dynamic batch |
 | `dynamic_expand` | batch | Expand/broadcast with dynamic batch |
 | `dynamic_index_select` | batch | Index select with dynamic batch |
+
+## Quantization Support
+
+### Overview
+
+WarpForge supports INT8/INT4 quantized inference by bridging PyTorch quantization to Babylon's ONNX quantization operators.
+
+```
+PyTorch Quantization          StableHLO              Babylon ONNX
+─────────────────────────────────────────────────────────────────
+quantize_per_tensor    →   uniform_quantize    →   QuantizeLinear
+dequantize             →   uniform_dequantize  →   DequantizeLinear
+quantized_linear       →   custom_call         →   QLinearMatMul
+quantized_conv2d       →   custom_call         →   QLinearConv
+fake_quantize_*        →   clamp+round+scale   →   (training only)
+```
+
+### Supported Data Types
+
+| Type | Bits | Range | Use Case |
+|------|------|-------|----------|
+| `qint8` / `i8` | 8 | -128 to 127 | Standard quantization |
+| `quint8` / `ui8` | 8 | 0 to 255 | Activation quantization |
+| `qint4` / `i4` | 4 | -8 to 7 | LLM weight compression (GPTQ, AWQ) |
+| `quint4` / `ui4` | 4 | 0 to 15 | Ultra-low precision |
+
+### Implemented Operations
+
+| PyTorch Op | StableHLO Target | Babylon ONNX | Status |
+|------------|------------------|--------------|--------|
+| `quantize_per_tensor` | `uniform_quantize` | `QuantizeLinear` | ✅ |
+| `dequantize` | `uniform_dequantize` | `DequantizeLinear` | ✅ |
+| `fake_quantize_per_tensor_affine` | clamp+round+scale | (QAT) | ✅ |
+| `fake_quantize_per_channel_affine` | `custom_call` | (QAT) | ✅ |
+| `quantized_linear` | `custom_call @quantized_linear` | `QLinearMatMul` | ✅ |
+| `quantized_conv2d` | `custom_call @quantized_conv2d` | `QLinearConv` | ✅ |
+| `quantized_batch_norm` | `custom_call` | (composite) | ✅ |
+| `quantized_add` | `custom_call @quantized_add` | (elementwise) | ✅ |
+| `quantized_mul` | `custom_call @quantized_mul` | (elementwise) | ✅ |
+| `quantized_relu` | `maximum` | (same) | ✅ |
+| `int_repr` | `bitcast_convert` | (access int values) | ✅ |
+| `q_scale` | `custom_call @q_scale` | (get scale) | ✅ |
+| `q_zero_point` | `custom_call @q_zero_point` | (get zero point) | ✅ |
+
+### Babylon ONNX Integration
+
+Babylon's ONNX support (in `oracle.code.onnx`) provides the downstream quantization operators:
+
+```java
+// Babylon ONNX tensor types (oracle.code.onnx.Tensor.ElementType)
+INT4(22, Object.class),   // 4-bit signed
+UINT4(21, Object.class),  // 4-bit unsigned
+INT8(3, byte.class),      // 8-bit signed
+UINT8(2, byte.class),     // 8-bit unsigned
+
+// Babylon ONNX operators (oracle.code.onnx.ir.OnnxOps)
+QuantizeLinear      // float → quantized
+DequantizeLinear    // quantized → float
+DynamicQuantizeLinear // runtime quantization
+MatMulInteger       // INT8 matrix multiplication
+QLinearMatMul       // quantized matmul with scale/zero_point
+QLinearConv         // quantized convolution
+```
+
+### Test Models
+
+| Model | Description |
+|-------|-------------|
+| `fake_quantize_per_tensor` | QAT fake quantization |
+| `quantized_linear` | Quantized linear layer |
+| `quantized_conv2d` | Quantized convolution |
+| `quantized_relu` | Quantized ReLU activation |
+| `quantized_add` / `quantized_mul` | Quantized elementwise ops |
+| `int8_linear` | Full INT8 inference model |
+| `int4_linear` | INT4 weight compression model |

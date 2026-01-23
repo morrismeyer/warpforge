@@ -31,7 +31,8 @@ BRANCH="${GITHUB_REF_NAME:-main}"
 
 # Build and test commands to run on the AMD box
 BUILD_CMD="${BUILD_CMD_OVERRIDE:-./gradlew clean assemble}"
-TEST_CMD="${TEST_CMD_OVERRIDE:-./gradlew test}"
+# Force mock mode for collective operations until UCC is properly configured on AMD box
+TEST_CMD="${TEST_CMD_OVERRIDE:-./gradlew test -Dwarpforge.collective.mode=mock}"
 # AMD-specific GPU tests (tagged with @Tag("amd"))
 AMD_TEST_CMD="${AMD_TEST_CMD_OVERRIDE:-./gradlew amdTest}"
 
@@ -152,6 +153,8 @@ ssh "$TARGET_HOST" bash -lc "
       git checkout -b \"${BRANCH}\" \"origin/${BRANCH}\"
     fi
     git reset --hard \"origin/${BRANCH}\"
+    echo \"[remote \$(date)] Cleaning untracked files...\"
+    git clean -fdx -e '.pytorch-venv' -e '.gradle'
   else
     echo \"[remote \$(date)] ERROR: origin/${BRANCH} does not exist\" >&2
     exit 1

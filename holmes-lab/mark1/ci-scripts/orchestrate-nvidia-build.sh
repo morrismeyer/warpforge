@@ -31,7 +31,8 @@ BRANCH="${GITHUB_REF_NAME:-main}"
 
 # Build and test commands to run on the NVIDIA box
 BUILD_CMD="${BUILD_CMD_OVERRIDE:-./gradlew clean assemble}"
-TEST_CMD="${TEST_CMD_OVERRIDE:-./gradlew test}"
+# Force mock mode for collective operations until UCC is properly configured on NVIDIA box
+TEST_CMD="${TEST_CMD_OVERRIDE:-./gradlew test -Dwarpforge.collective.mode=mock}"
 # NVIDIA-specific tests (tagged @Tag("nvidia")) - require actual CUDA hardware
 NVIDIA_TEST_CMD="${NVIDIA_TEST_CMD_OVERRIDE:-./gradlew nvidiaTest}"
 
@@ -152,9 +153,27 @@ ssh "$TARGET_HOST" bash -lc "
       git checkout -b \"${BRANCH}\" \"origin/${BRANCH}\"
     fi
     git reset --hard \"origin/${BRANCH}\"
+    echo \"[remote \$(date)] Cleaning untracked files...\"
+    git clean -fdx -e '.pytorch-venv' -e '.gradle'
   else
     echo \"[remote \$(date)] ERROR: origin/${BRANCH} does not exist\" >&2
     exit 1
+  fi
+
+  # Check for UCC/UCX libraries
+  echo \"[remote \$(date)] Checking UCC/UCX library status...\"
+  UCC_LIB=\"${REMOTE_REPO_DIR}/../ucc/install/lib/libucc.so\"
+  UCX_LIB=\"${REMOTE_REPO_DIR}/../openucx/install/lib/libucp.so\"
+  if [ -f \"\$UCC_LIB\" ]; then
+    echo \"[remote \$(date)] UCC library found: \$UCC_LIB\"
+    ldd \"\$UCC_LIB\" 2>&1 || echo \"ldd failed\"
+  else
+    echo \"[remote \$(date)] UCC library NOT found at \$UCC_LIB\"
+  fi
+  if [ -f \"\$UCX_LIB\" ]; then
+    echo \"[remote \$(date)] UCX library found: \$UCX_LIB\"
+  else
+    echo \"[remote \$(date)] UCX library NOT found at \$UCX_LIB\"
   fi
 
   echo \"[remote \$(date)] Running build: ${BUILD_CMD}\"

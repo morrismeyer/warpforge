@@ -522,15 +522,19 @@ graalvmNative {
                 '--no-fallback',
                 // Enable preview features (required for FFM)
                 '--enable-preview',
-                // Enable native access for FFM
+                // Enable native access for FFM - CRITICAL for jextract-generated code
                 '-H:+UnlockExperimentalVMOptions',
                 '-H:+ForeignAPISupport',
+                '--enable-native-access=ALL-UNNAMED',
                 '-J--enable-native-access=ALL-UNNAMED',
                 // Include incubator vector module
                 '--add-modules', 'jdk.incubator.vector',
                 // Initialize FFM classes at runtime (required for dynamic symbol lookup)
                 '--initialize-at-run-time=io.surfworks.warpforge.io.ffi.ucc',
                 '--initialize-at-run-time=io.surfworks.warpforge.io.ffi.ucx',
+                '--initialize-at-run-time=io.surfworks.warpforge.io.ffi.ibverbs',
+                // Link native libraries - use system library path
+                '-H:CLibraryPath=/usr/local/lib',
                 // Optimization flags
                 '-O2',
                 '-march=native'

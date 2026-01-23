@@ -112,10 +112,21 @@ public final class Collective {
             Constructor<?> constructor = implClass.getConstructor(CollectiveConfig.class);
             return (CollectiveApi) constructor.newInstance(config);
         } catch (Exception e) {
-            throw new CollectiveException("Failed to load UCC: " + e.getMessage(),
+            // Unwrap InvocationTargetException to get the real cause
+            Throwable cause = e;
+            while (cause.getCause() != null) {
+                cause = cause.getCause();
+            }
+            String msg = cause.getClass().getName() + ": " + cause.getMessage();
+            throw new CollectiveException("Failed to load UCC: " + msg,
                 CollectiveException.ErrorCode.NOT_SUPPORTED);
         } catch (Error e) {
-            throw new CollectiveException("Failed to load UCC native library: " + e.getMessage(),
+            Throwable cause = e;
+            while (cause.getCause() != null) {
+                cause = cause.getCause();
+            }
+            String msg = cause.getClass().getName() + ": " + cause.getMessage();
+            throw new CollectiveException("Failed to load UCC native library: " + msg,
                 CollectiveException.ErrorCode.NOT_SUPPORTED);
         }
     }

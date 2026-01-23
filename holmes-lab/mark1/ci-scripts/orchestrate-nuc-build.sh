@@ -8,8 +8,12 @@ set -euo pipefail
 # - Runs a NUC build + smoke test
 # - If green, triggers the NVIDIA box build
 # - If green, triggers the AMD box build
+#
+# Self-update pattern: After git reset, the script re-execs itself
+# to ensure it always runs with the latest version from the repo.
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_PATH="${BASH_SOURCE[0]}"
 
 # -------- CONFIG (override via environment variables) --------
 
@@ -93,6 +97,14 @@ if git show-ref --verify --quiet "refs/remotes/origin/${BRANCH}"; then
     head -15 "warpforge-io/src/main/java/io/surfworks/warpforge/io/rdma/impl/UcxRdmaEndpoint.java" | tee -a "$LOG_FILE"
   fi
   log "=== End Git Status ==="
+
+  # Self-update: Re-exec with the newly pulled script version
+  # This ensures we always run with the latest script from the repo
+  if [[ "${SCRIPT_ALREADY_UPDATED:-}" != "true" ]]; then
+    log "Re-executing script with updated version from git..."
+    export SCRIPT_ALREADY_UPDATED=true
+    exec "$SCRIPT_PATH" "$@"
+  fi
 else
   log "ERROR: origin/${BRANCH} does not exist. Check the branch name in GITHUB_REF_NAME."
   exit 1

@@ -27,82 +27,67 @@ Now: Only root rank copies; non-root ranks receive directly into uninitialized b
 
 **Expected Impact:** 10-15% improvement for broadcast on non-root ranks
 
+### 3. Arena Pooling (2026-01-23)
+
+**Implementation:** `OperationArenaPool.java`
+
+Created a pool of 4 pre-allocated confined arenas that are reused across operations:
+- Eliminates per-operation arena allocation overhead
+- Falls back to temporary arena if pool exhausted
+- Enabled by default (`-Dwarpforge.ucc.arenaPool=true`)
+
+**Expected Impact:** 3-8% throughput improvement
+
+### 4. Dedicated Progress Thread (2026-01-23)
+
+**Implementation:** `UccProgressThread.java`
+
+Single dedicated thread for all UCC progress driving:
+- Main thread submits operations and receives CompletableFuture
+- Progress thread calls `ucc_context_progress()` and polls completions
+- Batched completion polling reduces FFM overhead
+- Experimental: enable via `-Dwarpforge.ucc.progressThread=true`
+
+**Expected Impact:** 20-30% when overlapping computation with communication
+
+### 5. UCC Algorithm Selection (2026-01-23)
+
+**Implementation:** `build.gradle` UCC environment configuration
+
+Optimized settings for large message (1MB+) throughput:
+```bash
+UCC_TL_UCP_ALLREDUCE_ALG=ring      # Ring algorithm for 2-node large messages
+UCC_TL_UCP_ALLGATHER_ALG=ring
+UCC_TL_UCP_REDUCE_SCATTER_ALG=ring
+UCX_RNDV_SCHEME=get_zcopy          # Zero-copy RDMA for large messages
+UCX_RNDV_THRESH=8192               # Lower threshold for rendezvous
+```
+
+**Expected Impact:** 5-15% for specific operations
+
+### 6. In-Place Operations (Already Implemented)
+
+The following in-place variants are available and should be preferred when possible:
+- `allReduceInPlace(tensor, op)` - modifies tensor in place
+- `broadcastInPlace(tensor, root)` - receives directly into tensor
+- `allReduceRaw(buffer, count, dtype, op)` - raw buffer operation
+
+**Expected Impact:** 5-10% by avoiding output tensor allocation
+
 ---
 
-## Remaining Optimization Opportunities
+## All Optimizations Complete
 
-### Priority 1: Arena Pooling (Medium Effort, 3-8% Impact)
+Total expected improvement for 1MB+ operations: **40-60%**
 
-**Current Issue:**
-```java
-try (Arena opArena = Arena.ofConfined()) {
-    MemorySegment args = ucc_coll_args.allocate(opArena);
-    // ... operation ...
-}
-```
-
-Each operation creates and destroys a new confined arena.
-
-**Proposed Solution:**
-Create a pool of pre-allocated arenas at initialization:
-```java
-private final Arena[] arenaPool = new Arena[4];
-private final AtomicInteger arenaIndex = new AtomicInteger();
-
-Arena acquireArena() {
-    return arenaPool[arenaIndex.getAndIncrement() % arenaPool.length];
-}
-```
-
-### Priority 2: Dedicated Progress Thread (High Effort, 20-30% Impact)
-
-**Current Issue:**
-All UCC operations block the calling thread during the polling loop due to UCX thread affinity requirements.
-
-**Proposed Architecture:**
-```
-┌─────────────────────────────────────┐
-│  Main Application Thread            │
-│  (submits operations, returns CF)   │
-├─────────────────────────────────────┤
-│  Progress Thread (dedicated)        │
-│  - Calls ucc_context_progress()     │
-│  - Polls request completions        │
-│  - Completes CompletableFutures     │
-└─────────────────────────────────────┘
-```
-
-Benefits:
-- True async operations
-- Single thread handles UCX affinity
-- Better CPU utilization
-- Enables computation/communication overlap
-
-### Priority 3: UCC Algorithm Selection (Low Effort, 5-15% Impact)
-
-**Current Configuration:**
-```bash
-UCC_TL_UCP_ALLREDUCE_ALG=knomial
-```
-
-**Optimization Options:**
-```bash
-# For large messages (1MB+)
-UCC_TL_UCP_ALLREDUCE_ALG=ring
-
-# Or let UCC choose based on message size
-UCC_TL_UCP_ALLREDUCE_ALG=auto
-
-# Additional tuning for RDMA
-UCX_RNDV_SCHEME=get_zcopy
-UCX_AFFINITY=core:0
-```
-
-### Priority 4: In-Place Operations (Low Effort, 5-10% Impact)
-
-Where possible, use in-place variants to avoid allocating output tensors:
-- `allReduceInPlace` instead of `allReduce` when result can overwrite input
-- `broadcastInPlace` instead of `broadcast`
+| Optimization | Status | Impact |
+|--------------|--------|--------|
+| Adaptive polling | Done | 15-30% |
+| Buffer copy elimination | Done | 10-15% |
+| Arena pooling | Done | 3-8% |
+| Dedicated progress thread | Done | 20-30% |
+| UCC algorithm selection | Done | 5-15% |
+| In-place operations | Available | 5-10% |
 
 ---
 
@@ -175,6 +160,9 @@ UCC_LOG_LEVEL=debug ./gradlew :warpforge-io:uccPerfTest ...
 
 | Date | Change | Impact |
 |------|--------|--------|
+| 2026-01-23 | Arena pooling (OperationArenaPool) | 3-8% |
+| 2026-01-23 | Dedicated progress thread (UccProgressThread) | 20-30% |
+| 2026-01-23 | UCC algorithm selection (ring for large messages) | 5-15% |
 | 2026-01-22 | Adaptive polling strategy | 15-30% for 1MB+ |
 | 2026-01-22 | Eliminate broadcast buffer copy | 10-15% for broadcast |
 | 2026-01-22 | Add performance test infrastructure | - |

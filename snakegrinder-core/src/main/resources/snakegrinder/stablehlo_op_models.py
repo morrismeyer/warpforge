@@ -1619,6 +1619,138 @@ class ComplexSqrtOp(nn.Module):
 
 
 # =============================================================================
+# FFT Operations
+# =============================================================================
+
+class FFTOp(nn.Module):
+    """1D FFT (complex-to-complex).
+    Produces: stablehlo.fft FFT
+    """
+    def forward(self, x):
+        return torch.fft.fft(x)
+
+
+class IFFTOp(nn.Module):
+    """1D inverse FFT (complex-to-complex).
+    Produces: stablehlo.fft IFFT
+    """
+    def forward(self, x):
+        return torch.fft.ifft(x)
+
+
+class RFFTOp(nn.Module):
+    """1D real FFT (real-to-complex).
+    Produces: stablehlo.fft RFFT
+    """
+    def forward(self, x):
+        return torch.fft.rfft(x)
+
+
+class IRFFTOp(nn.Module):
+    """1D inverse real FFT (complex-to-real).
+    Produces: stablehlo.fft IRFFT
+    """
+    def forward(self, x):
+        return torch.fft.irfft(x)
+
+
+class HFFTOp(nn.Module):
+    """Hermitian FFT (for Hermitian-symmetric input).
+    Produces: stablehlo.fft IRFFT
+    """
+    def forward(self, x):
+        return torch.fft.hfft(x)
+
+
+class IHFFTOp(nn.Module):
+    """Inverse Hermitian FFT.
+    Produces: stablehlo.fft RFFT
+    """
+    def forward(self, x):
+        return torch.fft.ihfft(x)
+
+
+class FFT2Op(nn.Module):
+    """2D FFT (complex-to-complex).
+    Produces: stablehlo.fft FFT with 2D lengths
+    """
+    def forward(self, x):
+        return torch.fft.fft2(x)
+
+
+class IFFT2Op(nn.Module):
+    """2D inverse FFT (complex-to-complex).
+    Produces: stablehlo.fft IFFT with 2D lengths
+    """
+    def forward(self, x):
+        return torch.fft.ifft2(x)
+
+
+class RFFT2Op(nn.Module):
+    """2D real FFT (real-to-complex).
+    Produces: stablehlo.fft RFFT with 2D lengths
+    """
+    def forward(self, x):
+        return torch.fft.rfft2(x)
+
+
+class IRFFT2Op(nn.Module):
+    """2D inverse real FFT (complex-to-real).
+    Produces: stablehlo.fft IRFFT with 2D lengths
+    """
+    def forward(self, x):
+        return torch.fft.irfft2(x)
+
+
+class FFTNOp(nn.Module):
+    """N-dimensional FFT.
+    Produces: stablehlo.fft FFT with N-D lengths
+    """
+    def forward(self, x):
+        return torch.fft.fftn(x)
+
+
+class IFFTNOp(nn.Module):
+    """N-dimensional inverse FFT.
+    Produces: stablehlo.fft IFFT with N-D lengths
+    """
+    def forward(self, x):
+        return torch.fft.ifftn(x)
+
+
+class RFFTNOp(nn.Module):
+    """N-dimensional real FFT.
+    Produces: stablehlo.fft RFFT with N-D lengths
+    """
+    def forward(self, x):
+        return torch.fft.rfftn(x)
+
+
+class IRFFTNOp(nn.Module):
+    """N-dimensional inverse real FFT.
+    Produces: stablehlo.fft IRFFT with N-D lengths
+    """
+    def forward(self, x):
+        return torch.fft.irfftn(x)
+
+
+class FFTShiftOp(nn.Module):
+    """Shift zero-frequency component to center.
+    Produces: stablehlo.custom_call @fftshift
+    """
+    def forward(self, x):
+        return torch.fft.fftshift(x)
+
+
+class IFFTShiftOp(nn.Module):
+    """Inverse of fftshift.
+    Produces: stablehlo.custom_call @ifftshift
+    """
+    def forward(self, x):
+        return torch.fft.ifftshift(x)
+
+
+# =============================================================================
 # Operation Registry
 # =============================================================================
 # Maps operation names to (ModelClass, input_specs) tuples
@@ -1928,6 +2060,29 @@ OPERATION_REGISTRY = {
     'complex_exp': (ComplexExpOp, [([2, 4], 'c64')]),
     'complex_log': (ComplexLogOp, [([2, 4], 'c64')]),
     'complex_sqrt': (ComplexSqrtOp, [([2, 4], 'c64')]),
+
+    # FFT operations
+    # Note: FFT operations typically require complex or real inputs of specific shapes
+    # 1D FFT operations use last dimension as transform dimension
+    'fft': (FFTOp, [([2, 16], 'c64')]),
+    'ifft': (IFFTOp, [([2, 16], 'c64')]),
+    'rfft': (RFFTOp, [([2, 16], 'f32')]),
+    'irfft': (IRFFTOp, [([2, 9], 'c64')]),  # n//2 + 1 complex values -> n real values
+    'hfft': (HFFTOp, [([2, 9], 'c64')]),
+    'ihfft': (IHFFTOp, [([2, 16], 'f32')]),
+    # 2D FFT operations
+    'fft2': (FFT2Op, [([2, 8, 8], 'c64')]),
+    'ifft2': (IFFT2Op, [([2, 8, 8], 'c64')]),
+    'rfft2': (RFFT2Op, [([2, 8, 8], 'f32')]),
+    'irfft2': (IRFFT2Op, [([2, 8, 5], 'c64')]),  # (h, w//2 + 1) complex -> (h, w) real
+    # N-D FFT operations
+    'fftn': (FFTNOp, [([2, 4, 4, 4], 'c64')]),
+    'ifftn': (IFFTNOp, [([2, 4, 4, 4], 'c64')]),
+    'rfftn': (RFFTNOp, [([2, 4, 4, 4], 'f32')]),
+    'irfftn': (IRFFTNOp, [([2, 4, 4, 3], 'c64')]),
+    # FFT helper operations
+    'fftshift': (FFTShiftOp, [([2, 16], 'c64')]),
+    'ifftshift': (IFFTShiftOp, [([2, 16], 'c64')]),
 }
 
 # Registry of dynamic dimensions for models that need them

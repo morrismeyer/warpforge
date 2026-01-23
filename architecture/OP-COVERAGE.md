@@ -279,7 +279,6 @@ This document tracks PyTorch ATen Core operation coverage for the PyTorch → St
 ## Known Limitations
 
 1. **Scan operations** (cumsum, cumprod) use custom_call as StableHLO lacks native scan
-2. **FFT operations** not yet implemented (torch.fft module)
 
 ## Completed Milestones
 
@@ -296,6 +295,7 @@ This document tracks PyTorch ATen Core operation coverage for the PyTorch → St
 11. ✅ Quantization operations (INT8/INT4) - bridges to Babylon ONNX quantization
 12. ✅ Sparse tensor operations (COO, CSR, CSC, BSR, semi-structured)
 13. ✅ Complex tensor operations (complex64/complex128) - native StableHLO support
+14. ✅ FFT operations (torch.fft module) - native StableHLO FFT support
 
 ## Dynamic Shape Support
 
@@ -562,3 +562,72 @@ WarpForge supports complex tensor operations using StableHLO's native complex nu
 | `angle` / `polar` | Polar coordinates |
 | `complex_abs` / `complex_mul` / `complex_add` | Arithmetic |
 | `complex_exp` / `complex_log` / `complex_sqrt` | Transcendentals |
+
+## FFT Operations Support
+
+### Overview
+
+WarpForge supports FFT (Fast Fourier Transform) operations using StableHLO's native `stablehlo.fft` operation. StableHLO FFT has built-in support for:
+- `FFT` - Complex-to-complex forward transform
+- `IFFT` - Complex-to-complex inverse transform
+- `RFFT` - Real-to-complex forward transform
+- `IRFFT` - Complex-to-real inverse transform
+
+### Implemented Operations
+
+| PyTorch Op | StableHLO Target | Description |
+|------------|------------------|-------------|
+| `torch.fft.fft` | `stablehlo.fft FFT` | 1D complex FFT |
+| `torch.fft.ifft` | `stablehlo.fft IFFT` | 1D complex inverse FFT |
+| `torch.fft.rfft` | `stablehlo.fft RFFT` | 1D real-to-complex FFT |
+| `torch.fft.irfft` | `stablehlo.fft IRFFT` | 1D complex-to-real FFT |
+| `torch.fft.hfft` | `stablehlo.fft IRFFT` | Hermitian FFT |
+| `torch.fft.ihfft` | `stablehlo.fft RFFT` | Inverse Hermitian FFT |
+| `torch.fft.fft2` | `stablehlo.fft FFT` | 2D complex FFT |
+| `torch.fft.ifft2` | `stablehlo.fft IFFT` | 2D complex inverse FFT |
+| `torch.fft.rfft2` | `stablehlo.fft RFFT` | 2D real-to-complex FFT |
+| `torch.fft.irfft2` | `stablehlo.fft IRFFT` | 2D complex-to-real FFT |
+| `torch.fft.fftn` | `stablehlo.fft FFT` | N-D complex FFT |
+| `torch.fft.ifftn` | `stablehlo.fft IFFT` | N-D complex inverse FFT |
+| `torch.fft.rfftn` | `stablehlo.fft RFFT` | N-D real-to-complex FFT |
+| `torch.fft.irfftn` | `stablehlo.fft IRFFT` | N-D complex-to-real FFT |
+| `torch.fft.fftshift` | `custom_call @fftshift` | Shift zero-frequency to center |
+| `torch.fft.ifftshift` | `custom_call @ifftshift` | Inverse of fftshift |
+| `torch.fft.fftfreq` | `custom_call @fftfreq` | Generate DFT frequency bins |
+| `torch.fft.rfftfreq` | `custom_call @rfftfreq` | Generate RFFT frequency bins |
+
+### StableHLO FFT Syntax
+
+```mlir
+// 1D FFT
+%result = stablehlo.fft %input, type = FFT, length = [16] : tensor<2x16xcomplex<f32>> -> tensor<2x16xcomplex<f32>>
+
+// 2D FFT
+%result = stablehlo.fft %input, type = FFT, length = [8, 8] : tensor<2x8x8xcomplex<f32>> -> tensor<2x8x8xcomplex<f32>>
+
+// Real FFT (real input -> complex output)
+%result = stablehlo.fft %input, type = RFFT, length = [16] : tensor<2x16xf32> -> tensor<2x9xcomplex<f32>>
+```
+
+### Test Models
+
+| Model | Description |
+|-------|-------------|
+| `fft` / `ifft` | 1D complex FFT/IFFT |
+| `rfft` / `irfft` | 1D real FFT/IRFFT |
+| `hfft` / `ihfft` | Hermitian FFT |
+| `fft2` / `ifft2` | 2D complex FFT/IFFT |
+| `rfft2` / `irfft2` | 2D real FFT/IRFFT |
+| `fftn` / `ifftn` | N-D complex FFT/IFFT |
+| `rfftn` / `irfftn` | N-D real FFT/IRFFT |
+| `fftshift` / `ifftshift` | Frequency domain shifting |
+
+### Backend Implementation Notes
+
+StableHLO's native FFT operation maps directly to:
+- **NVIDIA**: cuFFT (highly optimized GPU FFT library)
+- **AMD**: rocFFT
+- **CPU**: FFTW or Intel MKL FFT
+- **XLA**: Native XLA FFT lowering
+
+The helper operations (fftshift, ifftshift, fftfreq, rfftfreq) use custom_call and can be implemented using standard array operations (roll/concatenate for shift, iota/divide for frequency).

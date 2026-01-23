@@ -2298,6 +2298,219 @@ class FXToStableHLO:
             return [f'{result_ssa} = stablehlo.custom_call @to_sparse_semi_structured({input_ssa}) '
                     f'{{format = "semi_structured", pattern = "2:4"}} : ({input_type}) -> {result_type}']
 
+        # ===== FFT OPERATIONS =====
+        # StableHLO has native FFT support with fft_type: FFT, IFFT, RFFT, IRFFT
+
+        elif target_name in ('fft', 'fft_fft'):
+            # torch.fft.fft(x, n, dim, norm) -> stablehlo.fft FFT
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            n = node.args[1] if len(node.args) > 1 else node.kwargs.get('n', None)
+            dim = node.args[2] if len(node.args) > 2 else node.kwargs.get('dim', -1)
+            fft_length = n if n else self._get_dim_size(node.args[0], dim)
+            return [f'{result_ssa} = stablehlo.fft {input_ssa}, type = FFT, length = [{fft_length}] : {input_type} -> {result_type}']
+
+        elif target_name in ('ifft', 'fft_ifft'):
+            # torch.fft.ifft -> stablehlo.fft IFFT
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            n = node.args[1] if len(node.args) > 1 else node.kwargs.get('n', None)
+            dim = node.args[2] if len(node.args) > 2 else node.kwargs.get('dim', -1)
+            fft_length = n if n else self._get_dim_size(node.args[0], dim)
+            return [f'{result_ssa} = stablehlo.fft {input_ssa}, type = IFFT, length = [{fft_length}] : {input_type} -> {result_type}']
+
+        elif target_name in ('rfft', 'fft_rfft'):
+            # torch.fft.rfft -> stablehlo.fft RFFT (real-to-complex)
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            n = node.args[1] if len(node.args) > 1 else node.kwargs.get('n', None)
+            dim = node.args[2] if len(node.args) > 2 else node.kwargs.get('dim', -1)
+            fft_length = n if n else self._get_dim_size(node.args[0], dim)
+            return [f'{result_ssa} = stablehlo.fft {input_ssa}, type = RFFT, length = [{fft_length}] : {input_type} -> {result_type}']
+
+        elif target_name in ('irfft', 'fft_irfft'):
+            # torch.fft.irfft -> stablehlo.fft IRFFT (complex-to-real)
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            n = node.args[1] if len(node.args) > 1 else node.kwargs.get('n', None)
+            dim = node.args[2] if len(node.args) > 2 else node.kwargs.get('dim', -1)
+            fft_length = n if n else (self._get_dim_size(node.args[0], dim) - 1) * 2
+            return [f'{result_ssa} = stablehlo.fft {input_ssa}, type = IRFFT, length = [{fft_length}] : {input_type} -> {result_type}']
+
+        elif target_name in ('hfft', 'fft_hfft'):
+            # torch.fft.hfft (Hermitian FFT) -> stablehlo.fft IRFFT
+            # hfft is the inverse of rfft for Hermitian-symmetric inputs
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            n = node.args[1] if len(node.args) > 1 else node.kwargs.get('n', None)
+            dim = node.args[2] if len(node.args) > 2 else node.kwargs.get('dim', -1)
+            fft_length = n if n else (self._get_dim_size(node.args[0], dim) - 1) * 2
+            return [f'{result_ssa} = stablehlo.fft {input_ssa}, type = IRFFT, length = [{fft_length}] : {input_type} -> {result_type}']
+
+        elif target_name in ('ihfft', 'fft_ihfft'):
+            # torch.fft.ihfft (inverse Hermitian FFT) -> stablehlo.fft RFFT
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            n = node.args[1] if len(node.args) > 1 else node.kwargs.get('n', None)
+            dim = node.args[2] if len(node.args) > 2 else node.kwargs.get('dim', -1)
+            fft_length = n if n else self._get_dim_size(node.args[0], dim)
+            return [f'{result_ssa} = stablehlo.fft {input_ssa}, type = RFFT, length = [{fft_length}] : {input_type} -> {result_type}']
+
+        elif target_name in ('fft2', 'fft_fft2'):
+            # torch.fft.fft2 -> stablehlo.fft FFT with 2D lengths
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            s = node.args[1] if len(node.args) > 1 else node.kwargs.get('s', None)
+            dim = node.args[2] if len(node.args) > 2 else node.kwargs.get('dim', (-2, -1))
+            if s:
+                lengths = ', '.join(str(x) for x in s)
+            else:
+                lengths = f'{self._get_dim_size(node.args[0], dim[0])}, {self._get_dim_size(node.args[0], dim[1])}'
+            return [f'{result_ssa} = stablehlo.fft {input_ssa}, type = FFT, length = [{lengths}] : {input_type} -> {result_type}']
+
+        elif target_name in ('ifft2', 'fft_ifft2'):
+            # torch.fft.ifft2 -> stablehlo.fft IFFT with 2D lengths
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            s = node.args[1] if len(node.args) > 1 else node.kwargs.get('s', None)
+            dim = node.args[2] if len(node.args) > 2 else node.kwargs.get('dim', (-2, -1))
+            if s:
+                lengths = ', '.join(str(x) for x in s)
+            else:
+                lengths = f'{self._get_dim_size(node.args[0], dim[0])}, {self._get_dim_size(node.args[0], dim[1])}'
+            return [f'{result_ssa} = stablehlo.fft {input_ssa}, type = IFFT, length = [{lengths}] : {input_type} -> {result_type}']
+
+        elif target_name in ('rfft2', 'fft_rfft2'):
+            # torch.fft.rfft2 -> stablehlo.fft RFFT with 2D lengths
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            s = node.args[1] if len(node.args) > 1 else node.kwargs.get('s', None)
+            dim = node.args[2] if len(node.args) > 2 else node.kwargs.get('dim', (-2, -1))
+            if s:
+                lengths = ', '.join(str(x) for x in s)
+            else:
+                lengths = f'{self._get_dim_size(node.args[0], dim[0])}, {self._get_dim_size(node.args[0], dim[1])}'
+            return [f'{result_ssa} = stablehlo.fft {input_ssa}, type = RFFT, length = [{lengths}] : {input_type} -> {result_type}']
+
+        elif target_name in ('irfft2', 'fft_irfft2'):
+            # torch.fft.irfft2 -> stablehlo.fft IRFFT with 2D lengths
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            s = node.args[1] if len(node.args) > 1 else node.kwargs.get('s', None)
+            dim = node.args[2] if len(node.args) > 2 else node.kwargs.get('dim', (-2, -1))
+            if s:
+                lengths = ', '.join(str(x) for x in s)
+            else:
+                d0 = self._get_dim_size(node.args[0], dim[0])
+                d1 = (self._get_dim_size(node.args[0], dim[1]) - 1) * 2
+                lengths = f'{d0}, {d1}'
+            return [f'{result_ssa} = stablehlo.fft {input_ssa}, type = IRFFT, length = [{lengths}] : {input_type} -> {result_type}']
+
+        elif target_name in ('fftn', 'fft_fftn'):
+            # torch.fft.fftn -> stablehlo.fft FFT with N-D lengths
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            s = node.args[1] if len(node.args) > 1 else node.kwargs.get('s', None)
+            dim = node.args[2] if len(node.args) > 2 else node.kwargs.get('dim', None)
+            if s:
+                lengths = ', '.join(str(x) for x in s)
+            elif dim:
+                lengths = ', '.join(str(self._get_dim_size(node.args[0], d)) for d in dim)
+            else:
+                # Default: all dimensions
+                shape = self.shape_map.get(node.args[0].name, ())
+                lengths = ', '.join(str(d) for d in shape) if shape else '?'
+            return [f'{result_ssa} = stablehlo.fft {input_ssa}, type = FFT, length = [{lengths}] : {input_type} -> {result_type}']
+
+        elif target_name in ('ifftn', 'fft_ifftn'):
+            # torch.fft.ifftn -> stablehlo.fft IFFT with N-D lengths
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            s = node.args[1] if len(node.args) > 1 else node.kwargs.get('s', None)
+            dim = node.args[2] if len(node.args) > 2 else node.kwargs.get('dim', None)
+            if s:
+                lengths = ', '.join(str(x) for x in s)
+            elif dim:
+                lengths = ', '.join(str(self._get_dim_size(node.args[0], d)) for d in dim)
+            else:
+                shape = self.shape_map.get(node.args[0].name, ())
+                lengths = ', '.join(str(d) for d in shape) if shape else '?'
+            return [f'{result_ssa} = stablehlo.fft {input_ssa}, type = IFFT, length = [{lengths}] : {input_type} -> {result_type}']
+
+        elif target_name in ('rfftn', 'fft_rfftn'):
+            # torch.fft.rfftn -> stablehlo.fft RFFT with N-D lengths
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            s = node.args[1] if len(node.args) > 1 else node.kwargs.get('s', None)
+            dim = node.args[2] if len(node.args) > 2 else node.kwargs.get('dim', None)
+            if s:
+                lengths = ', '.join(str(x) for x in s)
+            elif dim:
+                lengths = ', '.join(str(self._get_dim_size(node.args[0], d)) for d in dim)
+            else:
+                shape = self.shape_map.get(node.args[0].name, ())
+                lengths = ', '.join(str(d) for d in shape) if shape else '?'
+            return [f'{result_ssa} = stablehlo.fft {input_ssa}, type = RFFT, length = [{lengths}] : {input_type} -> {result_type}']
+
+        elif target_name in ('irfftn', 'fft_irfftn'):
+            # torch.fft.irfftn -> stablehlo.fft IRFFT with N-D lengths
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            s = node.args[1] if len(node.args) > 1 else node.kwargs.get('s', None)
+            dim = node.args[2] if len(node.args) > 2 else node.kwargs.get('dim', None)
+            if s:
+                lengths = ', '.join(str(x) for x in s)
+            elif dim:
+                # Last dimension in IRFFT output is (input_dim - 1) * 2
+                dim_sizes = []
+                for i, d in enumerate(dim):
+                    size = self._get_dim_size(node.args[0], d)
+                    if i == len(dim) - 1:
+                        size = (size - 1) * 2
+                    dim_sizes.append(str(size))
+                lengths = ', '.join(dim_sizes)
+            else:
+                shape = self.shape_map.get(node.args[0].name, ())
+                if shape:
+                    dim_sizes = list(shape[:-1]) + [(shape[-1] - 1) * 2]
+                    lengths = ', '.join(str(d) for d in dim_sizes)
+                else:
+                    lengths = '?'
+            return [f'{result_ssa} = stablehlo.fft {input_ssa}, type = IRFFT, length = [{lengths}] : {input_type} -> {result_type}']
+
+        elif target_name in ('fftshift', 'fft_fftshift'):
+            # torch.fft.fftshift -> roll by n//2 for each FFT dimension
+            # This is a helper function, implemented via stablehlo operations
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            dim = node.args[1] if len(node.args) > 1 else node.kwargs.get('dim', None)
+            # fftshift is a circular shift (roll) by half the dimension size
+            return [f'{result_ssa} = stablehlo.custom_call @fftshift({input_ssa}) '
+                    f'{{dim = {dim if dim else "all"}}} : ({input_type}) -> {result_type}']
+
+        elif target_name in ('ifftshift', 'fft_ifftshift'):
+            # torch.fft.ifftshift -> inverse of fftshift (roll by -n//2)
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            dim = node.args[1] if len(node.args) > 1 else node.kwargs.get('dim', None)
+            return [f'{result_ssa} = stablehlo.custom_call @ifftshift({input_ssa}) '
+                    f'{{dim = {dim if dim else "all"}}} : ({input_type}) -> {result_type}']
+
+        elif target_name in ('fftfreq', 'fft_fftfreq'):
+            # torch.fft.fftfreq -> generate frequency bins
+            # This returns a 1D tensor of frequencies, not a transform
+            n = node.args[0] if node.args else node.kwargs.get('n', 1)
+            d = node.args[1] if len(node.args) > 1 else node.kwargs.get('d', 1.0)
+            return [f'{result_ssa} = stablehlo.custom_call @fftfreq() '
+                    f'{{n = {n}, d = {d}}} : () -> {result_type}']
+
+        elif target_name in ('rfftfreq', 'fft_rfftfreq'):
+            # torch.fft.rfftfreq -> frequency bins for real FFT (non-negative only)
+            n = node.args[0] if node.args else node.kwargs.get('n', 1)
+            d = node.args[1] if len(node.args) > 1 else node.kwargs.get('d', 1.0)
+            return [f'{result_ssa} = stablehlo.custom_call @rfftfreq() '
+                    f'{{n = {n}, d = {d}}} : () -> {result_type}']
+
         else:
             return [f'// Unsupported function: {target_name}']
 

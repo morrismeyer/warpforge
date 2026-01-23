@@ -31,9 +31,9 @@ BRANCH="${GITHUB_REF_NAME:-main}"
 
 # Build and test commands to run on the NVIDIA box
 BUILD_CMD="${BUILD_CMD_OVERRIDE:-./gradlew clean assemble}"
-# Force mock mode for collective operations until UCC is properly configured on NVIDIA box
+# Force mock mode for collective and RDMA operations until UCC/UCX is properly configured on NVIDIA box
 # Use --no-configuration-cache to ensure fresh config evaluation with system property
-TEST_CMD="${TEST_CMD_OVERRIDE:-./gradlew test --no-configuration-cache -Dwarpforge.collective.mode=mock}"
+TEST_CMD="${TEST_CMD_OVERRIDE:-./gradlew test --no-configuration-cache -Dwarpforge.collective.mode=mock -Dwarpforge.rdma.mode=mock}"
 # NVIDIA-specific tests (tagged @Tag("nvidia")) - require actual CUDA hardware
 NVIDIA_TEST_CMD="${NVIDIA_TEST_CMD_OVERRIDE:-./gradlew nvidiaTest}"
 

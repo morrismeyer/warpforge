@@ -75,11 +75,15 @@ tasks.withType(JavaExec).configureEach {
 tasks.withType(Test).configureEach {
     jvmArgs '--enable-native-access=ALL-UNNAMED', '--enable-preview'
 
-    // Support for forcing collective mock mode via command line
-    // Usage: ./gradlew test -Dwarpforge.collective.mode=mock
+    // Support for forcing mock mode via command line
+    // Usage: ./gradlew test -Dwarpforge.collective.mode=mock -Dwarpforge.rdma.mode=mock
     def collectiveMode = System.getProperty('warpforge.collective.mode')
     if (collectiveMode != null) {
         systemProperty 'warpforge.collective.mode', collectiveMode
+    }
+    def rdmaMode = System.getProperty('warpforge.rdma.mode')
+    if (rdmaMode != null) {
+        systemProperty 'warpforge.rdma.mode', rdmaMode
     }
 }
 

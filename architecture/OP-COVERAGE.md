@@ -28,7 +28,11 @@ This document tracks PyTorch ATen Core operation coverage for the PyTorch → St
 | Dropout | 8 | 8 | 100% |
 | Upsampling | 14 | 14 | 100% |
 | Grid Sampling | 9 | 9 | 100% |
-| **Total** | **347** | **347** | **100%** |
+| Image | 5 | 5 | 100% |
+| Sorting | 7 | 7 | 100% |
+| Unique/Set | 5 | 5 | 100% |
+| Linear Algebra | 18 | 18 | 100% |
+| **Total** | **382** | **382** | **100%** |
 
 ## Detailed Coverage by Category
 
@@ -1056,3 +1060,7 @@ WarpForge supports grid sampling operations via `stablehlo.custom_call`. Grid sa
 20. ✅ Dropout operations (dropout, dropout1d/2d/3d, alpha_dropout, feature_alpha_dropout)
 21. ✅ Upsampling operations (nearest/bilinear/bicubic/trilinear, interpolate, pixel_shuffle)
 22. ✅ Grid sampling operations (grid_sample, affine_grid, spatial transformer)
+23. ✅ Image operations (flip, brightness, contrast, normalize)
+24. ✅ Sorting operations (sort, argsort, topk, kthvalue, msort, searchsorted)
+25. ✅ Unique/set operations (unique, unique_consecutive, bincount, histc, histogram)
+26. ✅ Linear algebra operations (SVD, QR, Cholesky, LU, eigendecomposition, solve, lstsq, etc.)

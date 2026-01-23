@@ -3145,6 +3145,431 @@ class FXToStableHLO:
             return [f'{result_ssa} = stablehlo.custom_call @affine_grid({theta_ssa}) '
                     f'{{{attrs}}} : ({theta_type}) -> {result_type}']
 
+        # ===== IMAGE OPERATIONS =====
+        elif target_name in ('rgb_to_grayscale',):
+            # torchvision.transforms.functional.rgb_to_grayscale
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            num_output_channels = node.kwargs.get('num_output_channels', 1)
+            attrs = f'num_output_channels = {num_output_channels}'
+            return [f'{result_ssa} = stablehlo.custom_call @rgb_to_grayscale({input_ssa}) '
+                    f'{{{attrs}}} : ({input_type}) -> {result_type}']
+
+        elif target_name in ('adjust_brightness',):
+            # torchvision.transforms.functional.adjust_brightness
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            brightness_factor = node.args[1] if len(node.args) > 1 else node.kwargs.get('brightness_factor', 1.0)
+            attrs = f'brightness_factor = {brightness_factor}'
+            return [f'{result_ssa} = stablehlo.custom_call @adjust_brightness({input_ssa}) '
+                    f'{{{attrs}}} : ({input_type}) -> {result_type}']
+
+        elif target_name in ('adjust_contrast',):
+            # torchvision.transforms.functional.adjust_contrast
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            contrast_factor = node.args[1] if len(node.args) > 1 else node.kwargs.get('contrast_factor', 1.0)
+            attrs = f'contrast_factor = {contrast_factor}'
+            return [f'{result_ssa} = stablehlo.custom_call @adjust_contrast({input_ssa}) '
+                    f'{{{attrs}}} : ({input_type}) -> {result_type}']
+
+        elif target_name in ('adjust_saturation',):
+            # torchvision.transforms.functional.adjust_saturation
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            saturation_factor = node.args[1] if len(node.args) > 1 else node.kwargs.get('saturation_factor', 1.0)
+            attrs = f'saturation_factor = {saturation_factor}'
+            return [f'{result_ssa} = stablehlo.custom_call @adjust_saturation({input_ssa}) '
+                    f'{{{attrs}}} : ({input_type}) -> {result_type}']
+
+        elif target_name in ('adjust_hue',):
+            # torchvision.transforms.functional.adjust_hue
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            hue_factor = node.args[1] if len(node.args) > 1 else node.kwargs.get('hue_factor', 0.0)
+            attrs = f'hue_factor = {hue_factor}'
+            return [f'{result_ssa} = stablehlo.custom_call @adjust_hue({input_ssa}) '
+                    f'{{{attrs}}} : ({input_type}) -> {result_type}']
+
+        elif target_name in ('rotate',):
+            # torchvision.transforms.functional.rotate
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            angle = node.args[1] if len(node.args) > 1 else node.kwargs.get('angle', 0.0)
+            interpolation = node.kwargs.get('interpolation', 'nearest')
+            expand = node.kwargs.get('expand', False)
+            fill = node.kwargs.get('fill', 0)
+            attrs = f'angle = {angle}, interpolation = "{interpolation}", expand = {str(expand).lower()}, fill = {fill}'
+            return [f'{result_ssa} = stablehlo.custom_call @rotate({input_ssa}) '
+                    f'{{{attrs}}} : ({input_type}) -> {result_type}']
+
+        elif target_name in ('hflip', 'horizontal_flip'):
+            # torchvision.transforms.functional.hflip
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            return [f'{result_ssa} = stablehlo.reverse {input_ssa}, dims = [-1] : {input_type} -> {result_type}']
+
+        elif target_name in ('vflip', 'vertical_flip'):
+            # torchvision.transforms.functional.vflip
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            return [f'{result_ssa} = stablehlo.reverse {input_ssa}, dims = [-2] : {input_type} -> {result_type}']
+
+        elif target_name in ('center_crop',):
+            # torchvision.transforms.functional.center_crop
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            output_size = node.args[1] if len(node.args) > 1 else node.kwargs.get('output_size')
+            size_str = str(list(output_size)) if isinstance(output_size, (list, tuple)) else str([output_size, output_size])
+            attrs = f'output_size = {size_str}'
+            return [f'{result_ssa} = stablehlo.custom_call @center_crop({input_ssa}) '
+                    f'{{{attrs}}} : ({input_type}) -> {result_type}']
+
+        elif target_name in ('resize',):
+            # torchvision.transforms.functional.resize
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            size = node.args[1] if len(node.args) > 1 else node.kwargs.get('size')
+            interpolation = node.kwargs.get('interpolation', 'bilinear')
+            antialias = node.kwargs.get('antialias', True)
+            size_str = str(list(size)) if isinstance(size, (list, tuple)) else str([size])
+            attrs = f'size = {size_str}, interpolation = "{interpolation}", antialias = {str(antialias).lower()}'
+            return [f'{result_ssa} = stablehlo.custom_call @resize({input_ssa}) '
+                    f'{{{attrs}}} : ({input_type}) -> {result_type}']
+
+        elif target_name in ('normalize',):
+            # torchvision.transforms.functional.normalize (image normalization)
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            mean = node.args[1] if len(node.args) > 1 else node.kwargs.get('mean')
+            std = node.args[2] if len(node.args) > 2 else node.kwargs.get('std')
+            mean_str = str(list(mean)) if mean else '[0.485, 0.456, 0.406]'
+            std_str = str(list(std)) if std else '[0.229, 0.224, 0.225]'
+            attrs = f'mean = {mean_str}, std = {std_str}'
+            return [f'{result_ssa} = stablehlo.custom_call @normalize({input_ssa}) '
+                    f'{{{attrs}}} : ({input_type}) -> {result_type}']
+
+        # ===== SORTING OPERATIONS =====
+        elif target_name in ('sort',):
+            # torch.sort -> returns (sorted_values, sorted_indices)
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            dim = node.args[1] if len(node.args) > 1 else node.kwargs.get('dim', -1)
+            descending = node.kwargs.get('descending', False)
+            stable = node.kwargs.get('stable', False)
+            attrs = f'dim = {dim}, descending = {str(descending).lower()}, stable = {str(stable).lower()}'
+            return [f'{result_ssa} = stablehlo.custom_call @sort({input_ssa}) '
+                    f'{{{attrs}}} : ({input_type}) -> {result_type}']
+
+        elif target_name in ('argsort',):
+            # torch.argsort -> returns indices that would sort the tensor
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            dim = node.args[1] if len(node.args) > 1 else node.kwargs.get('dim', -1)
+            descending = node.kwargs.get('descending', False)
+            stable = node.kwargs.get('stable', False)
+            attrs = f'dim = {dim}, descending = {str(descending).lower()}, stable = {str(stable).lower()}'
+            return [f'{result_ssa} = stablehlo.custom_call @argsort({input_ssa}) '
+                    f'{{{attrs}}} : ({input_type}) -> {result_type}']
+
+        elif target_name in ('topk',):
+            # torch.topk -> returns (values, indices) of k largest elements
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            k = node.args[1] if len(node.args) > 1 else node.kwargs.get('k')
+            dim = node.args[2] if len(node.args) > 2 else node.kwargs.get('dim', -1)
+            largest = node.kwargs.get('largest', True)
+            sorted_flag = node.kwargs.get('sorted', True)
+            attrs = f'k = {k}, dim = {dim}, largest = {str(largest).lower()}, sorted = {str(sorted_flag).lower()}'
+            return [f'{result_ssa} = stablehlo.custom_call @topk({input_ssa}) '
+                    f'{{{attrs}}} : ({input_type}) -> {result_type}']
+
+        elif target_name in ('kthvalue',):
+            # torch.kthvalue -> returns (value, index) of k-th smallest element
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            k = node.args[1] if len(node.args) > 1 else node.kwargs.get('k')
+            dim = node.args[2] if len(node.args) > 2 else node.kwargs.get('dim', -1)
+            keepdim = node.kwargs.get('keepdim', False)
+            attrs = f'k = {k}, dim = {dim}, keepdim = {str(keepdim).lower()}'
+            return [f'{result_ssa} = stablehlo.custom_call @kthvalue({input_ssa}) '
+                    f'{{{attrs}}} : ({input_type}) -> {result_type}']
+
+        elif target_name in ('msort',):
+            # torch.msort -> sort along first dimension
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            return [f'{result_ssa} = stablehlo.custom_call @sort({input_ssa}) '
+                    f'{{dim = 0, descending = false, stable = false}} : ({input_type}) -> {result_type}']
+
+        elif target_name in ('searchsorted',):
+            # torch.searchsorted -> find indices where elements should be inserted
+            sorted_sequence_ssa = get_input(0)
+            values_ssa = get_input(1)
+            sorted_type = get_input_type(0)
+            values_type = get_input_type(1)
+            out_int32 = node.kwargs.get('out_int32', False)
+            right = node.kwargs.get('right', False)
+            side = node.kwargs.get('side', 'left')
+            attrs = f'out_int32 = {str(out_int32).lower()}, right = {str(right).lower()}, side = "{side}"'
+            return [f'{result_ssa} = stablehlo.custom_call @searchsorted({sorted_sequence_ssa}, {values_ssa}) '
+                    f'{{{attrs}}} : ({sorted_type}, {values_type}) -> {result_type}']
+
+        # ===== UNIQUE/SET OPERATIONS =====
+        elif target_name in ('unique',):
+            # torch.unique -> returns unique elements
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            sorted_flag = node.kwargs.get('sorted', True)
+            return_inverse = node.kwargs.get('return_inverse', False)
+            return_counts = node.kwargs.get('return_counts', False)
+            dim = node.kwargs.get('dim', None)
+            dim_str = str(dim) if dim is not None else 'null'
+            attrs = f'sorted = {str(sorted_flag).lower()}, return_inverse = {str(return_inverse).lower()}, return_counts = {str(return_counts).lower()}, dim = {dim_str}'
+            return [f'{result_ssa} = stablehlo.custom_call @unique({input_ssa}) '
+                    f'{{{attrs}}} : ({input_type}) -> {result_type}']
+
+        elif target_name in ('unique_consecutive',):
+            # torch.unique_consecutive -> unique consecutive elements
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            return_inverse = node.kwargs.get('return_inverse', False)
+            return_counts = node.kwargs.get('return_counts', False)
+            dim = node.kwargs.get('dim', None)
+            dim_str = str(dim) if dim is not None else 'null'
+            attrs = f'return_inverse = {str(return_inverse).lower()}, return_counts = {str(return_counts).lower()}, dim = {dim_str}'
+            return [f'{result_ssa} = stablehlo.custom_call @unique_consecutive({input_ssa}) '
+                    f'{{{attrs}}} : ({input_type}) -> {result_type}']
+
+        elif target_name in ('bincount',):
+            # torch.bincount -> count occurrences of each value
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            weights_ssa = get_input(1) if len(node.args) > 1 else None
+            minlength = node.kwargs.get('minlength', 0)
+            if weights_ssa:
+                weights_type = get_input_type(1)
+                return [f'{result_ssa} = stablehlo.custom_call @bincount({input_ssa}, {weights_ssa}) '
+                        f'{{minlength = {minlength}}} : ({input_type}, {weights_type}) -> {result_type}']
+            return [f'{result_ssa} = stablehlo.custom_call @bincount({input_ssa}) '
+                    f'{{minlength = {minlength}}} : ({input_type}) -> {result_type}']
+
+        elif target_name in ('histc',):
+            # torch.histc -> histogram of tensor
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            bins = node.args[1] if len(node.args) > 1 else node.kwargs.get('bins', 100)
+            min_val = node.args[2] if len(node.args) > 2 else node.kwargs.get('min', 0)
+            max_val = node.args[3] if len(node.args) > 3 else node.kwargs.get('max', 0)
+            attrs = f'bins = {bins}, min = {min_val}, max = {max_val}'
+            return [f'{result_ssa} = stablehlo.custom_call @histc({input_ssa}) '
+                    f'{{{attrs}}} : ({input_type}) -> {result_type}']
+
+        elif target_name in ('histogram',):
+            # torch.histogram -> compute histogram with bin edges
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            bins = node.args[1] if len(node.args) > 1 else node.kwargs.get('bins', 100)
+            density = node.kwargs.get('density', False)
+            attrs = f'bins = {bins}, density = {str(density).lower()}'
+            return [f'{result_ssa} = stablehlo.custom_call @histogram({input_ssa}) '
+                    f'{{{attrs}}} : ({input_type}) -> {result_type}']
+
+        # ===== LINEAR ALGEBRA OPERATIONS =====
+        elif target_name in ('svd', 'linalg_svd'):
+            # torch.linalg.svd -> singular value decomposition
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            full_matrices = node.kwargs.get('full_matrices', True)
+            attrs = f'full_matrices = {str(full_matrices).lower()}'
+            return [f'{result_ssa} = stablehlo.custom_call @svd({input_ssa}) '
+                    f'{{{attrs}}} : ({input_type}) -> {result_type}']
+
+        elif target_name in ('eig', 'linalg_eig'):
+            # torch.linalg.eig -> eigenvalue decomposition
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            return [f'{result_ssa} = stablehlo.custom_call @eig({input_ssa}) : ({input_type}) -> {result_type}']
+
+        elif target_name in ('eigh', 'linalg_eigh'):
+            # torch.linalg.eigh -> eigenvalue decomposition for symmetric/hermitian matrices
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            UPLO = node.kwargs.get('UPLO', 'L')
+            attrs = f'UPLO = "{UPLO}"'
+            return [f'{result_ssa} = stablehlo.custom_call @eigh({input_ssa}) '
+                    f'{{{attrs}}} : ({input_type}) -> {result_type}']
+
+        elif target_name in ('qr', 'linalg_qr'):
+            # torch.linalg.qr -> QR decomposition
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            mode = node.kwargs.get('mode', 'reduced')
+            attrs = f'mode = "{mode}"'
+            return [f'{result_ssa} = stablehlo.custom_call @qr({input_ssa}) '
+                    f'{{{attrs}}} : ({input_type}) -> {result_type}']
+
+        elif target_name in ('cholesky', 'linalg_cholesky'):
+            # torch.linalg.cholesky -> Cholesky decomposition
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            upper = node.kwargs.get('upper', False)
+            attrs = f'upper = {str(upper).lower()}'
+            return [f'{result_ssa} = stablehlo.custom_call @cholesky({input_ssa}) '
+                    f'{{{attrs}}} : ({input_type}) -> {result_type}']
+
+        elif target_name in ('lu', 'linalg_lu'):
+            # torch.linalg.lu -> LU decomposition
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            pivot = node.kwargs.get('pivot', True)
+            attrs = f'pivot = {str(pivot).lower()}'
+            return [f'{result_ssa} = stablehlo.custom_call @lu({input_ssa}) '
+                    f'{{{attrs}}} : ({input_type}) -> {result_type}']
+
+        elif target_name in ('lu_factor', 'linalg_lu_factor'):
+            # torch.linalg.lu_factor -> LU factorization
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            pivot = node.kwargs.get('pivot', True)
+            attrs = f'pivot = {str(pivot).lower()}'
+            return [f'{result_ssa} = stablehlo.custom_call @lu_factor({input_ssa}) '
+                    f'{{{attrs}}} : ({input_type}) -> {result_type}']
+
+        elif target_name in ('inv', 'linalg_inv', 'inverse'):
+            # torch.linalg.inv -> matrix inverse
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            return [f'{result_ssa} = stablehlo.custom_call @inv({input_ssa}) : ({input_type}) -> {result_type}']
+
+        elif target_name in ('pinv', 'linalg_pinv'):
+            # torch.linalg.pinv -> pseudo-inverse
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            rcond = node.kwargs.get('rcond', 1e-15)
+            hermitian = node.kwargs.get('hermitian', False)
+            attrs = f'rcond = {rcond}, hermitian = {str(hermitian).lower()}'
+            return [f'{result_ssa} = stablehlo.custom_call @pinv({input_ssa}) '
+                    f'{{{attrs}}} : ({input_type}) -> {result_type}']
+
+        elif target_name in ('det', 'linalg_det'):
+            # torch.linalg.det -> matrix determinant
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            return [f'{result_ssa} = stablehlo.custom_call @det({input_ssa}) : ({input_type}) -> {result_type}']
+
+        elif target_name in ('slogdet', 'linalg_slogdet'):
+            # torch.linalg.slogdet -> sign and log of absolute determinant
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            return [f'{result_ssa} = stablehlo.custom_call @slogdet({input_ssa}) : ({input_type}) -> {result_type}']
+
+        elif target_name in ('matrix_rank', 'linalg_matrix_rank'):
+            # torch.linalg.matrix_rank -> rank of matrix
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            atol = node.kwargs.get('atol', None)
+            rtol = node.kwargs.get('rtol', None)
+            hermitian = node.kwargs.get('hermitian', False)
+            atol_str = str(atol) if atol is not None else 'null'
+            rtol_str = str(rtol) if rtol is not None else 'null'
+            attrs = f'atol = {atol_str}, rtol = {rtol_str}, hermitian = {str(hermitian).lower()}'
+            return [f'{result_ssa} = stablehlo.custom_call @matrix_rank({input_ssa}) '
+                    f'{{{attrs}}} : ({input_type}) -> {result_type}']
+
+        elif target_name in ('norm', 'linalg_norm', 'matrix_norm', 'vector_norm'):
+            # torch.linalg.norm -> matrix/vector norm
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            ord_val = node.args[1] if len(node.args) > 1 else node.kwargs.get('ord', None)
+            dim = node.kwargs.get('dim', None)
+            keepdim = node.kwargs.get('keepdim', False)
+            ord_str = str(ord_val) if ord_val is not None else '"fro"'
+            dim_str = str(dim) if dim is not None else 'null'
+            attrs = f'ord = {ord_str}, dim = {dim_str}, keepdim = {str(keepdim).lower()}'
+            return [f'{result_ssa} = stablehlo.custom_call @norm({input_ssa}) '
+                    f'{{{attrs}}} : ({input_type}) -> {result_type}']
+
+        elif target_name in ('solve', 'linalg_solve'):
+            # torch.linalg.solve -> solve linear system Ax = B
+            a_ssa = get_input(0)
+            b_ssa = get_input(1)
+            a_type = get_input_type(0)
+            b_type = get_input_type(1)
+            left = node.kwargs.get('left', True)
+            attrs = f'left = {str(left).lower()}'
+            return [f'{result_ssa} = stablehlo.custom_call @solve({a_ssa}, {b_ssa}) '
+                    f'{{{attrs}}} : ({a_type}, {b_type}) -> {result_type}']
+
+        elif target_name in ('lstsq', 'linalg_lstsq'):
+            # torch.linalg.lstsq -> least squares solution
+            a_ssa = get_input(0)
+            b_ssa = get_input(1)
+            a_type = get_input_type(0)
+            b_type = get_input_type(1)
+            driver = node.kwargs.get('driver', None)
+            driver_str = f'"{driver}"' if driver else 'null'
+            attrs = f'driver = {driver_str}'
+            return [f'{result_ssa} = stablehlo.custom_call @lstsq({a_ssa}, {b_ssa}) '
+                    f'{{{attrs}}} : ({a_type}, {b_type}) -> {result_type}']
+
+        elif target_name in ('cross', 'linalg_cross'):
+            # torch.linalg.cross -> cross product
+            a_ssa = get_input(0)
+            b_ssa = get_input(1)
+            a_type = get_input_type(0)
+            b_type = get_input_type(1)
+            dim = node.kwargs.get('dim', -1)
+            attrs = f'dim = {dim}'
+            return [f'{result_ssa} = stablehlo.custom_call @cross({a_ssa}, {b_ssa}) '
+                    f'{{{attrs}}} : ({a_type}, {b_type}) -> {result_type}']
+
+        elif target_name in ('trace',):
+            # torch.trace -> sum of diagonal elements
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            return [f'{result_ssa} = stablehlo.custom_call @trace({input_ssa}) : ({input_type}) -> {result_type}']
+
+        elif target_name in ('diagonal', 'diag'):
+            # torch.diagonal / torch.diag
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            offset = node.args[1] if len(node.args) > 1 else node.kwargs.get('offset', 0)
+            dim1 = node.kwargs.get('dim1', 0)
+            dim2 = node.kwargs.get('dim2', 1)
+            attrs = f'offset = {offset}, dim1 = {dim1}, dim2 = {dim2}'
+            return [f'{result_ssa} = stablehlo.custom_call @diagonal({input_ssa}) '
+                    f'{{{attrs}}} : ({input_type}) -> {result_type}']
+
+        elif target_name in ('diag_embed',):
+            # torch.diag_embed -> embed diagonal into matrix
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            offset = node.kwargs.get('offset', 0)
+            dim1 = node.kwargs.get('dim1', -2)
+            dim2 = node.kwargs.get('dim2', -1)
+            attrs = f'offset = {offset}, dim1 = {dim1}, dim2 = {dim2}'
+            return [f'{result_ssa} = stablehlo.custom_call @diag_embed({input_ssa}) '
+                    f'{{{attrs}}} : ({input_type}) -> {result_type}']
+
+        elif target_name in ('tril',):
+            # torch.tril -> lower triangular part
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            diagonal = node.args[1] if len(node.args) > 1 else node.kwargs.get('diagonal', 0)
+            attrs = f'diagonal = {diagonal}'
+            return [f'{result_ssa} = stablehlo.custom_call @tril({input_ssa}) '
+                    f'{{{attrs}}} : ({input_type}) -> {result_type}']
+
+        elif target_name in ('triu',):
+            # torch.triu -> upper triangular part
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            diagonal = node.args[1] if len(node.args) > 1 else node.kwargs.get('diagonal', 0)
+            attrs = f'diagonal = {diagonal}'
+            return [f'{result_ssa} = stablehlo.custom_call @triu({input_ssa}) '
+                    f'{{{attrs}}} : ({input_type}) -> {result_type}']
+
         else:
             return [f'// Unsupported function: {target_name}']
 

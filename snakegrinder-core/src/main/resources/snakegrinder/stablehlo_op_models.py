@@ -3246,6 +3246,313 @@ class SpatialTransformerOp(nn.Module):
 
 
 # =============================================================================
+# Image Operations
+# =============================================================================
+
+class HorizontalFlipOp(nn.Module):
+    """Horizontal flip.
+    Produces: stablehlo.reverse
+    """
+    def forward(self, x):
+        return torch.flip(x, dims=[-1])
+
+
+class VerticalFlipOp(nn.Module):
+    """Vertical flip.
+    Produces: stablehlo.reverse
+    """
+    def forward(self, x):
+        return torch.flip(x, dims=[-2])
+
+
+class AdjustBrightnessOp(nn.Module):
+    """Adjust brightness by multiplying.
+    Produces: stablehlo.multiply
+    """
+    def forward(self, x):
+        return x * 1.5
+
+
+class AdjustContrastOp(nn.Module):
+    """Adjust contrast.
+    Produces: composite ops
+    """
+    def forward(self, x):
+        mean = x.mean(dim=(-2, -1), keepdim=True)
+        return (x - mean) * 1.5 + mean
+
+
+class NormalizeImageOp(nn.Module):
+    """Image normalization with mean/std.
+    Produces: stablehlo.subtract, stablehlo.divide
+    """
+    def forward(self, x):
+        mean = torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1)
+        std = torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1)
+        return (x - mean) / std
+
+
+# =============================================================================
+# Sorting Operations
+# =============================================================================
+
+class SortOp(nn.Module):
+    """Sort tensor along dimension.
+    Produces: stablehlo.custom_call @sort
+    """
+    def forward(self, x):
+        return torch.sort(x, dim=-1)[0]
+
+
+class SortDescendingOp(nn.Module):
+    """Sort tensor in descending order.
+    Produces: stablehlo.custom_call @sort
+    """
+    def forward(self, x):
+        return torch.sort(x, dim=-1, descending=True)[0]
+
+
+class ArgsortOp(nn.Module):
+    """Get indices that would sort tensor.
+    Produces: stablehlo.custom_call @argsort
+    """
+    def forward(self, x):
+        return torch.argsort(x, dim=-1)
+
+
+class TopkOp(nn.Module):
+    """Get top-k values and indices.
+    Produces: stablehlo.custom_call @topk
+    """
+    def forward(self, x):
+        return torch.topk(x, k=3, dim=-1)[0]
+
+
+class TopkIndicesOp(nn.Module):
+    """Get top-k indices only.
+    Produces: stablehlo.custom_call @topk
+    """
+    def forward(self, x):
+        return torch.topk(x, k=3, dim=-1)[1]
+
+
+class KthvalueOp(nn.Module):
+    """Get k-th smallest value.
+    Produces: stablehlo.custom_call @kthvalue
+    """
+    def forward(self, x):
+        return torch.kthvalue(x, k=2, dim=-1)[0]
+
+
+class MsortOp(nn.Module):
+    """Sort along first dimension.
+    Produces: stablehlo.custom_call @sort
+    """
+    def forward(self, x):
+        return torch.msort(x)
+
+
+# =============================================================================
+# Unique/Set Operations
+# =============================================================================
+
+class UniqueOp(nn.Module):
+    """Get unique elements.
+    Produces: stablehlo.custom_call @unique
+    """
+    def forward(self, x):
+        return torch.unique(x)
+
+
+class UniqueSortedOp(nn.Module):
+    """Get unique elements, sorted.
+    Produces: stablehlo.custom_call @unique
+    """
+    def forward(self, x):
+        return torch.unique(x, sorted=True)
+
+
+class UniqueConsecutiveOp(nn.Module):
+    """Get unique consecutive elements.
+    Produces: stablehlo.custom_call @unique_consecutive
+    """
+    def forward(self, x):
+        return torch.unique_consecutive(x)
+
+
+class BincountOp(nn.Module):
+    """Count occurrences of each value.
+    Produces: stablehlo.custom_call @bincount
+    """
+    def forward(self, x):
+        return torch.bincount(x.flatten().to(torch.int64), minlength=10)
+
+
+class HistcOp(nn.Module):
+    """Compute histogram.
+    Produces: stablehlo.custom_call @histc
+    """
+    def forward(self, x):
+        return torch.histc(x, bins=10, min=0, max=1)
+
+
+# =============================================================================
+# Linear Algebra Operations
+# =============================================================================
+
+class MatrixInverseOp(nn.Module):
+    """Matrix inverse.
+    Produces: stablehlo.custom_call @inv
+    """
+    def forward(self, x):
+        return torch.linalg.inv(x)
+
+
+class MatrixDetOp(nn.Module):
+    """Matrix determinant.
+    Produces: stablehlo.custom_call @det
+    """
+    def forward(self, x):
+        return torch.linalg.det(x)
+
+
+class SVDOp(nn.Module):
+    """Singular value decomposition.
+    Produces: stablehlo.custom_call @svd
+    """
+    def forward(self, x):
+        U, S, Vh = torch.linalg.svd(x)
+        return S  # Return singular values
+
+
+class QROp(nn.Module):
+    """QR decomposition.
+    Produces: stablehlo.custom_call @qr
+    """
+    def forward(self, x):
+        Q, R = torch.linalg.qr(x)
+        return R
+
+
+class CholeskyOp(nn.Module):
+    """Cholesky decomposition.
+    Produces: stablehlo.custom_call @cholesky
+    """
+    def forward(self, x):
+        # Make input positive definite: x @ x.T + I
+        xxt = torch.matmul(x, x.transpose(-2, -1))
+        eye = torch.eye(x.shape[-1], device=x.device, dtype=x.dtype)
+        return torch.linalg.cholesky(xxt + eye)
+
+
+class EighOp(nn.Module):
+    """Eigenvalue decomposition for symmetric matrices.
+    Produces: stablehlo.custom_call @eigh
+    """
+    def forward(self, x):
+        # Make symmetric
+        sym = (x + x.transpose(-2, -1)) / 2
+        eigenvalues, eigenvectors = torch.linalg.eigh(sym)
+        return eigenvalues
+
+
+class MatrixNormOp(nn.Module):
+    """Matrix Frobenius norm.
+    Produces: stablehlo.custom_call @norm
+    """
+    def forward(self, x):
+        return torch.linalg.norm(x, ord='fro')
+
+
+class VectorNormOp(nn.Module):
+    """Vector L2 norm.
+    Produces: stablehlo.custom_call @norm
+    """
+    def forward(self, x):
+        return torch.linalg.norm(x, dim=-1)
+
+
+class SolveOp(nn.Module):
+    """Solve linear system Ax = B.
+    Produces: stablehlo.custom_call @solve
+    """
+    def forward(self, A, B):
+        return torch.linalg.solve(A, B)
+
+
+class LstSqOp(nn.Module):
+    """Least squares solution.
+    Produces: stablehlo.custom_call @lstsq
+    """
+    def forward(self, A, B):
+        return torch.linalg.lstsq(A, B).solution
+
+
+class CrossProductOp(nn.Module):
+    """Cross product of 3D vectors.
+    Produces: stablehlo.custom_call @cross
+    """
+    def forward(self, a, b):
+        return torch.linalg.cross(a, b)
+
+
+class TraceOp(nn.Module):
+    """Matrix trace (sum of diagonal).
+    Produces: stablehlo.custom_call @trace
+    """
+    def forward(self, x):
+        return torch.trace(x)
+
+
+class DiagonalOp(nn.Module):
+    """Extract diagonal from matrix.
+    Produces: stablehlo.custom_call @diagonal
+    """
+    def forward(self, x):
+        return torch.diagonal(x, dim1=-2, dim2=-1)
+
+
+class DiagEmbedOp(nn.Module):
+    """Embed vector as diagonal matrix.
+    Produces: stablehlo.custom_call @diag_embed
+    """
+    def forward(self, x):
+        return torch.diag_embed(x)
+
+
+class TrilOp(nn.Module):
+    """Lower triangular part.
+    Produces: stablehlo.custom_call @tril
+    """
+    def forward(self, x):
+        return torch.tril(x)
+
+
+class TriuOp(nn.Module):
+    """Upper triangular part.
+    Produces: stablehlo.custom_call @triu
+    """
+    def forward(self, x):
+        return torch.triu(x)
+
+
+class PinvOp(nn.Module):
+    """Pseudo-inverse.
+    Produces: stablehlo.custom_call @pinv
+    """
+    def forward(self, x):
+        return torch.linalg.pinv(x)
+
+
+class MatrixRankOp(nn.Module):
+    """Matrix rank.
+    Produces: stablehlo.custom_call @matrix_rank
+    """
+    def forward(self, x):
+        return torch.linalg.matrix_rank(x)
+
+
+# =============================================================================
 # Operation Registry
 # =============================================================================
 # Maps operation names to (ModelClass, input_specs) tuples
@@ -3738,6 +4045,49 @@ OPERATION_REGISTRY = {
     'grid_sample_align_corners': (GridSampleAlignCornersOp, [([2, 3, 8, 8], 'f32'), ([2, 8, 8, 2], 'f32')]),
     'affine_grid': (AffineGridOp, [([2, 2, 3], 'f32')]),  # theta: (N, 2, 3)
     'spatial_transformer': (SpatialTransformerOp, [([2, 3, 8, 8], 'f32'), ([2, 2, 3], 'f32')]),
+
+    # Image operations
+    'horizontal_flip': (HorizontalFlipOp, [([1, 3, 8, 8], 'f32')]),
+    'vertical_flip': (VerticalFlipOp, [([1, 3, 8, 8], 'f32')]),
+    'adjust_brightness': (AdjustBrightnessOp, [([1, 3, 8, 8], 'f32')]),
+    'adjust_contrast': (AdjustContrastOp, [([1, 3, 8, 8], 'f32')]),
+    'normalize_image': (NormalizeImageOp, [([1, 3, 8, 8], 'f32')]),
+
+    # Sorting operations
+    'sort': (SortOp, [([2, 16], 'f32')]),
+    'sort_descending': (SortDescendingOp, [([2, 16], 'f32')]),
+    'argsort': (ArgsortOp, [([2, 16], 'f32')]),
+    'topk': (TopkOp, [([2, 16], 'f32')]),
+    'topk_indices': (TopkIndicesOp, [([2, 16], 'f32')]),
+    'kthvalue': (KthvalueOp, [([2, 16], 'f32')]),
+    'msort': (MsortOp, [([8, 8], 'f32')]),
+
+    # Unique/set operations
+    'unique': (UniqueOp, [([64], 'f32')]),
+    'unique_sorted': (UniqueSortedOp, [([64], 'f32')]),
+    'unique_consecutive': (UniqueConsecutiveOp, [([64], 'f32')]),
+    'bincount': (BincountOp, [([64], 'f32')]),
+    'histc': (HistcOp, [([64], 'f32')]),
+
+    # Linear algebra operations
+    'matrix_inverse': (MatrixInverseOp, [([2, 4, 4], 'f32')]),
+    'matrix_det': (MatrixDetOp, [([2, 4, 4], 'f32')]),
+    'svd': (SVDOp, [([2, 4, 4], 'f32')]),
+    'qr': (QROp, [([2, 4, 4], 'f32')]),
+    'cholesky': (CholeskyOp, [([2, 4, 4], 'f32')]),
+    'eigh': (EighOp, [([2, 4, 4], 'f32')]),
+    'matrix_norm': (MatrixNormOp, [([4, 4], 'f32')]),
+    'vector_norm': (VectorNormOp, [([2, 8], 'f32')]),
+    'solve': (SolveOp, [([2, 4, 4], 'f32'), ([2, 4, 2], 'f32')]),
+    'lstsq': (LstSqOp, [([2, 4, 4], 'f32'), ([2, 4, 2], 'f32')]),
+    'cross_product': (CrossProductOp, [([2, 3], 'f32'), ([2, 3], 'f32')]),
+    'trace': (TraceOp, [([4, 4], 'f32')]),
+    'diagonal': (DiagonalOp, [([2, 4, 4], 'f32')]),
+    'diag_embed': (DiagEmbedOp, [([2, 4], 'f32')]),
+    'tril': (TrilOp, [([4, 4], 'f32')]),
+    'triu': (TriuOp, [([4, 4], 'f32')]),
+    'pinv': (PinvOp, [([2, 4, 4], 'f32')]),
+    'matrix_rank': (MatrixRankOp, [([2, 4, 4], 'f32')]),
 }
 
 # Registry of dynamic dimensions for models that need them

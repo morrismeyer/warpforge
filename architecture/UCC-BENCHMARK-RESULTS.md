@@ -4,31 +4,35 @@ This document summarizes performance measurements for the Java FFM-based UCC col
 
 ## Test Configuration
 
-| Parameter | Value |
-|-----------|-------|
-| **Nodes** | mark1nvidia, mark1amd |
-| **Network** | Mellanox ConnectX-5 100GbE (RoCE/RDMA) |
-| **Line Rate** | 58.9 Gbps (measured max) |
-| **Transport** | UCX rc_mlx5 (RDMA RC) |
-| **Message Size** | 16 MB (4,194,304 floats) |
-| **Iterations** | 10 (after 10 warmup) |
-| **Date** | 2026-01-23 |
+```
++------------------+-------------------------------------------+
+| Parameter        | Value                                     |
++------------------+-------------------------------------------+
+| Nodes            | mark1nvidia, mark1amd                     |
+| Network          | Mellanox ConnectX-5 100GbE (RoCE/RDMA)    |
+| Line Rate        | 58.9 Gbps (measured max)                  |
+| Transport        | UCX rc_mlx5 (RDMA RC)                     |
+| Message Size     | 16 MB (4,194,304 floats)                  |
+| Iterations       | 10 (after 10 warmup)                      |
+| Date             | 2026-01-23                                |
++------------------+-------------------------------------------+
+```
 
 ## Software Stack
 
 ```
 Java Application (warpforge-io)
-       │
-       ▼
+       |
+       v
   Java FFM (Foreign Function & Memory API)
-       │
-       ▼
+       |
+       v
   UCC (Unified Collective Communications)
-       │
-       ▼
+       |
+       v
   UCX (Unified Communication X)
-       │
-       ▼
+       |
+       v
   RDMA / RoCE (Mellanox ConnectX-5)
 ```
 
@@ -38,14 +42,18 @@ Java Application (warpforge-io)
 
 ## Results Summary
 
-| Collective | Throughput | % Line Rate | Avg Latency | P50 Latency | P99 Latency |
-|------------|------------|-------------|-------------|-------------|-------------|
-| **ReduceScatter** | 40.15 Gbps | 68.2% | 6.69 ms | 6.73 ms | 6.98 ms |
-| **AllReduce** | 36.90 Gbps | 62.6% | 3.64 ms | 3.66 ms | 3.81 ms |
-| **Broadcast** | 35.50 Gbps | 60.3% | 3.78 ms | 3.76 ms | 3.92 ms |
-| **AllToAll** | 26.39 Gbps | 44.8% | 10.17 ms | 10.01 ms | 10.30 ms |
-| **AllGather** | 26.05 Gbps | 44.2% | 10.30 ms | 10.17 ms | 10.32 ms |
-| **Barrier** | 7,715 ops/s | - | 129.6 us | 47.4 us | 539.3 us |
+```
++---------------+------------+-------------+-------------+-------------+-------------+
+| Collective    | Throughput | % Line Rate | Avg Latency | P50 Latency | P99 Latency |
++---------------+------------+-------------+-------------+-------------+-------------+
+| ReduceScatter | 40.15 Gbps | 68.2%       | 6.69 ms     | 6.73 ms     | 6.98 ms     |
+| AllReduce     | 36.90 Gbps | 62.6%       | 3.64 ms     | 3.66 ms     | 3.81 ms     |
+| Broadcast     | 35.50 Gbps | 60.3%       | 3.78 ms     | 3.76 ms     | 3.92 ms     |
+| AllToAll      | 26.39 Gbps | 44.8%       | 10.17 ms    | 10.01 ms    | 10.30 ms    |
+| AllGather     | 26.05 Gbps | 44.2%       | 10.30 ms    | 10.17 ms    | 10.32 ms    |
+| Barrier       | 7,715 op/s | -           | 129.6 us    | 47.4 us     | 539.3 us    |
++---------------+------------+-------------+-------------+-------------+-------------+
+```
 
 All correctness checks passed.
 

@@ -579,6 +579,31 @@ The goal is zero human intervention for routine CI failures. If you broke it, yo
   import static org.junit.jupiter.api.Assertions.assertNotNull;
   ```
 
+## Documentation Style: Tables
+
+**Use ASCII box-drawing tables**, not GitHub-flavored markdown tables. Tables must have:
+- Vertical lines between all columns
+- Horizontal lines on top, below header, and at bottom
+
+**Correct format:**
+```
++---------------+------------+-------------+
+| Collective    | Throughput | % Line Rate |
++---------------+------------+-------------+
+| ReduceScatter | 40.15 Gbps | 68.2%       |
+| AllReduce     | 36.90 Gbps | 62.6%       |
++---------------+------------+-------------+
+```
+
+**Wrong format (do not use):**
+```
+| Collective | Throughput | % Line Rate |
+|------------|------------|-------------|
+| ReduceScatter | 40.15 Gbps | 68.2% |
+```
+
+This ensures tables render consistently across all viewers and terminals.
+
 ## Configuration Preference: Minimize Environment Variables
 
 **Avoid environment variables for configuration wherever possible.** This aligns with the "It Just Works" philosophy.

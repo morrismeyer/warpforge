@@ -149,6 +149,33 @@ batch.close();
 
 **Expected Impact:** 10-20% improvement for multi-operation sequences
 
+### 11. Tensor Buffer Pool (2026-01-23)
+
+**Implementation:** `TensorBufferPool.java`
+
+Pools pre-allocated tensors for collective operations:
+- Tensors organized by (dtype, sizeClass) for efficient matching
+- Size classes are powers of 2 (1KB to 256MB)
+- Avoids repeated Tensor.zeros() allocation overhead
+- Zero-fills reused tensors for safety
+- Thread-safe with per-pool synchronization
+- Disabled by default (enable via `-Dwarpforge.ucc.tensorPool=true`)
+
+**Usage:**
+```java
+TensorBufferPool pool = TensorBufferPool.getInstance();
+if (pool != null) {
+    Tensor output = pool.acquire(ScalarType.FLOAT32, inputSize);
+    try {
+        // Use output tensor
+    } finally {
+        pool.release(output);
+    }
+}
+```
+
+**Expected Impact:** 5-20us per operation (varies by tensor size)
+
 ---
 
 ## All Optimizations Complete
@@ -167,6 +194,7 @@ Total expected improvement for 1MB+ operations: **50-75%**
 | Improved arena pooling | Done | 1-3% |
 | Persistent collectives | Done | 30-50% (repeated ops) |
 | Batch collective operations | Done | 10-20% (multi-op sequences) |
+| Tensor buffer pool | Done | 5-20us per op |
 
 ---
 
@@ -239,6 +267,7 @@ UCC_LOG_LEVEL=debug ./gradlew :warpforge-io:uccPerfTest ...
 
 | Date | Change | Impact |
 |------|--------|--------|
+| 2026-01-23 | Tensor buffer pool (TensorBufferPool) | 5-20us per op |
 | 2026-01-23 | Batch collective operations (BatchCollective) | 10-20% for multi-op |
 | 2026-01-23 | Persistent collectives (PersistentCollective) | 30-50% for repeated ops |
 | 2026-01-23 | Request segment cache (RequestSegmentCache) | 2-5% latency |

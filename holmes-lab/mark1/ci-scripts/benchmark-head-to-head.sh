@@ -29,7 +29,7 @@ NVIDIA_HOST="${NVIDIA_HOST:-mark1nvidia}"
 AMD_HOST="${AMD_HOST:-mark1amd}"
 
 # Remote repository path (on GPU nodes)
-REMOTE_REPO="${REMOTE_REPO:-~/projects/warpforge}"
+REMOTE_REPO="${REMOTE_REPO:-~/surfworks/warpforge}"
 
 # Test configuration
 MESSAGE_SIZE="${MESSAGE_SIZE:-16777216}"          # 16MB default

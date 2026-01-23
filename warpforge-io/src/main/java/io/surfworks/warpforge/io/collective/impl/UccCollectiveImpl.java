@@ -110,14 +110,23 @@ public class UccCollectiveImpl implements CollectiveApi {
         LOG.info("Initializing UCC for rank " + config.rank() + " of " + config.worldSize());
 
         // 1. Initialize UCC library
+        // CRITICAL: Must zero-fill the struct - FFM allocate() returns uninitialized memory
         MemorySegment libParams = ucc_lib_params.allocate(arena);
-        ucc_lib_params.mask(libParams, 0L);
+        libParams.fill((byte) 0);  // Zero all fields to prevent garbage values
+        ucc_lib_params.mask(libParams, 0L);  // mask=0 means no optional fields are set
 
         MemorySegment libHandlePtr = arena.allocate(ValueLayout.ADDRESS);
-        int status = Ucc.ucc_init_version(1, 0, libParams, MemorySegment.NULL, libHandlePtr);
+        // Use correct API version from UCC headers
+        int status = Ucc.ucc_init_version(
+            Ucc.UCC_API_MAJOR(),
+            Ucc.UCC_API_MINOR(),
+            libParams,
+            MemorySegment.NULL,
+            libHandlePtr
+        );
         UccHelper.checkStatus(status, "ucc_init_version");
         this.uccLib = libHandlePtr.get(ValueLayout.ADDRESS, 0);
-        LOG.fine("UCC library initialized");
+        LOG.fine("UCC library initialized (API version " + Ucc.UCC_API_MAJOR() + "." + Ucc.UCC_API_MINOR() + ")");
 
         // 2. Create OOB coordinator for team formation
         this.oobCoordinator = new OobCoordinator(config, arena);
@@ -125,6 +134,7 @@ public class UccCollectiveImpl implements CollectiveApi {
 
         // 3. Create UCC context
         MemorySegment ctxParams = ucc_context_params.allocate(arena);
+        ctxParams.fill((byte) 0);  // Zero-fill to prevent garbage values
         ucc_context_params.mask(ctxParams, Ucc.UCC_CONTEXT_PARAM_FIELD_OOB());
 
         // Copy OOB structure from coordinator to context params
@@ -139,6 +149,7 @@ public class UccCollectiveImpl implements CollectiveApi {
 
         // 4. Create UCC team
         MemorySegment teamParams = ucc_team_params.allocate(arena);
+        teamParams.fill((byte) 0);  // Zero-fill to prevent garbage values
         long teamMask = Ucc.UCC_TEAM_PARAM_FIELD_EP()
                       | Ucc.UCC_TEAM_PARAM_FIELD_EP_RANGE()
                       | Ucc.UCC_TEAM_PARAM_FIELD_TEAM_SIZE()

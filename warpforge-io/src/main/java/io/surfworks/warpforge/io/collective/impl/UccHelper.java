@@ -187,10 +187,14 @@ public final class UccHelper {
     /**
      * Set up collective args for a basic collective operation.
      *
+     * <p>IMPORTANT: This method zero-fills the args struct first to prevent
+     * garbage values from causing crashes. FFM allocate() returns uninitialized memory.
+     *
      * @param args the pre-allocated ucc_coll_args segment
      * @param collType the collective type constant
      */
     public static void setupCollectiveArgs(MemorySegment args, int collType) {
+        args.fill((byte) 0);  // Zero-fill to prevent garbage values
         ucc_coll_args.mask(args, 0L);
         ucc_coll_args.coll_type(args, collType);
     }
@@ -198,11 +202,15 @@ public final class UccHelper {
     /**
      * Set up collective args for an operation with reduction.
      *
+     * <p>IMPORTANT: This method zero-fills the args struct first to prevent
+     * garbage values from causing crashes. FFM allocate() returns uninitialized memory.
+     *
      * @param args the pre-allocated ucc_coll_args segment
      * @param collType the collective type constant
      * @param reductionOp the reduction operation constant
      */
     public static void setupCollectiveArgsWithOp(MemorySegment args, int collType, int reductionOp) {
+        args.fill((byte) 0);  // Zero-fill to prevent garbage values
         ucc_coll_args.mask(args, 0L);
         ucc_coll_args.coll_type(args, collType);
         ucc_coll_args.op(args, reductionOp);
@@ -211,11 +219,15 @@ public final class UccHelper {
     /**
      * Set up collective args for an operation with root rank.
      *
+     * <p>IMPORTANT: This method zero-fills the args struct first to prevent
+     * garbage values from causing crashes. FFM allocate() returns uninitialized memory.
+     *
      * @param args the pre-allocated ucc_coll_args segment
      * @param collType the collective type constant
      * @param root the root rank
      */
     public static void setupCollectiveArgsWithRoot(MemorySegment args, int collType, int root) {
+        args.fill((byte) 0);  // Zero-fill to prevent garbage values
         ucc_coll_args.mask(args, 0L);
         ucc_coll_args.coll_type(args, collType);
         ucc_coll_args.root(args, root);
@@ -224,6 +236,9 @@ public final class UccHelper {
     /**
      * Set up collective args for an operation with both reduction and root.
      *
+     * <p>IMPORTANT: This method zero-fills the args struct first to prevent
+     * garbage values from causing crashes. FFM allocate() returns uninitialized memory.
+     *
      * @param args the pre-allocated ucc_coll_args segment
      * @param collType the collective type constant
      * @param reductionOp the reduction operation constant
@@ -231,6 +246,7 @@ public final class UccHelper {
      */
     public static void setupCollectiveArgsWithOpAndRoot(MemorySegment args, int collType,
                                                         int reductionOp, int root) {
+        args.fill((byte) 0);  // Zero-fill to prevent garbage values
         ucc_coll_args.mask(args, 0L);
         ucc_coll_args.coll_type(args, collType);
         ucc_coll_args.op(args, reductionOp);

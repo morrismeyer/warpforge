@@ -193,6 +193,7 @@ public class OobCoordinator implements AutoCloseable {
 
     private void createOobStruct() {
         oobStruct = ucc_oob_coll.allocate(arena);
+        oobStruct.fill((byte) 0);  // Zero-fill to prevent garbage values
 
         ucc_oob_coll.allgather(oobStruct, allgatherStub);
         ucc_oob_coll.req_test(oobStruct, reqTestStub);

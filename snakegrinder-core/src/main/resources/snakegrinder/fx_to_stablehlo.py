@@ -1432,9 +1432,31 @@ class FXToStableHLO:
             # narrow(input, dim, start, length) -> slice
             input_ssa = get_input(0)
             input_type = get_input_type(0)
+            input_node = node.args[0] if hasattr(node.args[0], 'name') else None
+            input_name = input_node.name if input_node else ''
             dim = node.args[1] if len(node.args) > 1 else 0
             start = node.args[2] if len(node.args) > 2 else 0
             length = node.args[3] if len(node.args) > 3 else 1
+
+            # Use dynamic_slice if input or output has dynamic dimensions
+            if self._is_dynamic_shape(node.name) or self._is_dynamic_shape(input_name):
+                input_shape = self.shape_map.get(input_name, ())
+                ndim = len(input_shape)
+                # Build start_indices and slice_sizes tensors
+                start_indices = [0] * ndim
+                start_indices[dim] = start
+                slice_sizes = list(input_shape)
+                slice_sizes[dim] = length
+                start_ssa = f'{result_ssa}_start'
+                sizes_ssa = f'{result_ssa}_sizes'
+                start_str = ', '.join(str(s) for s in start_indices)
+                sizes_str = ', '.join(str(s) if not (i in self.dynamic_dim_map.get(node.name, set())) else '?'
+                                      for i, s in enumerate(slice_sizes))
+                return [
+                    f'{start_ssa} = stablehlo.constant dense<[{start_str}]> : tensor<{ndim}xi64>',
+                    f'{result_ssa} = stablehlo.dynamic_slice {input_ssa}, {start_ssa}, '
+                    f'slice_sizes = [{sizes_str}] : ({input_type}, tensor<{ndim}xi64>) -> {result_type}'
+                ]
             return [f'{result_ssa} = stablehlo.slice {input_ssa}, dim = {dim}, start = {start}, limit = {start + length} : {input_type} -> {result_type}']
 
         elif target_name == 'unbind':
@@ -1448,8 +1470,28 @@ class FXToStableHLO:
             # select(input, dim, index) -> reduce dimension
             input_ssa = get_input(0)
             input_type = get_input_type(0)
+            input_node = node.args[0] if hasattr(node.args[0], 'name') else None
+            input_name = input_node.name if input_node else ''
             dim = node.args[1] if len(node.args) > 1 else 0
             index = node.args[2] if len(node.args) > 2 else 0
+
+            # Use dynamic_slice if input has dynamic dimensions
+            if self._is_dynamic_shape(input_name):
+                input_shape = self.shape_map.get(input_name, ())
+                ndim = len(input_shape)
+                start_indices = [0] * ndim
+                start_indices[dim] = index
+                slice_sizes = list(input_shape)
+                slice_sizes[dim] = 1
+                start_ssa = f'{result_ssa}_start'
+                start_str = ', '.join(str(s) for s in start_indices)
+                sizes_str = ', '.join(str(s) if not (i in self.dynamic_dim_map.get(input_name, set())) else '?'
+                                      for i, s in enumerate(slice_sizes))
+                return [
+                    f'{start_ssa} = stablehlo.constant dense<[{start_str}]> : tensor<{ndim}xi64>',
+                    f'{result_ssa} = stablehlo.dynamic_slice {input_ssa}, {start_ssa}, '
+                    f'slice_sizes = [{sizes_str}] : ({input_type}, tensor<{ndim}xi64>) -> {result_type}'
+                ]
             return [f'{result_ssa} = stablehlo.slice {input_ssa}, dim = {dim}, start = {index}, limit = {index + 1} : {input_type} -> {result_type}']
 
         elif target_name in ('movedim', 'moveaxis'):
@@ -1482,15 +1524,37 @@ class FXToStableHLO:
         elif target_name == 'index_select':
             input_ssa = get_input(0)
             input_type = get_input_type(0)
+            input_node = node.args[0] if hasattr(node.args[0], 'name') else None
+            input_name = input_node.name if input_node else ''
             dim = node.args[1] if len(node.args) > 1 else 0
             indices_ssa = get_input(2) if len(node.args) > 2 else '%indices'
+
+            # Use dynamic_gather if input or output has dynamic dimensions
+            if self._is_dynamic_shape(node.name) or self._is_dynamic_shape(input_name):
+                output_shape = self.shape_map.get(node.name, ())
+                slice_sizes = [1 if i == dim else s for i, s in enumerate(output_shape)]
+                slice_sizes_str = ', '.join(str(s) if not (i in self.dynamic_dim_map.get(node.name, set())) else '?'
+                                            for i, s in enumerate(slice_sizes))
+                return [f'{result_ssa} = stablehlo.dynamic_gather {input_ssa}, {indices_ssa}, '
+                        f'slice_sizes = [{slice_sizes_str}], dim = {dim} : ({input_type}) -> {result_type}']
             return [f'{result_ssa} = stablehlo.gather {input_ssa}[{indices_ssa}], dim = {dim} : ({input_type}) -> {result_type}']
 
         elif target_name == 'gather':
             input_ssa = get_input(0)
             input_type = get_input_type(0)
+            input_node = node.args[0] if hasattr(node.args[0], 'name') else None
+            input_name = input_node.name if input_node else ''
             dim = node.args[1] if len(node.args) > 1 else 0
             indices_ssa = get_input(2) if len(node.args) > 2 else '%indices'
+
+            # Use dynamic_gather if input or output has dynamic dimensions
+            if self._is_dynamic_shape(node.name) or self._is_dynamic_shape(input_name):
+                output_shape = self.shape_map.get(node.name, ())
+                slice_sizes = [1 if i == dim else s for i, s in enumerate(output_shape)]
+                slice_sizes_str = ', '.join(str(s) if not (i in self.dynamic_dim_map.get(node.name, set())) else '?'
+                                            for i, s in enumerate(slice_sizes))
+                return [f'{result_ssa} = stablehlo.dynamic_gather {input_ssa}, {indices_ssa}, '
+                        f'slice_sizes = [{slice_sizes_str}], dim = {dim} : ({input_type}) -> {result_type}']
             return [f'{result_ssa} = stablehlo.gather {input_ssa}[{indices_ssa}], dim = {dim} : ({input_type}) -> {result_type}']
 
         elif target_name == 'scatter':
@@ -1552,9 +1616,29 @@ class FXToStableHLO:
         elif target_name == 'pad':
             input_ssa = get_input(0)
             input_type = get_input_type(0)
+            input_node = node.args[0] if hasattr(node.args[0], 'name') else None
+            input_name = input_node.name if input_node else ''
             pad = node.args[1] if len(node.args) > 1 else []
             value = node.args[2] if len(node.args) > 2 else 0.0
             value_ssa = f'{result_ssa}_value'
+
+            # Use dynamic_pad if input or output has dynamic dimensions
+            if self._is_dynamic_shape(node.name) or self._is_dynamic_shape(input_name):
+                input_shape = self.shape_map.get(input_name, ())
+                ndim = len(input_shape)
+                # Build edge_padding_low and edge_padding_high tensors
+                low_ssa = f'{result_ssa}_low'
+                high_ssa = f'{result_ssa}_high'
+                interior_ssa = f'{result_ssa}_interior'
+                lines = [
+                    f'{value_ssa} = stablehlo.constant dense<{value}> : tensor<f32>',
+                    f'{low_ssa} = stablehlo.constant dense<0> : tensor<{ndim}xi64>',
+                    f'{high_ssa} = stablehlo.constant dense<0> : tensor<{ndim}xi64>',
+                    f'{interior_ssa} = stablehlo.constant dense<0> : tensor<{ndim}xi64>',
+                    f'{result_ssa} = stablehlo.dynamic_pad {input_ssa}, {value_ssa}, {low_ssa}, {high_ssa}, {interior_ssa} : '
+                    f'({input_type}, tensor<f32>, tensor<{ndim}xi64>, tensor<{ndim}xi64>, tensor<{ndim}xi64>) -> {result_type}'
+                ]
+                return lines
             # Convert PyTorch pad format (pairs from last dim) to StableHLO format
             return [
                 f'{value_ssa} = stablehlo.constant dense<{value}> : tensor<f32>',
@@ -1841,7 +1925,8 @@ class FXToStableHLO:
         elif method_name == 'expand':
             # x.expand(sizes) -> stablehlo.broadcast_in_dim
             # Format: %b = stablehlo.broadcast_in_dim %op, dims = [...] : (input_type) -> result_type
-            input_shape = self.shape_map.get(input_node.name, ()) if input_node else ()
+            input_name = input_node.name if input_node else ''
+            input_shape = self.shape_map.get(input_name, ()) if input_node else ()
             output_shape = self.shape_map.get(node.name, ())
 
             # Build broadcast_dimensions - map input dims to output dims
@@ -1854,6 +1939,15 @@ class FXToStableHLO:
                 broadcast_dims.append(offset + i)
 
             dims_str = ', '.join(str(d) for d in broadcast_dims)
+
+            # Use dynamic_broadcast_in_dim if input or output has dynamic dimensions
+            if self._is_dynamic_shape(node.name) or self._is_dynamic_shape(input_name):
+                # Generate output shape tensor for dynamic broadcast
+                lines = self._get_shape_tensor(node.name, result_ssa)
+                shape_ssa = f'{result_ssa}_shape'
+                lines.append(f'{result_ssa} = stablehlo.dynamic_broadcast_in_dim {input_ssa}, {shape_ssa}, '
+                             f'dims = [{dims_str}] : ({input_type}, tensor<{output_ndim}xi32>) -> {result_type}')
+                return lines
             return [f'{result_ssa} = stablehlo.broadcast_in_dim {input_ssa}, dims = [{dims_str}] : ({input_type}) -> {result_type}']
 
         elif method_name == 'contiguous':

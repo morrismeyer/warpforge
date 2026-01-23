@@ -349,8 +349,10 @@ func.func @forward(%arg0: tensor<?x3x224x224xf32>) -> tensor<?x1000xf32>
 | `?` emission in type signatures | ✅ | `tensor<?x8xf32>` format |
 | Dynamic dim propagation | ✅ | Through elementwise, reduction, transpose |
 | `dynamic_reshape` | ✅ | Emitted when input/output has dynamic dims |
-| `dynamic_slice` | ⏳ | Planned |
-| `dynamic_broadcast_in_dim` | ⏳ | Planned |
+| `dynamic_slice` | ✅ | For narrow/select with dynamic dims |
+| `dynamic_broadcast_in_dim` | ✅ | For expand with dynamic dims |
+| `dynamic_pad` | ✅ | For pad with dynamic dims |
+| `dynamic_gather` | ✅ | For gather/index_select with dynamic dims |
 | `get_dimension_size` | ✅ | For runtime shape queries |
 
 ### Test Models
@@ -365,3 +367,9 @@ func.func @forward(%arg0: tensor<?x3x224x224xf32>) -> tensor<?x1000xf32>
 | `dynamic_reduction` | batch | Reduction preserving batch |
 | `dynamic_broadcast` | batch | Broadcasting with dynamic batch |
 | `dynamic_transpose` | batch, seq | Transpose with dimension remapping |
+| `dynamic_slice` | batch | Narrow with dynamic batch |
+| `dynamic_select` | batch | Select with dynamic batch |
+| `dynamic_pad` | batch | Padding with dynamic batch |
+| `dynamic_gather` | batch | Gather with dynamic batch |
+| `dynamic_expand` | batch | Expand/broadcast with dynamic batch |
+| `dynamic_index_select` | batch | Index select with dynamic batch |

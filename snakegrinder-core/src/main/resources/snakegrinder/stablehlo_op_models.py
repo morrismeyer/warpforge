@@ -1205,6 +1205,60 @@ class DynamicTranspose(nn.Module):
         return x.transpose(1, 2)
 
 
+class DynamicSlice(nn.Module):
+    """Test slicing with dynamic batch dimension.
+    Tests: dynamic_slice emission for narrow operation.
+    """
+    def forward(self, x):
+        # x: [batch, 8, 16] -> [batch, 4, 16] (narrow dim 1)
+        return x.narrow(1, 2, 4)
+
+
+class DynamicSelect(nn.Module):
+    """Test index selection with dynamic batch dimension.
+    Tests: dynamic_slice emission for select operation.
+    """
+    def forward(self, x):
+        # x: [batch, 8, 16] -> [batch, 16] (select index 3 from dim 1)
+        return x.select(1, 3)
+
+
+class DynamicPad(nn.Module):
+    """Test padding with dynamic batch dimension.
+    Tests: dynamic_pad emission.
+    """
+    def forward(self, x):
+        # x: [batch, 8] -> [batch, 12] (pad 2 on each side of last dim)
+        return F.pad(x, (2, 2))
+
+
+class DynamicGather(nn.Module):
+    """Test gather with dynamic batch dimension.
+    Tests: dynamic_gather emission.
+    """
+    def forward(self, x, indices):
+        # x: [batch, 8, 4], indices: [batch, 8, 2] -> [batch, 8, 2]
+        return torch.gather(x, 2, indices)
+
+
+class DynamicExpand(nn.Module):
+    """Test expand/broadcast with dynamic batch dimension.
+    Tests: dynamic_broadcast_in_dim emission.
+    """
+    def forward(self, x):
+        # x: [batch, 1, 8] -> [batch, 4, 8] (expand dim 1)
+        return x.expand(-1, 4, -1)
+
+
+class DynamicIndexSelect(nn.Module):
+    """Test index_select with dynamic batch dimension.
+    Tests: dynamic_gather emission for index_select.
+    """
+    def forward(self, x, indices):
+        # x: [batch, 8, 16], indices: [3] -> [batch, 3, 16]
+        return torch.index_select(x, 1, indices)
+
+
 # =============================================================================
 # Operation Registry
 # =============================================================================
@@ -1461,6 +1515,12 @@ OPERATION_REGISTRY = {
     'dynamic_reduction': (DynamicReduction, [([2, 4, 8], 'f32')]),
     'dynamic_broadcast': (DynamicBroadcast, [([2, 8], 'f32'), ([8], 'f32')]),
     'dynamic_transpose': (DynamicTranspose, [([2, 4, 8], 'f32')]),
+    'dynamic_slice': (DynamicSlice, [([2, 8, 16], 'f32')]),
+    'dynamic_select': (DynamicSelect, [([2, 8, 16], 'f32')]),
+    'dynamic_pad': (DynamicPad, [([2, 8], 'f32')]),
+    'dynamic_gather': (DynamicGather, [([2, 8, 4], 'f32'), ([2, 8, 2], 'i64')]),
+    'dynamic_expand': (DynamicExpand, [([2, 1, 8], 'f32')]),
+    'dynamic_index_select': (DynamicIndexSelect, [([2, 8, 16], 'f32'), ([3], 'i64')]),
 }
 
 # Registry of dynamic dimensions for models that need them
@@ -1474,6 +1534,12 @@ DYNAMIC_DIMS_REGISTRY = {
     'dynamic_reduction': {0: {0}},           # batch dim is dynamic
     'dynamic_broadcast': {0: {0}},           # batch dim is dynamic (scale is static)
     'dynamic_transpose': {0: {0, 1}},        # batch and seq dims are dynamic
+    'dynamic_slice': {0: {0}},               # batch dim is dynamic
+    'dynamic_select': {0: {0}},              # batch dim is dynamic
+    'dynamic_pad': {0: {0}},                 # batch dim is dynamic
+    'dynamic_gather': {0: {0}, 1: {0}},      # batch dim is dynamic for both inputs
+    'dynamic_expand': {0: {0}},              # batch dim is dynamic
+    'dynamic_index_select': {0: {0}},        # batch dim is dynamic (indices are static)
 }
 
 def get_model_source(op_name):

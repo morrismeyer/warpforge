@@ -1382,6 +1382,149 @@ class Int4LinearModel(nn.Module):
 
 
 # =============================================================================
+# Sparse Tensor Operations
+# =============================================================================
+
+class SparseCooTensorOp(nn.Module):
+    """Creates a sparse COO tensor from indices and values.
+    Produces: stablehlo.custom_call @sparse_coo_tensor
+    """
+    def forward(self, indices, values):
+        # indices: [2, nnz], values: [nnz]
+        return torch.sparse_coo_tensor(indices, values, size=(4, 4))
+
+
+class SparseCsrTensorOp(nn.Module):
+    """Creates a sparse CSR tensor from crow_indices, col_indices, and values.
+    Produces: stablehlo.custom_call @sparse_csr_tensor
+    """
+    def forward(self, crow_indices, col_indices, values):
+        return torch.sparse_csr_tensor(crow_indices, col_indices, values, size=(4, 4))
+
+
+class ToDenseOp(nn.Module):
+    """Converts a sparse tensor to dense.
+    Produces: stablehlo.custom_call @sparse_to_dense
+    """
+    def forward(self, x):
+        # x is sparse, convert to dense
+        return x.to_dense()
+
+
+class ToSparseCooOp(nn.Module):
+    """Converts a dense tensor to sparse COO format.
+    Produces: stablehlo.custom_call @to_sparse_coo
+    """
+    def forward(self, x):
+        return x.to_sparse()
+
+
+class ToSparseCsrOp(nn.Module):
+    """Converts a dense tensor to sparse CSR format.
+    Produces: stablehlo.custom_call @to_sparse_csr
+    """
+    def forward(self, x):
+        return x.to_sparse_csr()
+
+
+class SparseCoalesceOp(nn.Module):
+    """Coalesces duplicate indices in a sparse COO tensor.
+    Produces: stablehlo.custom_call @sparse_coalesce
+    """
+    def forward(self, x):
+        return x.coalesce()
+
+
+class SparseMmOp(nn.Module):
+    """Sparse matrix multiplication (sparse @ dense).
+    Produces: stablehlo.custom_call @sparse_mm
+    """
+    def forward(self, sparse, dense):
+        return torch.sparse.mm(sparse, dense)
+
+
+class SparseAddmmOp(nn.Module):
+    """Sparse addmm: beta * input + alpha * (sparse @ dense).
+    Produces: stablehlo.custom_call @sparse_addmm
+    """
+    def forward(self, input_mat, sparse, dense):
+        return torch.sparse.addmm(input_mat, sparse, dense, beta=1.0, alpha=1.0)
+
+
+class SparseSumOp(nn.Module):
+    """Sum reduction on sparse tensor.
+    Produces: stablehlo.custom_call @sparse_sum
+    """
+    def forward(self, x):
+        return torch.sparse.sum(x)
+
+
+class SparseSoftmaxOp(nn.Module):
+    """Softmax over non-zero elements of sparse tensor.
+    Produces: stablehlo.custom_call @sparse_softmax
+    """
+    def forward(self, x):
+        return torch.sparse.softmax(x, dim=-1)
+
+
+class SparseIndicesOp(nn.Module):
+    """Get indices from sparse COO tensor.
+    Produces: stablehlo.custom_call @sparse_indices
+    """
+    def forward(self, x):
+        return x.indices()
+
+
+class SparseValuesOp(nn.Module):
+    """Get values from sparse tensor.
+    Produces: stablehlo.custom_call @sparse_values
+    """
+    def forward(self, x):
+        return x.values()
+
+
+class SparseNnzOp(nn.Module):
+    """Get number of non-zero elements.
+    Produces: stablehlo.custom_call @sparse_nnz
+    """
+    def forward(self, x):
+        return x._nnz()
+
+
+class ToSparseBsrOp(nn.Module):
+    """Converts a dense tensor to sparse BSR format with block size.
+    Produces: stablehlo.custom_call @to_sparse_bsr
+    """
+    def forward(self, x):
+        return x.to_sparse_bsr(blocksize=(2, 2))
+
+
+class SemiStructuredSparseOp(nn.Module):
+    """Convert to semi-structured (2:4) sparsity for NVIDIA accelerators.
+    Produces: stablehlo.custom_call @to_sparse_semi_structured
+
+    Note: Semi-structured sparsity requires specific shapes (M x K where K % 16 == 0)
+    and is primarily used with NVIDIA Ampere/Hopper Sparse Tensor Cores.
+    """
+    def __init__(self):
+        super().__init__()
+        # Linear layer with specific dimensions for 2:4 sparsity
+        self.fc = nn.Linear(16, 32)
+
+    def forward(self, x):
+        # In a real scenario, weight would be pruned to 2:4 pattern
+        return self.fc(x)
+
+
+class SparseMaskedMmOp(nn.Module):
+    """Sparse masked matrix multiplication (for attention).
+    Produces: stablehlo.custom_call @sparse_sampled_addmm
+    """
+    def forward(self, mask, mat1, mat2):
+        return torch.sparse.sampled_addmm(mask, mat1, mat2)
+
+
+# =============================================================================
 # Operation Registry
 # =============================================================================
 # Maps operation names to (ModelClass, input_specs) tuples
@@ -1655,6 +1798,25 @@ OPERATION_REGISTRY = {
     'quantized_mul': (QuantizedMulOp, [([1, 8], 'f32'), ([1, 8], 'f32')]),
     'int8_linear': (Int8LinearModel, [([1, 8], 'f32')]),
     'int4_linear': (Int4LinearModel, [([1, 8], 'f32')]),
+
+    # Sparse tensor operations
+    # Note: Sparse tensors use special input formats (indices + values for COO, etc.)
+    'sparse_coo_tensor': (SparseCooTensorOp, [([2, 4], 'i64'), ([4], 'f32')]),
+    'sparse_csr_tensor': (SparseCsrTensorOp, [([5], 'i64'), ([4], 'i64'), ([4], 'f32')]),
+    'to_sparse_coo': (ToSparseCooOp, [([4, 4], 'f32')]),
+    'to_sparse_csr': (ToSparseCsrOp, [([4, 4], 'f32')]),
+    'to_sparse_bsr': (ToSparseBsrOp, [([8, 8], 'f32')]),
+    'sparse_coalesce': (SparseCoalesceOp, [([4, 4], 'f32')]),
+    'sparse_mm': (SparseMmOp, [([4, 4], 'f32'), ([4, 4], 'f32')]),
+    'sparse_addmm': (SparseAddmmOp, [([4, 4], 'f32'), ([4, 4], 'f32'), ([4, 4], 'f32')]),
+    'sparse_sum': (SparseSumOp, [([4, 4], 'f32')]),
+    'sparse_softmax': (SparseSoftmaxOp, [([4, 4], 'f32')]),
+    'sparse_indices': (SparseIndicesOp, [([4, 4], 'f32')]),
+    'sparse_values': (SparseValuesOp, [([4, 4], 'f32')]),
+    'sparse_nnz': (SparseNnzOp, [([4, 4], 'f32')]),
+    'sparse_to_dense': (ToDenseOp, [([4, 4], 'f32')]),
+    'semi_structured_sparse': (SemiStructuredSparseOp, [([1, 16], 'f32')]),
+    'sparse_masked_mm': (SparseMaskedMmOp, [([4, 4], 'f32'), ([4, 4], 'f32'), ([4, 4], 'f32')]),
 }
 
 # Registry of dynamic dimensions for models that need them

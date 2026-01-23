@@ -2045,6 +2045,259 @@ class FXToStableHLO:
             input_ssa = get_input(0)
             return [f'{result_ssa} = stablehlo.custom_call @q_zero_point({input_ssa}) : (tensor<?xi8>) -> tensor<i32>']
 
+        # ===== SPARSE TENSOR OPERATIONS =====
+        # Sparse tensors use custom_call with format metadata since StableHLO sparsity is RFC-level.
+        # Backends can implement efficient sparse kernels (cuSPARSE, MKL, etc.)
+
+        elif target_name == 'sparse_coo_tensor':
+            # torch.sparse_coo_tensor(indices, values, size) -> sparse COO tensor
+            # indices: 2D tensor of shape (sparse_dim, nnz)
+            # values: 1D tensor of shape (nnz,)
+            indices_ssa = get_input(0)
+            values_ssa = get_input(1) if len(node.args) > 1 else '%values'
+            indices_type = get_input_type(0)
+            values_type = get_input_type(1) if len(node.args) > 1 else 'tensor<?xf32>'
+
+            # Extract size from args or kwargs
+            size = node.args[2] if len(node.args) > 2 else node.kwargs.get('size', None)
+            size_str = str(list(size)) if size else '[]'
+
+            return [f'{result_ssa} = stablehlo.custom_call @sparse_coo_tensor({indices_ssa}, {values_ssa}) '
+                    f'{{format = "coo", size = {size_str}}} : ({indices_type}, {values_type}) -> {result_type}']
+
+        elif target_name == 'sparse_csr_tensor':
+            # torch.sparse_csr_tensor(crow_indices, col_indices, values, size) -> sparse CSR tensor
+            crow_ssa = get_input(0)
+            col_ssa = get_input(1) if len(node.args) > 1 else '%col_indices'
+            values_ssa = get_input(2) if len(node.args) > 2 else '%values'
+            crow_type = get_input_type(0)
+            col_type = get_input_type(1) if len(node.args) > 1 else 'tensor<?xi64>'
+            values_type = get_input_type(2) if len(node.args) > 2 else 'tensor<?xf32>'
+
+            size = node.args[3] if len(node.args) > 3 else node.kwargs.get('size', None)
+            size_str = str(list(size)) if size else '[]'
+
+            return [f'{result_ssa} = stablehlo.custom_call @sparse_csr_tensor({crow_ssa}, {col_ssa}, {values_ssa}) '
+                    f'{{format = "csr", size = {size_str}}} : ({crow_type}, {col_type}, {values_type}) -> {result_type}']
+
+        elif target_name == 'sparse_csc_tensor':
+            # torch.sparse_csc_tensor(ccol_indices, row_indices, values, size) -> sparse CSC tensor
+            ccol_ssa = get_input(0)
+            row_ssa = get_input(1) if len(node.args) > 1 else '%row_indices'
+            values_ssa = get_input(2) if len(node.args) > 2 else '%values'
+            ccol_type = get_input_type(0)
+            row_type = get_input_type(1) if len(node.args) > 1 else 'tensor<?xi64>'
+            values_type = get_input_type(2) if len(node.args) > 2 else 'tensor<?xf32>'
+
+            size = node.args[3] if len(node.args) > 3 else node.kwargs.get('size', None)
+            size_str = str(list(size)) if size else '[]'
+
+            return [f'{result_ssa} = stablehlo.custom_call @sparse_csc_tensor({ccol_ssa}, {row_ssa}, {values_ssa}) '
+                    f'{{format = "csc", size = {size_str}}} : ({ccol_type}, {row_type}, {values_type}) -> {result_type}']
+
+        elif target_name == 'sparse_bsr_tensor':
+            # torch.sparse_bsr_tensor(crow_indices, col_indices, values, size) -> sparse BSR tensor
+            crow_ssa = get_input(0)
+            col_ssa = get_input(1) if len(node.args) > 1 else '%col_indices'
+            values_ssa = get_input(2) if len(node.args) > 2 else '%values'
+            crow_type = get_input_type(0)
+            col_type = get_input_type(1) if len(node.args) > 1 else 'tensor<?xi64>'
+            values_type = get_input_type(2) if len(node.args) > 2 else 'tensor<?x?x?xf32>'
+
+            size = node.args[3] if len(node.args) > 3 else node.kwargs.get('size', None)
+            size_str = str(list(size)) if size else '[]'
+
+            return [f'{result_ssa} = stablehlo.custom_call @sparse_bsr_tensor({crow_ssa}, {col_ssa}, {values_ssa}) '
+                    f'{{format = "bsr", size = {size_str}}} : ({crow_type}, {col_type}, {values_type}) -> {result_type}']
+
+        elif target_name in ('to_sparse', 'to_sparse_coo'):
+            # x.to_sparse() or torch.to_sparse(x) -> convert dense to sparse COO
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            sparse_dim = node.args[1] if len(node.args) > 1 else node.kwargs.get('sparse_dim', 2)
+            return [f'{result_ssa} = stablehlo.custom_call @to_sparse_coo({input_ssa}) '
+                    f'{{format = "coo", sparse_dim = {sparse_dim}}} : ({input_type}) -> {result_type}']
+
+        elif target_name == 'to_sparse_csr':
+            # x.to_sparse_csr() -> convert dense to sparse CSR
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            return [f'{result_ssa} = stablehlo.custom_call @to_sparse_csr({input_ssa}) '
+                    f'{{format = "csr"}} : ({input_type}) -> {result_type}']
+
+        elif target_name == 'to_sparse_csc':
+            # x.to_sparse_csc() -> convert dense to sparse CSC
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            return [f'{result_ssa} = stablehlo.custom_call @to_sparse_csc({input_ssa}) '
+                    f'{{format = "csc"}} : ({input_type}) -> {result_type}']
+
+        elif target_name == 'to_sparse_bsr':
+            # x.to_sparse_bsr(blocksize) -> convert dense to sparse BSR
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            blocksize = node.args[1] if len(node.args) > 1 else node.kwargs.get('blocksize', (16, 16))
+            bs_str = f'{blocksize[0]}, {blocksize[1]}' if isinstance(blocksize, tuple) else f'{blocksize}, {blocksize}'
+            return [f'{result_ssa} = stablehlo.custom_call @to_sparse_bsr({input_ssa}) '
+                    f'{{format = "bsr", blocksize = [{bs_str}]}} : ({input_type}) -> {result_type}']
+
+        elif target_name == 'to_dense':
+            # sparse.to_dense() -> convert sparse to dense
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            return [f'{result_ssa} = stablehlo.custom_call @sparse_to_dense({input_ssa}) : ({input_type}) -> {result_type}']
+
+        elif target_name == 'coalesce':
+            # sparse.coalesce() -> coalesce duplicate indices in COO tensor
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            return [f'{result_ssa} = stablehlo.custom_call @sparse_coalesce({input_ssa}) : ({input_type}) -> {result_type}']
+
+        elif target_name == 'is_coalesced':
+            # sparse.is_coalesced() -> check if COO tensor is coalesced
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            return [f'{result_ssa} = stablehlo.custom_call @sparse_is_coalesced({input_ssa}) : ({input_type}) -> tensor<i1>']
+
+        elif target_name in ('sparse_indices', 'indices'):
+            # sparse.indices() -> get indices tensor (for COO format)
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            return [f'{result_ssa} = stablehlo.custom_call @sparse_indices({input_ssa}) '
+                    f'{{format = "coo"}} : ({input_type}) -> {result_type}']
+
+        elif target_name in ('sparse_values', 'values'):
+            # sparse.values() -> get values tensor
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            return [f'{result_ssa} = stablehlo.custom_call @sparse_values({input_ssa}) : ({input_type}) -> {result_type}']
+
+        elif target_name in ('crow_indices', 'ccol_indices'):
+            # sparse.crow_indices() / sparse.ccol_indices() -> get compressed row/col indices
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            format_type = 'csr' if 'crow' in target_name else 'csc'
+            return [f'{result_ssa} = stablehlo.custom_call @sparse_{target_name}({input_ssa}) '
+                    f'{{format = "{format_type}"}} : ({input_type}) -> {result_type}']
+
+        elif target_name in ('col_indices', 'row_indices'):
+            # sparse.col_indices() / sparse.row_indices() -> get col/row indices for CSR/CSC
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            return [f'{result_ssa} = stablehlo.custom_call @sparse_{target_name}({input_ssa}) : ({input_type}) -> {result_type}']
+
+        elif target_name == 'sparse_dim':
+            # sparse.sparse_dim() -> number of sparse dimensions
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            return [f'{result_ssa} = stablehlo.custom_call @sparse_dim({input_ssa}) : ({input_type}) -> tensor<i64>']
+
+        elif target_name == 'dense_dim':
+            # sparse.dense_dim() -> number of dense dimensions
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            return [f'{result_ssa} = stablehlo.custom_call @dense_dim({input_ssa}) : ({input_type}) -> tensor<i64>']
+
+        elif target_name == 'nnz':
+            # sparse.nnz() or sparse._nnz() -> number of non-zero elements
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            return [f'{result_ssa} = stablehlo.custom_call @sparse_nnz({input_ssa}) : ({input_type}) -> tensor<i64>']
+
+        elif target_name in ('is_sparse', 'is_sparse_csr'):
+            # Check if tensor is sparse
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            format_check = 'csr' if 'csr' in target_name else 'any'
+            return [f'{result_ssa} = stablehlo.custom_call @is_sparse({input_ssa}) '
+                    f'{{format = "{format_check}"}} : ({input_type}) -> tensor<i1>']
+
+        elif target_name in ('sparse_mm', 'spmm'):
+            # Sparse matrix multiplication: sparse @ dense or sparse @ sparse
+            lhs = get_input(0)
+            rhs = get_input(1) if len(node.args) > 1 else '%rhs'
+            lhs_type = get_input_type(0)
+            rhs_type = get_input_type(1) if len(node.args) > 1 else result_type
+            return [f'{result_ssa} = stablehlo.custom_call @sparse_mm({lhs}, {rhs}) : ({lhs_type}, {rhs_type}) -> {result_type}']
+
+        elif target_name == 'sparse_addmm':
+            # Sparse addmm: beta * input + alpha * (sparse @ dense)
+            input_ssa = get_input(0)
+            sparse_ssa = get_input(1) if len(node.args) > 1 else '%sparse'
+            dense_ssa = get_input(2) if len(node.args) > 2 else '%dense'
+            input_type = get_input_type(0)
+            sparse_type = get_input_type(1) if len(node.args) > 1 else 'tensor<?x?xf32>'
+            dense_type = get_input_type(2) if len(node.args) > 2 else 'tensor<?x?xf32>'
+            beta = node.kwargs.get('beta', 1.0)
+            alpha = node.kwargs.get('alpha', 1.0)
+            return [f'{result_ssa} = stablehlo.custom_call @sparse_addmm({input_ssa}, {sparse_ssa}, {dense_ssa}) '
+                    f'{{beta = {beta} : f32, alpha = {alpha} : f32}} : ({input_type}, {sparse_type}, {dense_type}) -> {result_type}']
+
+        elif target_name == 'sparse_sampled_addmm':
+            # Sparse sampled addmm (used in attention sparsity)
+            input_ssa = get_input(0)
+            mat1_ssa = get_input(1) if len(node.args) > 1 else '%mat1'
+            mat2_ssa = get_input(2) if len(node.args) > 2 else '%mat2'
+            input_type = get_input_type(0)
+            mat1_type = get_input_type(1) if len(node.args) > 1 else 'tensor<?x?xf32>'
+            mat2_type = get_input_type(2) if len(node.args) > 2 else 'tensor<?x?xf32>'
+            beta = node.kwargs.get('beta', 1.0)
+            alpha = node.kwargs.get('alpha', 1.0)
+            return [f'{result_ssa} = stablehlo.custom_call @sparse_sampled_addmm({input_ssa}, {mat1_ssa}, {mat2_ssa}) '
+                    f'{{beta = {beta} : f32, alpha = {alpha} : f32}} : ({input_type}, {mat1_type}, {mat2_type}) -> {result_type}']
+
+        elif target_name == 'sparse_sum':
+            # Reduction sum on sparse tensor
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            dim = node.args[1] if len(node.args) > 1 else node.kwargs.get('dim', None)
+            if dim is not None:
+                dim_str = str(list(dim)) if isinstance(dim, (list, tuple)) else f'[{dim}]'
+                return [f'{result_ssa} = stablehlo.custom_call @sparse_sum({input_ssa}) '
+                        f'{{dim = {dim_str}}} : ({input_type}) -> {result_type}']
+            return [f'{result_ssa} = stablehlo.custom_call @sparse_sum({input_ssa}) : ({input_type}) -> {result_type}']
+
+        elif target_name == 'sparse_softmax':
+            # Softmax on sparse tensor (only over non-zero elements)
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            dim = node.args[1] if len(node.args) > 1 else node.kwargs.get('dim', -1)
+            return [f'{result_ssa} = stablehlo.custom_call @sparse_softmax({input_ssa}) '
+                    f'{{dim = {dim}}} : ({input_type}) -> {result_type}']
+
+        elif target_name == 'sparse_log_softmax':
+            # Log softmax on sparse tensor
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            dim = node.args[1] if len(node.args) > 1 else node.kwargs.get('dim', -1)
+            return [f'{result_ssa} = stablehlo.custom_call @sparse_log_softmax({input_ssa}) '
+                    f'{{dim = {dim}}} : ({input_type}) -> {result_type}']
+
+        elif target_name == 'sparse_resize_':
+            # Resize sparse tensor (in-place, but we emit as functional)
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            size = node.args[1] if len(node.args) > 1 else node.kwargs.get('size', [])
+            sparse_dim = node.args[2] if len(node.args) > 2 else node.kwargs.get('sparse_dim', 2)
+            dense_dim = node.args[3] if len(node.args) > 3 else node.kwargs.get('dense_dim', 0)
+            return [f'{result_ssa} = stablehlo.custom_call @sparse_resize({input_ssa}) '
+                    f'{{size = {list(size)}, sparse_dim = {sparse_dim}, dense_dim = {dense_dim}}} : ({input_type}) -> {result_type}']
+
+        elif target_name == 'sparse_mask':
+            # Apply sparse mask to dense tensor
+            input_ssa = get_input(0)
+            mask_ssa = get_input(1) if len(node.args) > 1 else '%mask'
+            input_type = get_input_type(0)
+            mask_type = get_input_type(1) if len(node.args) > 1 else 'tensor<?x?xf32>'
+            return [f'{result_ssa} = stablehlo.custom_call @sparse_mask({input_ssa}, {mask_ssa}) : ({input_type}, {mask_type}) -> {result_type}']
+
+        elif target_name == 'to_sparse_semi_structured':
+            # Convert to semi-structured (2:4) sparsity for NVIDIA Ampere/Hopper
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            return [f'{result_ssa} = stablehlo.custom_call @to_sparse_semi_structured({input_ssa}) '
+                    f'{{format = "semi_structured", pattern = "2:4"}} : ({input_type}) -> {result_type}']
+
         else:
             return [f'// Unsupported function: {target_name}']
 

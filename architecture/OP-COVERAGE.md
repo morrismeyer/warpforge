@@ -279,9 +279,8 @@ This document tracks PyTorch ATen Core operation coverage for the PyTorch → St
 ## Known Limitations
 
 1. **Scan operations** (cumsum, cumprod) use custom_call as StableHLO lacks native scan
-2. **Sparse operations** not supported (COO/CSR tensors)
-3. **Complex tensor ops** not yet implemented (Complex64/Complex128)
-4. **FFT operations** not yet implemented (torch.fft module)
+2. **Complex tensor ops** not yet implemented (Complex64/Complex128)
+3. **FFT operations** not yet implemented (torch.fft module)
 
 ## Completed Milestones
 
@@ -296,6 +295,7 @@ This document tracks PyTorch ATen Core operation coverage for the PyTorch → St
 9. ✅ Training/backward operations (~45 gradient ops for autograd support)
 10. ✅ Dynamic shape support (dynamic_reshape, dynamic_slice, dynamic_broadcast, etc.)
 11. ✅ Quantization operations (INT8/INT4) - bridges to Babylon ONNX quantization
+12. ✅ Sparse tensor operations (COO, CSR, CSC, BSR, semi-structured)
 
 ## Dynamic Shape Support
 
@@ -448,3 +448,87 @@ QLinearConv         // quantized convolution
 | `quantized_add` / `quantized_mul` | Quantized elementwise ops |
 | `int8_linear` | Full INT8 inference model |
 | `int4_linear` | INT4 weight compression model |
+
+## Sparse Tensor Support
+
+### Overview
+
+WarpForge supports sparse tensor operations by mapping PyTorch sparse tensors to `stablehlo.custom_call` with format metadata. This approach is used because:
+
+1. **StableHLO Sparsity is RFC-level** - Native sparse tensor support in StableHLO is still a proposal (2023 RFC)
+2. **MLIR sparse_tensor dialect** - Has mature support, but requires mixed-dialect output
+3. **Backend flexibility** - `custom_call` lets backends implement efficient kernels (cuSPARSE, MKL, etc.)
+
+### Supported Formats
+
+| Format | Description | Use Case |
+|--------|-------------|----------|
+| **COO** | Coordinate format (`indices`, `values`) | General sparse, easy construction |
+| **CSR** | Compressed Sparse Row | Efficient row slicing, SpMV |
+| **CSC** | Compressed Sparse Column | Efficient column slicing |
+| **BSR** | Block Sparse Row | Block-structured sparsity |
+| **Semi-structured** | 2:4 sparsity pattern | NVIDIA Ampere/Hopper Sparse Tensor Cores |
+
+### Implemented Operations
+
+| PyTorch Op | StableHLO Target | Description |
+|------------|------------------|-------------|
+| `sparse_coo_tensor` | `custom_call @sparse_coo_tensor` | Create COO tensor |
+| `sparse_csr_tensor` | `custom_call @sparse_csr_tensor` | Create CSR tensor |
+| `sparse_csc_tensor` | `custom_call @sparse_csc_tensor` | Create CSC tensor |
+| `sparse_bsr_tensor` | `custom_call @sparse_bsr_tensor` | Create BSR tensor |
+| `to_sparse` / `to_sparse_coo` | `custom_call @to_sparse_coo` | Dense → COO |
+| `to_sparse_csr` | `custom_call @to_sparse_csr` | Dense → CSR |
+| `to_sparse_csc` | `custom_call @to_sparse_csc` | Dense → CSC |
+| `to_sparse_bsr` | `custom_call @to_sparse_bsr` | Dense → BSR |
+| `to_dense` | `custom_call @sparse_to_dense` | Sparse → Dense |
+| `coalesce` | `custom_call @sparse_coalesce` | Merge duplicate indices |
+| `indices` | `custom_call @sparse_indices` | Get COO indices |
+| `values` | `custom_call @sparse_values` | Get non-zero values |
+| `crow_indices` | `custom_call @sparse_crow_indices` | Get CSR row pointers |
+| `col_indices` | `custom_call @sparse_col_indices` | Get CSR/CSC column indices |
+| `nnz` | `custom_call @sparse_nnz` | Count non-zeros |
+| `sparse.mm` | `custom_call @sparse_mm` | Sparse @ Dense matmul |
+| `sparse.addmm` | `custom_call @sparse_addmm` | β*C + α*(A @ B) |
+| `sparse.sampled_addmm` | `custom_call @sparse_sampled_addmm` | Masked sparse attention |
+| `sparse.sum` | `custom_call @sparse_sum` | Sparse reduction |
+| `sparse.softmax` | `custom_call @sparse_softmax` | Softmax over non-zeros |
+
+### Semi-Structured Sparsity (2:4)
+
+NVIDIA Ampere and Hopper GPUs support **2:4 structured sparsity** in Sparse Tensor Cores, providing up to 2x speedup for matrix operations:
+
+```python
+# Mark weights for 2:4 sparsity
+sparse_weight = to_sparse_semi_structured(dense_weight)
+```
+
+Emits:
+```mlir
+%sparse = stablehlo.custom_call @to_sparse_semi_structured(%dense)
+    {format = "semi_structured", pattern = "2:4"} : (tensor<M x K x f16>) -> tensor<M x K x f16>
+```
+
+### Test Models
+
+| Model | Description |
+|-------|-------------|
+| `sparse_coo_tensor` | Create COO from indices/values |
+| `sparse_csr_tensor` | Create CSR from compressed indices |
+| `to_sparse_coo` | Convert dense to COO |
+| `to_sparse_csr` | Convert dense to CSR |
+| `to_sparse_bsr` | Convert dense to BSR with block size |
+| `sparse_mm` | Sparse matrix multiplication |
+| `sparse_addmm` | Fused sparse matmul with add |
+| `sparse_sum` | Sum reduction on sparse |
+| `sparse_softmax` | Softmax over non-zeros |
+| `sparse_indices` / `sparse_values` | Access sparse components |
+| `semi_structured_sparse` | 2:4 sparsity for NVIDIA GPUs |
+
+### Backend Implementation Notes
+
+Backends should implement sparse custom_calls using:
+- **NVIDIA**: cuSPARSE for COO/CSR/CSC, cuSPARSELt for semi-structured
+- **AMD**: hipSPARSE, rocSPARSE
+- **CPU**: Intel MKL Sparse, oneDNN
+- **Generic**: MLIR sparse_tensor dialect lowering

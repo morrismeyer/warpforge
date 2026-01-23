@@ -112,9 +112,21 @@ export UCC_TLS=ucp
 
 Results are saved to `holmes-lab/mark1/results/head-to-head/`.
 
+## Native-Image Status
+
+GraalVM native-image compilation builds successfully (20 MB executable), but runtime FFM calls
+fail due to missing foreign function registrations. GraalVM 25 requires all FFM downcalls to be
+registered in `reachability-metadata.json`. With jextract-generated bindings, this requires
+either:
+
+1. Running the GraalVM tracing agent to capture all FFM calls
+2. Manually registering each function descriptor
+
+This is tracked as future work.
+
 ## Future Work
 
-1. **Native-image compilation** - Eliminate JVM startup overhead
+1. **Native-image FFM registration** - Configure reachability-metadata.json for FFM calls
 2. **Persistent collectives** - Reduce per-operation setup cost
 3. **GPU-direct RDMA** - Bypass host memory for GPU tensors
 4. **Multi-node scaling** - Test with >2 nodes

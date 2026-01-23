@@ -92,7 +92,7 @@ tasks.withType(Test).configureEach {
 test {
     useJUnitPlatform {
         // Exclude integration and performance tests from normal test run
-        excludeTags 'integration', 'rdma', 'rdma-perf', 'ray-integration'
+        excludeTags 'integration', 'rdma', 'rdma-perf', 'ray-integration', 'ucc'
     }
 
     testLogging {
@@ -111,7 +111,7 @@ tasks.register('unitTest', Test) {
 
     useJUnitPlatform {
         includeTags 'unit'
-        excludeTags 'integration', 'rdma', 'rdma-perf', 'ray-integration'
+        excludeTags 'integration', 'rdma', 'rdma-perf', 'ray-integration', 'ucc'
     }
 
     systemProperty 'warpforge.rdma.mode', 'mock'

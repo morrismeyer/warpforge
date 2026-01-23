@@ -11,17 +11,17 @@ on:
       rebuild_pytorch_venv:
         description: 'Rebuild PyTorch venv from scratch (adds ~60 min)'
         required: false
-        default: 'true'
+        default: true
         type: boolean
       skip_perf_tests:
         description: 'Skip performance tests (faster for debugging)'
         required: false
-        default: 'false'
+        default: false
         type: boolean
       skip_gpu_boxes:
         description: 'Skip GPU box tests (NUC only)'
         required: false
-        default: 'false'
+        default: false
         type: boolean
 
   # Nightly schedule - UNCOMMENT AFTER MANUAL TESTING CONFIRMS IT WORKS
@@ -105,7 +105,7 @@ jobs:
       # PHASE 1.5: Build PyTorch Venv (if needed)
       # ========================================
       - name: Build PyTorch venv from scratch
-        if: ${{ inputs.rebuild_pytorch_venv == 'true' }}
+        if: ${{ inputs.rebuild_pytorch_venv }}
         run: |
           set -euo pipefail
           cd ~/surfworks/warpforge
@@ -337,7 +337,7 @@ jobs:
       # PHASE 5.5: C Baseline Build
       # ========================================
       - name: Build C baseline on GPU boxes
-        if: ${{ inputs.skip_gpu_boxes != 'true' }}
+        if: ${{ !inputs.skip_gpu_boxes }}
         run: |
           set -euo pipefail
           cd ~/surfworks/warpforge
@@ -364,7 +364,7 @@ jobs:
       # PHASE 6: GPU Box Tests (NVIDIA + AMD)
       # ========================================
       - name: NVIDIA box - build and test
-        if: ${{ inputs.skip_gpu_boxes != 'true' }}
+        if: ${{ !inputs.skip_gpu_boxes }}
         run: |
           set -euo pipefail
           cd ~/surfworks/warpforge
@@ -379,7 +379,7 @@ jobs:
           bash holmes-lab/mark1/ci-scripts/orchestrate-nvidia-build.sh 2>&1 | tee nvidia-test.log
 
       - name: AMD box - build and test
-        if: ${{ inputs.skip_gpu_boxes != 'true' }}
+        if: ${{ !inputs.skip_gpu_boxes }}
         run: |
           set -euo pipefail
           cd ~/surfworks/warpforge
@@ -400,7 +400,7 @@ jobs:
       # Uses the head-to-head benchmark script for consistent comparison
 
       - name: Head-to-head performance benchmark (C, JVM, Native)
-        if: ${{ inputs.skip_perf_tests != 'true' && inputs.skip_gpu_boxes != 'true' }}
+        if: ${{ !inputs.skip_perf_tests && !inputs.skip_gpu_boxes }}
         run: |
           set -euo pipefail
           cd ~/surfworks/warpforge
@@ -441,7 +441,7 @@ jobs:
           echo "Performance benchmark complete. Results saved to: $PERF_RESULTS_DIR/head-to-head.log"
 
       - name: Verify all benchmarks passed
-        if: ${{ inputs.skip_perf_tests != 'true' && inputs.skip_gpu_boxes != 'true' }}
+        if: ${{ !inputs.skip_perf_tests && !inputs.skip_gpu_boxes }}
         run: |
           set -euo pipefail
           cd ~/surfworks/warpforge
@@ -492,7 +492,7 @@ jobs:
       # PHASE 8: Performance Baseline Validation
       # ========================================
       - name: Validate performance against baselines
-        if: ${{ inputs.skip_perf_tests != 'true' }}
+        if: ${{ !inputs.skip_perf_tests }}
         run: |
           set -euo pipefail
           cd ~/surfworks/warpforge

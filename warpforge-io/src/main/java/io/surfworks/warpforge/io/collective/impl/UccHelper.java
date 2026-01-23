@@ -10,6 +10,7 @@ import io.surfworks.warpforge.io.collective.CollectiveException;
 import io.surfworks.warpforge.io.ffi.ucc.Ucc;
 import io.surfworks.warpforge.io.ffi.ucc.ucc_coll_args;
 import io.surfworks.warpforge.io.ffi.ucc.ucc_coll_buffer_info;
+import io.surfworks.warpforge.io.ffi.ucc.ucc_coll_req;
 
 /**
  * Helper utilities for UCC FFM operations.
@@ -96,19 +97,26 @@ public final class UccHelper {
     /**
      * Wait for a UCC collective operation to complete.
      *
-     * <p>This method polls {@code ucc_collective_finalize} until the operation
-     * completes or an error occurs.
+     * <p>This method polls the request's status field until the operation
+     * completes, then calls finalize once to release resources.
      *
      * @param request the collective request handle
      * @throws CollectiveException if the operation fails
      */
     public static void waitForCompletion(MemorySegment request) {
+        // Reinterpret request handle to access status field
+        MemorySegment req = ucc_coll_req.reinterpret(request, Arena.global(), null);
+
+        // Poll request status
         while (true) {
-            int status = Ucc.ucc_collective_finalize(request);
+            int status = ucc_coll_req.status(req);
             if (status == UccConstants.OK) {
+                // Finalize to release resources (called once)
+                Ucc.ucc_collective_finalize(request);
                 return;
             }
             if (status != UccConstants.INPROGRESS) {
+                Ucc.ucc_collective_finalize(request);
                 throw new CollectiveException(
                     "Collective operation failed: " + UccConstants.statusToString(status),
                     CollectiveException.ErrorCode.COMMUNICATION_ERROR,
@@ -128,13 +136,18 @@ public final class UccHelper {
      * @throws CollectiveException if the operation fails or times out
      */
     public static void waitForCompletionWithTimeout(MemorySegment request, long timeoutMs) {
+        // Reinterpret request handle to access status field
+        MemorySegment req = ucc_coll_req.reinterpret(request, Arena.global(), null);
         long startTime = System.currentTimeMillis();
+
         while (true) {
-            int status = Ucc.ucc_collective_finalize(request);
+            int status = ucc_coll_req.status(req);
             if (status == UccConstants.OK) {
+                Ucc.ucc_collective_finalize(request);
                 return;
             }
             if (status != UccConstants.INPROGRESS) {
+                Ucc.ucc_collective_finalize(request);
                 throw new CollectiveException(
                     "Collective operation failed: " + UccConstants.statusToString(status),
                     CollectiveException.ErrorCode.COMMUNICATION_ERROR,
@@ -142,6 +155,7 @@ public final class UccHelper {
                 );
             }
             if (System.currentTimeMillis() - startTime > timeoutMs) {
+                Ucc.ucc_collective_finalize(request);
                 throw new CollectiveException(
                     "Collective operation timed out after " + timeoutMs + "ms",
                     CollectiveException.ErrorCode.TIMEOUT
@@ -162,15 +176,20 @@ public final class UccHelper {
      * @throws CollectiveException if the operation fails
      */
     public static void waitForCompletionWithProgress(MemorySegment request, MemorySegment context) {
+        // Reinterpret request handle to access status field
+        MemorySegment req = ucc_coll_req.reinterpret(request, Arena.global(), null);
+
         while (true) {
             // Drive context progress
             Ucc.ucc_context_progress(context);
 
-            int status = Ucc.ucc_collective_finalize(request);
+            int status = ucc_coll_req.status(req);
             if (status == UccConstants.OK) {
+                Ucc.ucc_collective_finalize(request);
                 return;
             }
             if (status != UccConstants.INPROGRESS) {
+                Ucc.ucc_collective_finalize(request);
                 throw new CollectiveException(
                     "Collective operation failed: " + UccConstants.statusToString(status),
                     CollectiveException.ErrorCode.COMMUNICATION_ERROR,
@@ -192,16 +211,21 @@ public final class UccHelper {
     public static void waitForCompletionWithProgressAndTimeout(MemorySegment request,
                                                                 MemorySegment context,
                                                                 long timeoutMs) {
+        // Reinterpret request handle to access status field
+        MemorySegment req = ucc_coll_req.reinterpret(request, Arena.global(), null);
         long startTime = System.currentTimeMillis();
+
         while (true) {
             // Drive context progress
             Ucc.ucc_context_progress(context);
 
-            int status = Ucc.ucc_collective_finalize(request);
+            int status = ucc_coll_req.status(req);
             if (status == UccConstants.OK) {
+                Ucc.ucc_collective_finalize(request);
                 return;
             }
             if (status != UccConstants.INPROGRESS) {
+                Ucc.ucc_collective_finalize(request);
                 throw new CollectiveException(
                     "Collective operation failed: " + UccConstants.statusToString(status),
                     CollectiveException.ErrorCode.COMMUNICATION_ERROR,
@@ -209,6 +233,7 @@ public final class UccHelper {
                 );
             }
             if (System.currentTimeMillis() - startTime > timeoutMs) {
+                Ucc.ucc_collective_finalize(request);
                 throw new CollectiveException(
                     "Collective operation timed out after " + timeoutMs + "ms",
                     CollectiveException.ErrorCode.TIMEOUT

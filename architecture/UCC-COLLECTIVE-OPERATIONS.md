@@ -148,6 +148,24 @@ Performance targets derived from `holmes-lab/mark1/mellanox-perf/CONNECTX5.md`:
 | `ucc_oob_coll.java`      | Out-of-band callback structure               |
 |--------------------------|----------------------------------------------|
 
+## TODOs
+
+### Virtual Thread Threading Model
+
+**Issue**: UCX requires all operations on a worker to be called from the same thread that created the worker. Virtual threads can migrate between carrier threads, which violates this constraint even when pinned during individual FFM calls.
+
+**Current Solution**: All UCC operations run synchronously on the main thread that created the context. This works but:
+- Blocks the calling thread during collective operations
+- Doesn't leverage virtual threads for async I/O overlapping
+
+**Better Approach**: Create a dedicated platform thread for all UCC operations:
+1. Spawn a single platform thread at initialization
+2. Submit UCC operations to a queue processed by that thread
+3. Return `CompletableFuture` that completes when the operation finishes
+4. All UCX calls happen on the same thread, satisfying thread affinity
+
+**Alternative**: Investigate if UCX can be configured to relax thread affinity checks (e.g., `UCX_MT_MODE=multi` or similar). This may require recompiling UCX with different threading options.
+
 ## UCC Initialization Sequence
 
 ```java

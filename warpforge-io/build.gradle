@@ -328,11 +328,8 @@ def uccEnv = [
     'UCC_TLS': 'ucp',             // Use UCP transport layer
     'UCC_LOG_LEVEL': 'debug',     // Show debug logs for troubleshooting
     'UCX_LOG_LEVEL': 'info',      // Show UCX logs too
-    // Enable all TL_UCP algorithms for HOST memory specifically
-    // Format: <coll>:<thresh>[/<mem_type>]#...
-    'UCC_TL_UCP_TUNE': 'allreduce:inf/host#allgather:inf/host#bcast:inf/host#barrier:inf/host#reduce:inf/host#alltoall:inf/host',
-    // Also enable CL_BASIC for all collectives on HOST memory
-    'UCC_CL_BASIC_TUNE': 'allreduce:inf/host#allgather:inf/host#bcast:inf/host#barrier:inf/host#reduce:inf/host#alltoall:inf/host'
+    // Force knomial algorithm for allreduce (the default doesn't register for some reason)
+    'UCC_TL_UCP_ALLREDUCE_ALG': 'knomial'
 ]
 
 // Run two-node UCC collective test

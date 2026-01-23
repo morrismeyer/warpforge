@@ -379,6 +379,65 @@ tasks.register('twoNodeWorker', JavaExec) {
     args '--rank', '1', '--world-size', '2', '--master', master, '--port', port
 }
 
+// ===== UCC Performance Test =====
+
+// Run comprehensive UCC collective performance benchmarks
+// Usage:
+//   On mark1nvidia: ./gradlew :warpforge-io:uccPerfTest --args='--rank 0 --size 16777216 --iterations 100'
+//   On mark1amd:    ./gradlew :warpforge-io:uccPerfTest --args='--rank 1 --size 16777216 --iterations 100'
+tasks.register('uccPerfTest', JavaExec) {
+    description = 'Run UCC collective performance benchmarks'
+    group = 'verification'
+
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'io.surfworks.warpforge.io.test.UccPerfTest'
+
+    jvmArgs '--enable-native-access=ALL-UNNAMED', '--enable-preview'
+    // Higher heap for large message tests
+    jvmArgs '-Xmx4g', '-Xms1g'
+    environment uccEnv
+
+    // Default to showing help if no args
+    args = project.hasProperty('args') ? project.property('args').split(' ') : ['--help']
+}
+
+// Convenience aliases for performance testing
+tasks.register('uccPerfMaster', JavaExec) {
+    description = 'Run UCC perf test as master (rank 0) on mark1nvidia'
+    group = 'verification'
+
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'io.surfworks.warpforge.io.test.UccPerfTest'
+    jvmArgs '--enable-native-access=ALL-UNNAMED', '--enable-preview', '-Xmx4g', '-Xms1g'
+    environment uccEnv
+
+    def master = project.hasProperty('master') ? project.property('master') : '10.0.0.1'
+    def port = project.hasProperty('port') ? project.property('port') : '29500'
+    def size = project.hasProperty('size') ? project.property('size') : '16777216'
+    def iterations = project.hasProperty('iterations') ? project.property('iterations') : '100'
+    def warmup = project.hasProperty('warmup') ? project.property('warmup') : '10'
+    args '--rank', '0', '--world-size', '2', '--master', master, '--port', port,
+         '--size', size, '--iterations', iterations, '--warmup', warmup
+}
+
+tasks.register('uccPerfWorker', JavaExec) {
+    description = 'Run UCC perf test as worker (rank 1) on mark1amd'
+    group = 'verification'
+
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'io.surfworks.warpforge.io.test.UccPerfTest'
+    jvmArgs '--enable-native-access=ALL-UNNAMED', '--enable-preview', '-Xmx4g', '-Xms1g'
+    environment uccEnv
+
+    def master = project.hasProperty('master') ? project.property('master') : '10.0.0.1'
+    def port = project.hasProperty('port') ? project.property('port') : '29500'
+    def size = project.hasProperty('size') ? project.property('size') : '16777216'
+    def iterations = project.hasProperty('iterations') ? project.property('iterations') : '100'
+    def warmup = project.hasProperty('warmup') ? project.property('warmup') : '10'
+    args '--rank', '1', '--world-size', '2', '--master', master, '--port', port,
+         '--size', size, '--iterations', iterations, '--warmup', warmup
+}
+
 // ===== Documentation =====
 
 javadoc {

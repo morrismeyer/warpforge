@@ -185,54 +185,63 @@ public final class UccHelper {
      * <p>For large message operations (1MB+), this reduces ucc_context_progress
      * call overhead by 10-30x while maintaining low latency for fast operations.
      *
+     * <p>Uses {@link RequestSegmentCache} to avoid repeated segment reinterpretation
+     * overhead in the polling loop.
+     *
      * @param request the collective request handle
      * @param context the UCC context handle for driving progress
      * @throws CollectiveException if the operation fails
      */
     public static void waitForCompletionWithProgress(MemorySegment request, MemorySegment context) {
-        // Reinterpret request handle to access status field
-        MemorySegment req = ucc_coll_req.reinterpret(request, Arena.global(), null);
+        // Use cached reinterpreted segment to reduce FFM overhead
+        RequestSegmentCache cache = RequestSegmentCache.getInstance();
+        MemorySegment req = cache.getReinterpretedRequest(request);
 
         long startNs = System.nanoTime();
         int iteration = 0;
         int pollInterval = 1; // Start with aggressive polling
 
-        while (true) {
-            // Adaptive progress driving: only call ucc_context_progress periodically
-            // after the initial fast phase to reduce FFM call overhead
-            if (iteration % pollInterval == 0) {
-                Ucc.ucc_context_progress(context);
-            }
-
-            int status = ucc_coll_req.status(req);
-            if (status == UccConstants.OK) {
-                Ucc.ucc_collective_finalize(request);
-                return;
-            }
-            if (status != UccConstants.INPROGRESS) {
-                Ucc.ucc_collective_finalize(request);
-                throw new CollectiveException(
-                    "Collective operation failed: " + UccConstants.statusToString(status),
-                    CollectiveException.ErrorCode.COMMUNICATION_ERROR,
-                    status
-                );
-            }
-
-            iteration++;
-
-            // Adjust polling interval based on elapsed time
-            if (iteration == FAST_POLL_ITERATIONS) {
-                // Transition to medium polling after fast phase
-                pollInterval = MEDIUM_POLL_INTERVAL;
-            } else if (pollInterval == MEDIUM_POLL_INTERVAL) {
-                // Check if we should transition to slow polling
-                long elapsedNs = System.nanoTime() - startNs;
-                if (elapsedNs > SLOW_THRESHOLD_NS) {
-                    pollInterval = SLOW_POLL_INTERVAL;
+        try {
+            while (true) {
+                // Adaptive progress driving: only call ucc_context_progress periodically
+                // after the initial fast phase to reduce FFM call overhead
+                if (iteration % pollInterval == 0) {
+                    Ucc.ucc_context_progress(context);
                 }
-            }
 
-            Thread.onSpinWait();
+                int status = ucc_coll_req.status(req);
+                if (status == UccConstants.OK) {
+                    Ucc.ucc_collective_finalize(request);
+                    return;
+                }
+                if (status != UccConstants.INPROGRESS) {
+                    Ucc.ucc_collective_finalize(request);
+                    throw new CollectiveException(
+                        "Collective operation failed: " + UccConstants.statusToString(status),
+                        CollectiveException.ErrorCode.COMMUNICATION_ERROR,
+                        status
+                    );
+                }
+
+                iteration++;
+
+                // Adjust polling interval based on elapsed time
+                if (iteration == FAST_POLL_ITERATIONS) {
+                    // Transition to medium polling after fast phase
+                    pollInterval = MEDIUM_POLL_INTERVAL;
+                } else if (pollInterval == MEDIUM_POLL_INTERVAL) {
+                    // Check if we should transition to slow polling
+                    long elapsedNs = System.nanoTime() - startNs;
+                    if (elapsedNs > SLOW_THRESHOLD_NS) {
+                        pollInterval = SLOW_POLL_INTERVAL;
+                    }
+                }
+
+                Thread.onSpinWait();
+            }
+        } finally {
+            // Invalidate cache entry after request is finalized
+            cache.invalidate(request);
         }
     }
 
@@ -242,6 +251,9 @@ public final class UccHelper {
      * <p>Uses the same adaptive polling strategy as {@link #waitForCompletionWithProgress}
      * to reduce FFM call overhead for large message operations.
      *
+     * <p>Uses {@link RequestSegmentCache} to avoid repeated segment reinterpretation
+     * overhead in the polling loop.
+     *
      * @param request the collective request handle
      * @param context the UCC context handle for driving progress
      * @param timeoutMs maximum time to wait in milliseconds
@@ -250,52 +262,58 @@ public final class UccHelper {
     public static void waitForCompletionWithProgressAndTimeout(MemorySegment request,
                                                                 MemorySegment context,
                                                                 long timeoutMs) {
-        // Reinterpret request handle to access status field
-        MemorySegment req = ucc_coll_req.reinterpret(request, Arena.global(), null);
+        // Use cached reinterpreted segment to reduce FFM overhead
+        RequestSegmentCache cache = RequestSegmentCache.getInstance();
+        MemorySegment req = cache.getReinterpretedRequest(request);
         long startNs = System.nanoTime();
         long timeoutNs = timeoutMs * 1_000_000;
         int iteration = 0;
         int pollInterval = 1; // Start with aggressive polling
 
-        while (true) {
-            // Adaptive progress driving
-            if (iteration % pollInterval == 0) {
-                Ucc.ucc_context_progress(context);
-            }
+        try {
+            while (true) {
+                // Adaptive progress driving
+                if (iteration % pollInterval == 0) {
+                    Ucc.ucc_context_progress(context);
+                }
 
-            int status = ucc_coll_req.status(req);
-            if (status == UccConstants.OK) {
-                Ucc.ucc_collective_finalize(request);
-                return;
-            }
-            if (status != UccConstants.INPROGRESS) {
-                Ucc.ucc_collective_finalize(request);
-                throw new CollectiveException(
-                    "Collective operation failed: " + UccConstants.statusToString(status),
-                    CollectiveException.ErrorCode.COMMUNICATION_ERROR,
-                    status
-                );
-            }
+                int status = ucc_coll_req.status(req);
+                if (status == UccConstants.OK) {
+                    Ucc.ucc_collective_finalize(request);
+                    return;
+                }
+                if (status != UccConstants.INPROGRESS) {
+                    Ucc.ucc_collective_finalize(request);
+                    throw new CollectiveException(
+                        "Collective operation failed: " + UccConstants.statusToString(status),
+                        CollectiveException.ErrorCode.COMMUNICATION_ERROR,
+                        status
+                    );
+                }
 
-            long elapsedNs = System.nanoTime() - startNs;
-            if (elapsedNs > timeoutNs) {
-                Ucc.ucc_collective_finalize(request);
-                throw new CollectiveException(
-                    "Collective operation timed out after " + timeoutMs + "ms",
-                    CollectiveException.ErrorCode.TIMEOUT
-                );
+                long elapsedNs = System.nanoTime() - startNs;
+                if (elapsedNs > timeoutNs) {
+                    Ucc.ucc_collective_finalize(request);
+                    throw new CollectiveException(
+                        "Collective operation timed out after " + timeoutMs + "ms",
+                        CollectiveException.ErrorCode.TIMEOUT
+                    );
+                }
+
+                iteration++;
+
+                // Adjust polling interval based on elapsed time
+                if (iteration == FAST_POLL_ITERATIONS) {
+                    pollInterval = MEDIUM_POLL_INTERVAL;
+                } else if (pollInterval == MEDIUM_POLL_INTERVAL && elapsedNs > SLOW_THRESHOLD_NS) {
+                    pollInterval = SLOW_POLL_INTERVAL;
+                }
+
+                Thread.onSpinWait();
             }
-
-            iteration++;
-
-            // Adjust polling interval based on elapsed time
-            if (iteration == FAST_POLL_ITERATIONS) {
-                pollInterval = MEDIUM_POLL_INTERVAL;
-            } else if (pollInterval == MEDIUM_POLL_INTERVAL && elapsedNs > SLOW_THRESHOLD_NS) {
-                pollInterval = SLOW_POLL_INTERVAL;
-            }
-
-            Thread.onSpinWait();
+        } finally {
+            // Invalidate cache entry after request is finalized
+            cache.invalidate(request);
         }
     }
 

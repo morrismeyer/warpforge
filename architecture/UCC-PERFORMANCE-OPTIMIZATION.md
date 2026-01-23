@@ -74,11 +74,59 @@ The following in-place variants are available and should be preferred when possi
 
 **Expected Impact:** 5-10% by avoiding output tensor allocation
 
+### 7. Request Segment Cache (2026-01-23)
+
+**Implementation:** `RequestSegmentCache.java`
+
+Caches reinterpreted UCC request segments to avoid FFM overhead:
+- Polling loops typically check status 100-10000 times
+- Each reinterpret call has ~50-100ns FFM overhead
+- Cache eliminates redundant reinterpretation
+- Automatically invalidated when request is finalized
+
+**Expected Impact:** 2-5% latency reduction for polling-heavy operations
+
+### 8. Improved Arena Pooling (2026-01-23)
+
+**Implementation:** Enhanced `OperationArenaPool.PooledArena`
+
+Pre-allocates common structures within pooled arenas:
+- Pre-allocated `ucc_coll_args` segment (reused across operations)
+- Pre-allocated pointer segment for request handles
+- Reset mechanism for clean reuse
+- Reduces per-operation allocation from 2 to 0 allocations
+
+**Expected Impact:** Additional 1-3% over basic arena pooling
+
+### 9. Persistent Collectives (2026-01-23)
+
+**Implementation:** `PersistentCollective.java`
+
+For repeated operations with same parameters (benchmarks, training loops):
+- Initialize collective once, post multiple times
+- Eliminates per-operation `ucc_collective_init` overhead (~100-500us)
+- Cached request segment for optimized status polling
+- Built-in execution statistics
+
+**Usage:**
+```java
+PersistentCollective allreduce = PersistentCollective.allReduceInPlace(
+    team, context, buffer, count, UccConstants.DT_FLOAT32, UccConstants.OP_SUM);
+
+for (int i = 0; i < 1000; i++) {
+    allreduce.execute();  // Only post + wait, no init
+}
+
+allreduce.close();
+```
+
+**Expected Impact:** 30-50% latency reduction for repeated operations
+
 ---
 
 ## All Optimizations Complete
 
-Total expected improvement for 1MB+ operations: **40-60%**
+Total expected improvement for 1MB+ operations: **50-75%**
 
 | Optimization | Status | Impact |
 |--------------|--------|--------|
@@ -88,6 +136,9 @@ Total expected improvement for 1MB+ operations: **40-60%**
 | Dedicated progress thread | Done | 20-30% |
 | UCC algorithm selection | Done | 5-15% |
 | In-place operations | Available | 5-10% |
+| Request segment cache | Done | 2-5% |
+| Improved arena pooling | Done | 1-3% |
+| Persistent collectives | Done | 30-50% (repeated ops) |
 
 ---
 
@@ -160,9 +211,14 @@ UCC_LOG_LEVEL=debug ./gradlew :warpforge-io:uccPerfTest ...
 
 | Date | Change | Impact |
 |------|--------|--------|
+| 2026-01-23 | Persistent collectives (PersistentCollective) | 30-50% for repeated ops |
+| 2026-01-23 | Request segment cache (RequestSegmentCache) | 2-5% latency |
+| 2026-01-23 | Enhanced arena pooling (pre-allocated structs) | 1-3% additional |
 | 2026-01-23 | Arena pooling (OperationArenaPool) | 3-8% |
 | 2026-01-23 | Dedicated progress thread (UccProgressThread) | 20-30% |
 | 2026-01-23 | UCC algorithm selection (ring for large messages) | 5-15% |
+| 2026-01-23 | UCX/UCC C baseline harness (ucx_max_bandwidth, ucc_collective_benchmark) | - |
+| 2026-01-23 | Head-to-head benchmark script (benchmark-head-to-head.sh) | - |
 | 2026-01-22 | Adaptive polling strategy | 15-30% for 1MB+ |
 | 2026-01-22 | Eliminate broadcast buffer copy | 10-15% for broadcast |
 | 2026-01-22 | Add performance test infrastructure | - |

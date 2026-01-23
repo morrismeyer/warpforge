@@ -1,8 +1,6 @@
 package io.surfworks.warpforge.io.collective.impl;
 
-import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
-import java.lang.foreign.ValueLayout;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -241,13 +239,16 @@ public class UccProgressThread extends Thread {
     }
 
     private int pollRequestStatus(MemorySegment request) {
-        MemorySegment req = ucc_coll_req.reinterpret(request, Arena.global(), null);
+        // Use cached reinterpreted segment to reduce FFM overhead
+        MemorySegment req = RequestSegmentCache.getInstance().getReinterpretedRequest(request);
         return ucc_coll_req.status(req);
     }
 
     private void finalizeRequest(MemorySegment request) {
         try {
             Ucc.ucc_collective_finalize(request);
+            // Invalidate cache entry after request is finalized
+            RequestSegmentCache.getInstance().invalidate(request);
         } catch (Exception e) {
             LOG.warning("Error finalizing request: " + e.getMessage());
         }

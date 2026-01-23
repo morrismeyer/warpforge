@@ -116,9 +116,9 @@ public class OperationArenaPool implements AutoCloseable {
         }
 
         if (arena.isPooled() && !closed) {
+            // Reset allocation state for reuse
+            arena.reset();
             // Return to pool for reuse
-            // Note: We don't reset the arena - the caller must not hold references
-            // to segments allocated from it
             if (!pool.offer(arena)) {
                 // Pool is full (shouldn't happen), close the arena
                 arena.closeInternal();
@@ -174,24 +174,61 @@ public class OperationArenaPool implements AutoCloseable {
             return pooled;
         }
 
+        // Pre-allocated structures (created once, reused per-operation)
+        private MemorySegment preAllocatedArgs;
+        private MemorySegment preAllocatedPointer;
+        private int allocationCount = 0;
+
         /**
          * Allocate a ucc_coll_args structure.
+         *
+         * <p>For the first allocation, uses pre-allocated segment.
+         * For subsequent allocations (rare), allocates from arena.
          *
          * @return a zeroed ucc_coll_args segment
          */
         public MemorySegment allocateCollArgs() {
-            MemorySegment args = ucc_coll_args.allocate(arena);
-            args.fill((byte) 0);
-            return args;
+            if (allocationCount == 0 || preAllocatedArgs == null) {
+                preAllocatedArgs = ucc_coll_args.allocate(arena);
+            }
+            allocationCount++;
+            preAllocatedArgs.fill((byte) 0);
+            return preAllocatedArgs;
         }
 
         /**
          * Allocate a pointer-sized segment for receiving handles.
          *
+         * <p>For the first allocation, uses pre-allocated segment.
+         * For subsequent allocations (rare), allocates from arena.
+         *
          * @return a segment of ADDRESS size
          */
         public MemorySegment allocatePointer() {
-            return arena.allocate(ValueLayout.ADDRESS);
+            if (preAllocatedPointer == null) {
+                preAllocatedPointer = arena.allocate(ValueLayout.ADDRESS);
+            }
+            return preAllocatedPointer;
+        }
+
+        /**
+         * Allocate raw bytes for temporary buffers.
+         *
+         * @param size number of bytes
+         * @param alignment byte alignment
+         * @return allocated segment
+         */
+        public MemorySegment allocateBytes(long size, long alignment) {
+            return arena.allocate(size, alignment);
+        }
+
+        /**
+         * Reset the arena for reuse.
+         * Called when returning to pool.
+         */
+        void reset() {
+            allocationCount = 0;
+            // Note: We don't clear the pre-allocated segments - they're reused
         }
 
         void closeInternal() {

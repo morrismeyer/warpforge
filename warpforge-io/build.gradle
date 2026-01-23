@@ -324,9 +324,10 @@ tasks.register('mellanoxClient', JavaExec) {
 // UCC_CLS enables collective layer components
 // UCC_TLS enables transport layer components
 def uccEnv = [
-    'UCC_CLS': 'basic',           // Enable basic collective algorithms
-    'UCC_TLS': 'ucp',             // Use UCX point-to-point transport
-    'UCC_LOG_LEVEL': 'info'       // Show info-level logs for debugging
+    'UCC_CLS': 'all',             // Enable all collective layer components
+    'UCC_TLS': 'all',             // Enable all transport layer components
+    'UCC_LOG_LEVEL': 'debug',     // Show debug logs for troubleshooting
+    'UCX_LOG_LEVEL': 'info'       // Show UCX logs too
 ]
 
 // Run two-node UCC collective test

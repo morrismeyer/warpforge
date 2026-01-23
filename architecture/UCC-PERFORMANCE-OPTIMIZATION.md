@@ -176,6 +176,26 @@ if (pool != null) {
 
 **Expected Impact:** 5-20us per operation (varies by tensor size)
 
+### 12. Page-Aligned Memory Allocation (2026-01-23)
+
+**Implementation:** `AlignedMemoryAllocator.java`
+
+Ensures all collective buffers are properly aligned for RDMA:
+- Default 4KB page alignment for standard RDMA
+- 64-byte cache line alignment option
+- 2MB huge page alignment option for HPC
+- Thread-safe allocation with tracking
+- Zero-fill option for security
+
+**Alignment Levels:**
+| Alignment | Use Case |
+|-----------|----------|
+| 64 bytes | Cache line (CPU optimization) |
+| 4096 bytes | Standard page (RDMA standard) |
+| 2MB | Huge page (HPC systems) |
+
+**Expected Impact:** Improved DMA efficiency, 2-5% for large transfers
+
 ---
 
 ## All Optimizations Complete
@@ -195,6 +215,7 @@ Total expected improvement for 1MB+ operations: **50-75%**
 | Persistent collectives | Done | 30-50% (repeated ops) |
 | Batch collective operations | Done | 10-20% (multi-op sequences) |
 | Tensor buffer pool | Done | 5-20us per op |
+| Page-aligned memory | Done | 2-5% for large transfers |
 
 ---
 
@@ -267,6 +288,7 @@ UCC_LOG_LEVEL=debug ./gradlew :warpforge-io:uccPerfTest ...
 
 | Date | Change | Impact |
 |------|--------|--------|
+| 2026-01-23 | Page-aligned memory (AlignedMemoryAllocator) | 2-5% for large |
 | 2026-01-23 | Tensor buffer pool (TensorBufferPool) | 5-20us per op |
 | 2026-01-23 | Batch collective operations (BatchCollective) | 10-20% for multi-op |
 | 2026-01-23 | Persistent collectives (PersistentCollective) | 30-50% for repeated ops |

@@ -79,7 +79,20 @@ if git show-ref --verify --quiet "refs/remotes/origin/${BRANCH}"; then
   log "Resetting working tree to origin/${BRANCH}..."
   git reset --hard "origin/${BRANCH}" 2>&1 | tee -a "$LOG_FILE"
   log "Cleaning untracked files (excluding venvs and build caches)..."
-  git clean -fd -e '.pytorch-venv' -e '.gradle' -e 'build' 2>&1 | tee -a "$LOG_FILE"
+  git clean -fdx -e '.pytorch-venv' -e '.gradle' 2>&1 | tee -a "$LOG_FILE"
+
+  # Diagnostic: Verify clean state
+  log "=== Git Status After Reset ==="
+  git status 2>&1 | tee -a "$LOG_FILE"
+  log "Current HEAD: $(git rev-parse HEAD)"
+  log "Expected HEAD (origin/${BRANCH}): $(git rev-parse origin/${BRANCH})"
+
+  # Check for problematic file
+  if [[ -f "warpforge-io/src/main/java/io/surfworks/warpforge/io/rdma/impl/UcxRdmaEndpoint.java" ]]; then
+    log "UcxRdmaEndpoint.java imports (first 15 lines):"
+    head -15 "warpforge-io/src/main/java/io/surfworks/warpforge/io/rdma/impl/UcxRdmaEndpoint.java" | tee -a "$LOG_FILE"
+  fi
+  log "=== End Git Status ==="
 else
   log "ERROR: origin/${BRANCH} does not exist. Check the branch name in GITHUB_REF_NAME."
   exit 1

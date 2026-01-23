@@ -233,7 +233,7 @@ run_java_benchmark() {
     log "  Starting Java master on $NVIDIA_HOST..."
     ssh_cmd "$NVIDIA_HOST" "
         cd $REMOTE_REPO
-        ./gradlew :warpforge-io:uccPerfMaster \
+        ./gradlew :warpforge-io:uccPerfMaster --rerun-tasks \
             -Psize=$MESSAGE_SIZE \
             -Piterations=$ITERATIONS
     " > "${RESULTS_DIR}/java_${TIMESTAMP}.txt" 2>&1 &
@@ -246,7 +246,7 @@ run_java_benchmark() {
     log "  Starting Java worker on $AMD_HOST..."
     ssh_cmd "$AMD_HOST" "
         cd $REMOTE_REPO
-        ./gradlew :warpforge-io:uccPerfWorker \
+        ./gradlew :warpforge-io:uccPerfWorker --rerun-tasks \
             -Psize=$MESSAGE_SIZE \
             -Piterations=$ITERATIONS
     " >> "${RESULTS_DIR}/java_${TIMESTAMP}.txt" 2>&1 &

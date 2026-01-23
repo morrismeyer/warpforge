@@ -78,6 +78,8 @@ if git show-ref --verify --quiet "refs/remotes/origin/${BRANCH}"; then
   fi
   log "Resetting working tree to origin/${BRANCH}..."
   git reset --hard "origin/${BRANCH}" 2>&1 | tee -a "$LOG_FILE"
+  log "Cleaning untracked files (excluding venvs and build caches)..."
+  git clean -fd -e '.pytorch-venv' -e '.gradle' -e 'build' 2>&1 | tee -a "$LOG_FILE"
 else
   log "ERROR: origin/${BRANCH} does not exist. Check the branch name in GITHUB_REF_NAME."
   exit 1

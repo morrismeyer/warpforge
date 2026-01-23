@@ -150,6 +150,30 @@ Performance targets derived from `holmes-lab/mark1/mellanox-perf/CONNECTX5.md`:
 
 ## TODOs
 
+### Completion Polling Strategy
+
+**Issue**: The current implementation uses a busy-wait spin loop to poll the UCC request status field until completion. This wastes CPU cycles and doesn't scale well with many concurrent operations.
+
+**Current Approach**:
+```java
+while (true) {
+    Ucc.ucc_context_progress(context);
+    int status = ucc_coll_req.status(req);
+    if (status == UccConstants.OK) break;
+    Thread.onSpinWait();  // Still burns CPU
+}
+```
+
+**Better Approaches**:
+
+1. **Event-driven completion**: UCC supports execution engines (`ucc_ee_*`) that can signal completion via file descriptors. Use `epoll`/`kqueue` to wait without spinning.
+
+2. **Adaptive backoff**: Start with spin-wait for low-latency operations, then back off to `Thread.sleep()` or `LockSupport.parkNanos()` for longer operations.
+
+3. **Completion queue**: Batch multiple operations and wait on a completion queue, similar to io_uring or CUDA streams.
+
+4. **Progress thread**: Dedicate a thread to calling `ucc_context_progress()` and use `CompletableFuture` completion from that thread.
+
 ### Virtual Thread Threading Model
 
 **Issue**: UCX requires all operations on a worker to be called from the same thread that created the worker. Virtual threads can migrate between carrier threads, which violates this constraint even when pinned during individual FFM calls.

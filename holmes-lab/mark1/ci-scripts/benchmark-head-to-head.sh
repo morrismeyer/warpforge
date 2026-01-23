@@ -28,6 +28,9 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 NVIDIA_HOST="${NVIDIA_HOST:-mark1nvidia}"
 AMD_HOST="${AMD_HOST:-mark1amd}"
 
+# Remote repository path (on GPU nodes)
+REMOTE_REPO="${REMOTE_REPO:-~/projects/warpforge}"
+
 # Test configuration
 MESSAGE_SIZE="${MESSAGE_SIZE:-16777216}"          # 16MB default
 ITERATIONS="${ITERATIONS:-100}"
@@ -139,14 +142,14 @@ build_c_baseline() {
 
     # Build on NVIDIA node
     log "  Building on $NVIDIA_HOST..."
-    ssh_cmd "$NVIDIA_HOST" "cd ~/warpforge && git pull && cd $baseline_dir && make clean && make ucc" || {
+    ssh_cmd "$NVIDIA_HOST" "cd $REMOTE_REPO && git pull && cd $baseline_dir && make clean && make ucc" || {
         warn "C baseline build failed on $NVIDIA_HOST - UCC may not be installed"
         return 1
     }
 
     # Build on AMD node
     log "  Building on $AMD_HOST..."
-    ssh_cmd "$AMD_HOST" "cd ~/warpforge && git pull && cd $baseline_dir && make clean && make ucc" || {
+    ssh_cmd "$AMD_HOST" "cd $REMOTE_REPO && git pull && cd $baseline_dir && make clean && make ucc" || {
         warn "C baseline build failed on $AMD_HOST - UCC may not be installed"
         return 1
     }
@@ -158,7 +161,7 @@ build_c_baseline() {
 run_c_baseline() {
     log "Running UCC C baseline benchmark..."
 
-    local baseline_dir="~/warpforge/holmes-lab/mark1/ucx-baseline"
+    local baseline_dir="$REMOTE_REPO/holmes-lab/mark1/ucx-baseline"
     local nvidia_ip=$(ssh_cmd "$NVIDIA_HOST" "hostname -I | awk '{print \$1}'")
     local amd_ip=$(ssh_cmd "$AMD_HOST" "hostname -I | awk '{print \$1}'")
 
@@ -218,7 +221,7 @@ run_java_benchmark() {
 
     # Build warpforge-io on NVIDIA node (master)
     log "  Building warpforge-io..."
-    ssh_cmd "$NVIDIA_HOST" "cd ~/warpforge && ./gradlew :warpforge-io:assemble" || {
+    ssh_cmd "$NVIDIA_HOST" "cd $REMOTE_REPO && ./gradlew :warpforge-io:assemble" || {
         error "Failed to build warpforge-io"
         return 1
     }
@@ -229,7 +232,7 @@ run_java_benchmark() {
     # Start master on NVIDIA
     log "  Starting Java master on $NVIDIA_HOST..."
     ssh_cmd "$NVIDIA_HOST" "
-        cd ~/warpforge
+        cd $REMOTE_REPO
         ./gradlew :warpforge-io:uccPerfMaster \
             -Psize=$MESSAGE_SIZE \
             -Piterations=$ITERATIONS
@@ -242,7 +245,7 @@ run_java_benchmark() {
     # Start worker on AMD
     log "  Starting Java worker on $AMD_HOST..."
     ssh_cmd "$AMD_HOST" "
-        cd ~/warpforge
+        cd $REMOTE_REPO
         ./gradlew :warpforge-io:uccPerfWorker \
             -Psize=$MESSAGE_SIZE \
             -Piterations=$ITERATIONS
@@ -271,14 +274,14 @@ build_native_image() {
 
     # Build on NVIDIA node
     log "  Building native-image on $NVIDIA_HOST..."
-    ssh_cmd "$NVIDIA_HOST" "cd ~/warpforge && ./gradlew :warpforge-io:nativeCompile --no-configuration-cache" || {
+    ssh_cmd "$NVIDIA_HOST" "cd $REMOTE_REPO && ./gradlew :warpforge-io:nativeCompile --no-configuration-cache" || {
         error "Native-image build failed on $NVIDIA_HOST"
         return 1
     }
 
     # Build on AMD node
     log "  Building native-image on $AMD_HOST..."
-    ssh_cmd "$AMD_HOST" "cd ~/warpforge && ./gradlew :warpforge-io:nativeCompile --no-configuration-cache" || {
+    ssh_cmd "$AMD_HOST" "cd $REMOTE_REPO && ./gradlew :warpforge-io:nativeCompile --no-configuration-cache" || {
         error "Native-image build failed on $AMD_HOST"
         return 1
     }
@@ -293,7 +296,7 @@ run_native_benchmark() {
     # Get IPs
     local nvidia_ip=$(ssh_cmd "$NVIDIA_HOST" "hostname -I | awk '{print \$1}'")
 
-    local exe_path="~/warpforge/warpforge-io/build/native/nativeCompile/ucc-perf-test"
+    local exe_path="$REMOTE_REPO/warpforge-io/build/native/nativeCompile/ucc-perf-test"
     local lib_path="${OPENUCX_PATH:-/usr/local}/lib:${UCC_PATH:-/usr/local}/lib"
 
     # Start master on NVIDIA

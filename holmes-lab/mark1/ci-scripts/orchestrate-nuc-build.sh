@@ -26,7 +26,7 @@ BRANCH="${GITHUB_REF_NAME:-main}"
 
 # Build + smoke test commands on the NUC
 NUC_BUILD_CMD="${NUC_BUILD_CMD_OVERRIDE:-./gradlew clean assemble}"
-NUC_TEST_CMD="${NUC_TEST_CMD_OVERRIDE:-./gradlew test}"
+NUC_TEST_CMD="${NUC_TEST_CMD_OVERRIDE:-./gradlew test --no-build-cache}"
 
 # Paths to the NVIDIA and AMD orchestrator scripts.
 # Default is to run the sibling scripts shipped with this file.
@@ -158,7 +158,7 @@ bash -lc "${NUC_TEST_CMD}" 2>&1 | tee -a "$LOG_FILE"
 
 # Explicitly run snakeburger-core tests and verify they executed
 log "Running snakeburger-core tests explicitly..."
-bash -lc "./gradlew :snakeburger-core:test --info 2>&1" | tee -a "$LOG_FILE" || true
+bash -lc "./gradlew :snakeburger-core:test --info --no-build-cache 2>&1" | tee -a "$LOG_FILE" || true
 
 # Verify test results exist and have sufficient count
 TEST_RESULTS_DIR="snakeburger-core/build/test-results/test"
@@ -253,7 +253,7 @@ if [[ -d "$SNAKEGRINDER_VENV" ]]; then
     log "Prune marker contents:"
     cat "$PRUNE_MARKER" | tee -a "$LOG_FILE"
   fi
-  bash -lc "./gradlew :snakegrinder-dist:testDist --no-configuration-cache 2>&1" | tee -a "$LOG_FILE"
+  bash -lc "./gradlew :snakegrinder-dist:testDist --no-configuration-cache --no-build-cache 2>&1" | tee -a "$LOG_FILE"
   log "snakegrinder-dist tests SUCCESS"
 else
   log "WARNING: PyTorch venv not found at $SNAKEGRINDER_VENV"

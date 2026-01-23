@@ -32,7 +32,7 @@ BRANCH="${GITHUB_REF_NAME:-main}"
 # Build and test commands to run on the NVIDIA box
 BUILD_CMD="${BUILD_CMD_OVERRIDE:-./gradlew clean assemble}"
 # UCX/UCC libraries are now installed on GPU boxes - no mock mode needed
-TEST_CMD="${TEST_CMD_OVERRIDE:-./gradlew test}"
+TEST_CMD="${TEST_CMD_OVERRIDE:-./gradlew test --no-build-cache}"
 # NVIDIA-specific tests (tagged @Tag("nvidia")) - require actual CUDA hardware
 NVIDIA_TEST_CMD="${NVIDIA_TEST_CMD_OVERRIDE:-./gradlew nvidiaTest}"
 

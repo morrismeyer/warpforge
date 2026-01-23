@@ -32,7 +32,7 @@ BRANCH="${GITHUB_REF_NAME:-main}"
 # Build and test commands to run on the AMD box
 BUILD_CMD="${BUILD_CMD_OVERRIDE:-./gradlew clean assemble}"
 # UCX/UCC libraries are now installed on GPU boxes - no mock mode needed
-TEST_CMD="${TEST_CMD_OVERRIDE:-./gradlew test}"
+TEST_CMD="${TEST_CMD_OVERRIDE:-./gradlew test --no-build-cache}"
 # AMD-specific GPU tests (tagged with @Tag("amd"))
 AMD_TEST_CMD="${AMD_TEST_CMD_OVERRIDE:-./gradlew amdTest}"
 

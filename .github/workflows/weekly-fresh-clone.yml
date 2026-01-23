@@ -1,0 +1,391 @@
+name: Weekly Fresh Clone Build
+
+# Ultimate "It Just Works" verification
+# Simulates a new developer cloning WarpForge for the first time
+# Catches hardcoded paths, missing dependencies, and "works on my machine" issues
+
+on:
+  # Manual trigger for testing
+  workflow_dispatch:
+    inputs:
+      keep_clone_on_success:
+        description: 'Keep the warpforge-weekly directory after success (for debugging)'
+        required: false
+        default: 'false'
+        type: boolean
+
+  # Weekly schedule - UNCOMMENT AFTER MANUAL TESTING CONFIRMS IT WORKS
+  # schedule:
+  #   - cron: '0 8 * * 0'  # 3 AM EST (8 AM UTC) every Sunday
+
+jobs:
+  fresh-clone-build:
+    name: Fresh Clone & Full Build
+    runs-on: [self-hosted, linux, x64]
+    timeout-minutes: 240  # 4 hour max (PyTorch build + everything else)
+
+    env:
+      # Completely fresh environment - no Gradle caching
+      GRADLE_OPTS: '-Dorg.gradle.caching=false'
+      # Fresh clone location - separate from the main repo
+      FRESH_CLONE_DIR: '/home/actions/surfworks/warpforge-weekly'
+
+    steps:
+      - name: Pre-flight diagnostics
+        run: |
+          echo "=============================================="
+          echo "  WEEKLY FRESH CLONE BUILD"
+          echo "  Simulating new developer experience"
+          echo "=============================================="
+          echo ""
+          echo "This test verifies that a developer can:"
+          echo "  1. Clone WarpForge from GitHub"
+          echo "  2. Build everything from scratch"
+          echo "  3. Run all tests"
+          echo "  4. Without ANY pre-existing setup"
+          echo ""
+          echo "Runner: $(hostname)"
+          echo "Date: $(date)"
+          echo "Fresh clone dir: $FRESH_CLONE_DIR"
+          echo ""
+          echo "Disk space:"
+          df -h
+          echo ""
+          echo "Memory:"
+          free -h || true
+
+      # ========================================
+      # PHASE 1: Nuclear Clean
+      # ========================================
+      - name: Remove any existing fresh clone
+        run: |
+          set -euo pipefail
+
+          echo "=== Removing existing warpforge-weekly ==="
+
+          if [[ -d "$FRESH_CLONE_DIR" ]]; then
+            echo "Found existing directory, removing..."
+            rm -rf "$FRESH_CLONE_DIR"
+            echo "Removed."
+          else
+            echo "No existing directory found."
+          fi
+
+          # Also clean any Gradle caches that might affect the fresh build
+          echo "Cleaning Gradle build caches..."
+          rm -rf ~/.gradle/caches/build-cache-* || true
+
+          echo "Clean complete."
+
+      # ========================================
+      # PHASE 2: Fresh Clone
+      # ========================================
+      - name: Fresh clone from GitHub
+        run: |
+          set -euo pipefail
+
+          echo "=== Fresh Clone Phase ==="
+          echo "Cloning WarpForge as a new developer would..."
+
+          mkdir -p "$(dirname "$FRESH_CLONE_DIR")"
+
+          # Clone with full history (as a developer would)
+          git clone https://github.com/morrismeyer/warpforge.git "$FRESH_CLONE_DIR"
+
+          cd "$FRESH_CLONE_DIR"
+
+          echo ""
+          echo "Clone complete. Repository info:"
+          echo "  Location: $FRESH_CLONE_DIR"
+          echo "  Branch: $(git branch --show-current)"
+          echo "  Commit: $(git rev-parse --short HEAD)"
+          echo "  Size: $(du -sh . | cut -f1)"
+          echo ""
+
+          # Verify key files exist
+          echo "Verifying repository structure..."
+          [[ -f "gradlew" ]] || { echo "ERROR: gradlew not found"; exit 1; }
+          [[ -f "build.gradle" ]] || { echo "ERROR: build.gradle not found"; exit 1; }
+          [[ -f "settings.gradle" ]] || { echo "ERROR: settings.gradle not found"; exit 1; }
+          [[ -d "snakegrinder-dist" ]] || { echo "ERROR: snakegrinder-dist not found"; exit 1; }
+
+          echo "Repository structure OK."
+
+      # ========================================
+      # PHASE 3: Check Build Dependencies
+      # ========================================
+      - name: Verify build dependencies
+        run: |
+          set -euo pipefail
+          cd "$FRESH_CLONE_DIR"
+
+          echo "=== Checking Build Dependencies ==="
+          echo "A new developer needs these tools installed..."
+          echo ""
+
+          MISSING=""
+
+          # Java (should be auto-provisioned by Gradle toolchain)
+          echo -n "Java: "
+          if command -v java >/dev/null 2>&1; then
+            java -version 2>&1 | head -1
+          else
+            echo "Not found (OK - Gradle will provision)"
+          fi
+
+          # Git
+          echo -n "Git: "
+          if command -v git >/dev/null 2>&1; then
+            git --version
+          else
+            echo "MISSING"
+            MISSING="$MISSING git"
+          fi
+
+          # CMake (for PyTorch build)
+          echo -n "CMake: "
+          if command -v cmake >/dev/null 2>&1; then
+            cmake --version | head -1
+          else
+            echo "MISSING"
+            MISSING="$MISSING cmake"
+          fi
+
+          # Ninja (for PyTorch build)
+          echo -n "Ninja: "
+          if command -v ninja >/dev/null 2>&1; then
+            ninja --version
+          else
+            echo "MISSING"
+            MISSING="$MISSING ninja"
+          fi
+
+          # C++ compiler
+          echo -n "C++ compiler: "
+          if command -v g++ >/dev/null 2>&1; then
+            g++ --version | head -1
+          else
+            echo "MISSING"
+            MISSING="$MISSING g++"
+          fi
+
+          echo ""
+          if [[ -n "$MISSING" ]]; then
+            echo "ERROR: Missing required dependencies:$MISSING"
+            echo ""
+            echo "Install with:"
+            echo "  sudo apt install cmake ninja-build build-essential"
+            exit 1
+          fi
+
+          echo "All build dependencies present."
+
+      # ========================================
+      # PHASE 4: Build PyTorch Venv
+      # ========================================
+      - name: Build PyTorch venv from scratch
+        run: |
+          set -euo pipefail
+          cd "$FRESH_CLONE_DIR"
+
+          echo "=== PyTorch Venv Build Phase ==="
+          echo "Building GraalPy + PyTorch from source..."
+          echo "This is the longest step (~30-60 minutes)"
+          echo ""
+
+          START_TIME=$(date +%s)
+
+          # Build the venv
+          ./gradlew :snakegrinder-dist:buildPytorchVenv --no-build-cache --info 2>&1 | tee pytorch-build.log
+
+          END_TIME=$(date +%s)
+          DURATION=$((END_TIME - START_TIME))
+
+          echo ""
+          echo "PyTorch venv build completed in $((DURATION / 60)) minutes $((DURATION % 60)) seconds"
+
+          # Verify
+          VENV_DIR="snakegrinder-dist/.pytorch-venv"
+          if [[ ! -d "$VENV_DIR" ]]; then
+            echo "ERROR: PyTorch venv not created"
+            exit 1
+          fi
+
+          echo "Verifying PyTorch import..."
+          "$VENV_DIR/bin/graalpy" -c "import torch; print(f'PyTorch {torch.__version__} - OK')"
+
+          # Prune to save space
+          ./gradlew :snakegrinder-dist:prunePytorchVenv --no-build-cache
+
+          echo "Venv size after pruning: $(du -sh "$VENV_DIR" | cut -f1)"
+
+      # ========================================
+      # PHASE 5: Full Build
+      # ========================================
+      - name: Full build - all modules
+        run: |
+          set -euo pipefail
+          cd "$FRESH_CLONE_DIR"
+
+          echo "=== Full Build Phase ==="
+
+          START_TIME=$(date +%s)
+
+          ./gradlew clean assemble --no-build-cache --no-configuration-cache 2>&1 | tee build.log
+
+          END_TIME=$(date +%s)
+          DURATION=$((END_TIME - START_TIME))
+
+          echo ""
+          echo "Build completed in $((DURATION / 60)) minutes $((DURATION % 60)) seconds"
+
+          # Verify artifacts
+          echo ""
+          echo "Build artifacts:"
+          find . -name "*.jar" -path "*/build/libs/*" | wc -l | xargs echo "  JAR files:"
+
+      # ========================================
+      # PHASE 6: All Unit Tests
+      # ========================================
+      - name: Run all unit tests
+        run: |
+          set -euo pipefail
+          cd "$FRESH_CLONE_DIR"
+
+          echo "=== Unit Tests Phase ==="
+
+          ./gradlew test --no-build-cache --no-configuration-cache 2>&1 | tee test.log
+
+          echo ""
+          echo "=== Test Results ==="
+          for module in snakeburger-core warpforge-core warpforge-io snakeburger-codegen; do
+            TEST_DIR="${module}/build/test-results/test"
+            if [[ -d "$TEST_DIR" ]]; then
+              TOTAL=$(find "$TEST_DIR" -name "*.xml" -exec grep -h "tests=" {} \; 2>/dev/null | grep -oE 'tests="[0-9]+"' | grep -oE '[0-9]+' | awk '{sum+=$1} END {print sum}')
+              FAILED=$(find "$TEST_DIR" -name "*.xml" -exec grep -h "failures=" {} \; 2>/dev/null | grep -oE 'failures="[0-9]+"' | grep -oE '[0-9]+' | awk '{sum+=$1} END {print sum}')
+              echo "  ${module}: ${TOTAL:-0} tests, ${FAILED:-0} failures"
+            fi
+          done
+
+      - name: Verify test counts
+        run: |
+          set -euo pipefail
+          cd "$FRESH_CLONE_DIR"
+
+          echo "=== Verifying Test Counts ==="
+
+          # snakeburger-core: minimum 300 tests
+          TEST_DIR="snakeburger-core/build/test-results/test"
+          COUNT=$(find "$TEST_DIR" -name "*.xml" -exec grep -h "tests=" {} \; 2>/dev/null | grep -oE 'tests="[0-9]+"' | grep -oE '[0-9]+' | awk '{sum+=$1} END {print sum}')
+          if [[ "${COUNT:-0}" -lt 300 ]]; then
+            echo "ERROR: snakeburger-core has ${COUNT:-0} tests, expected >= 300"
+            exit 1
+          fi
+          echo "snakeburger-core: ${COUNT} tests - OK"
+
+          # warpforge-core: minimum 100 tests
+          TEST_DIR="warpforge-core/build/test-results/test"
+          COUNT=$(find "$TEST_DIR" -name "*.xml" -exec grep -h "tests=" {} \; 2>/dev/null | grep -oE 'tests="[0-9]+"' | grep -oE '[0-9]+' | awk '{sum+=$1} END {print sum}')
+          if [[ "${COUNT:-0}" -lt 100 ]]; then
+            echo "ERROR: warpforge-core has ${COUNT:-0} tests, expected >= 100"
+            exit 1
+          fi
+          echo "warpforge-core: ${COUNT} tests - OK"
+
+          # warpforge-io: minimum 150 tests
+          TEST_DIR="warpforge-io/build/test-results/test"
+          COUNT=$(find "$TEST_DIR" -name "*.xml" -exec grep -h "tests=" {} \; 2>/dev/null | grep -oE 'tests="[0-9]+"' | grep -oE '[0-9]+' | awk '{sum+=$1} END {print sum}')
+          if [[ "${COUNT:-0}" -lt 150 ]]; then
+            echo "ERROR: warpforge-io has ${COUNT:-0} tests, expected >= 150"
+            exit 1
+          fi
+          echo "warpforge-io: ${COUNT} tests - OK"
+
+      # ========================================
+      # PHASE 7: SnakeGrinder Distribution Tests
+      # ========================================
+      - name: SnakeGrinder distribution tests
+        run: |
+          set -euo pipefail
+          cd "$FRESH_CLONE_DIR"
+
+          echo "=== SnakeGrinder Distribution Tests ==="
+
+          ./gradlew :snakegrinder-dist:testDist --no-build-cache --no-configuration-cache 2>&1 | tee snakegrinder-test.log
+
+          echo "SnakeGrinder tests passed"
+
+      # ========================================
+      # PHASE 8: Native Image Build (Optional)
+      # ========================================
+      - name: Build native-image UCC performance test
+        run: |
+          set -euo pipefail
+          cd "$FRESH_CLONE_DIR"
+
+          echo "=== Native Image Build ==="
+
+          # This may fail if native-image isn't configured, which is OK for fresh clone
+          ./gradlew :warpforge-io:buildNativeUccPerfTest --no-build-cache 2>&1 | tee native-build.log || {
+            echo "WARNING: Native image build failed"
+            echo "This is acceptable for fresh clone test - native-image setup may require additional config"
+          }
+
+          if [[ -f "warpforge-io/build/native/nativeCompile/ucc-perf-test" ]]; then
+            echo "Native executable built successfully"
+          fi
+
+      # ========================================
+      # Summary & Cleanup
+      # ========================================
+      - name: Build summary
+        if: always()
+        run: |
+          echo "=============================================="
+          echo "  WEEKLY FRESH CLONE BUILD - SUMMARY"
+          echo "=============================================="
+          echo ""
+          echo "Date: $(date)"
+          echo "Clone location: $FRESH_CLONE_DIR"
+          echo ""
+
+          if [[ -d "$FRESH_CLONE_DIR" ]]; then
+            cd "$FRESH_CLONE_DIR"
+            echo "Repository:"
+            echo "  Commit: $(git rev-parse --short HEAD)"
+            echo "  Branch: $(git branch --show-current)"
+            echo ""
+            echo "Directory size: $(du -sh . | cut -f1)"
+            echo "  PyTorch venv: $(du -sh snakegrinder-dist/.pytorch-venv 2>/dev/null | cut -f1 || echo 'N/A')"
+            echo "  Build output: $(du -sh */build 2>/dev/null | awk '{sum+=$1} END {print sum}' || echo 'N/A')MB"
+          fi
+          echo ""
+          echo "=============================================="
+
+      - name: Cleanup fresh clone
+        if: ${{ always() && inputs.keep_clone_on_success != 'true' }}
+        run: |
+          echo "=== Cleanup ==="
+
+          if [[ -d "$FRESH_CLONE_DIR" ]]; then
+            echo "Removing fresh clone directory to save space..."
+            rm -rf "$FRESH_CLONE_DIR"
+            echo "Cleanup complete."
+          fi
+
+      - name: Final status
+        run: |
+          echo ""
+          echo "=============================================="
+          echo "  FRESH CLONE BUILD: SUCCESS"
+          echo "=============================================="
+          echo ""
+          echo "A new developer CAN successfully:"
+          echo "  ✓ Clone WarpForge from GitHub"
+          echo "  ✓ Build PyTorch venv from scratch"
+          echo "  ✓ Build all modules"
+          echo "  ✓ Run all unit tests"
+          echo "  ✓ Run SnakeGrinder distribution tests"
+          echo ""
+          echo "The 'It Just Works' philosophy is validated."
+          echo "=============================================="

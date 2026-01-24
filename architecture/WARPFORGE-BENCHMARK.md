@@ -1,150 +1,170 @@
-# WarpForge Benchmark: BERT Fine-tuning on SQuAD
+# WarpForge Benchmark Suite
 
-This document describes the end-to-end AI/ML benchmark that validates the WarpForge stack,
-integrating SnakeGrinder, SnakeBurger, and WarpForge with distributed collectives across
-the Mark1 lab's heterogeneous GPU cluster.
+This document describes the end-to-end AI/ML benchmark suite that validates the WarpForge stack
+by comparing WarpForge execution against PyTorch golden reference results.
 
-## Benchmark Selection Rationale
+## Benchmark Philosophy: Golden Reference Validation
 
-We selected BERT fine-tuning on SQuAD as the primary benchmark because it satisfies all
-requirements for a comprehensive WarpForge validation:
+Every benchmark follows a **two-pass validation** approach:
 
 ```
-+---------------------+----------------------------------------------------------+
-| Criterion           | BERT on SQuAD                                            |
-+---------------------+----------------------------------------------------------+
-| Dataset size        | 35 MB download, ~125 MB total (fits in memory)           |
-| Target metric       | F1 > 88% (BERT-base), F1 > 90% (BERT-large)              |
-| Training time       | 24 min BERT-base, 68 min BERT-large (single V100)        |
-| Industry status     | MLPerf standard until v5.1, widely cited benchmark       |
-| Collectives used    | AllReduce (gradients), Barrier (sync), AllGather (opt)   |
-| Traceable           | Yes - torch.fx.symbolic_trace compatible                 |
-| Reproducible        | Fixed dataset, deterministic with seed                   |
-+---------------------+----------------------------------------------------------+
++===========================================================================+
+|                        TWO-PASS VALIDATION                                |
++===========================================================================+
+|                                                                           |
+|  PASS 1: PyTorch Golden Reference                                         |
+|  ─────────────────────────────────                                        |
+|  - Pure PyTorch with standard distributed training (NCCL/RCCL/Gloo)       |
+|  - NO WarpForge components                                                |
+|  - Produces golden reference:                                             |
+|    * Final model weights/checkpoint                                       |
+|    * Loss curve (per iteration)                                           |
+|    * Final metrics (F1, mAP, perplexity)                                  |
+|    * Intermediate activations at checkpoints                              |
+|                                                                           |
+|  PASS 2: WarpForge Validation                                             |
+|  ────────────────────────────                                             |
+|  - Full WarpForge stack:                                                  |
+|    * SnakeGrinder: PyTorch model -> StableHLO                             |
+|    * SnakeBurger: StableHLO -> Babylon IR                                 |
+|    * WarpForge Backends: Execute on NVIDIA/AMD GPUs                       |
+|    * warpforge-io: UCC collectives for distributed sync                   |
+|  - Compares against golden reference:                                     |
+|    * Weights match within tolerance                                       |
+|    * Loss curve matches                                                   |
+|    * Final metrics match                                                  |
+|    * Intermediate activations match (numerical correctness)               |
+|                                                                           |
++===========================================================================+
 ```
 
-### Comparison with Alternatives
+This approach ensures WarpForge produces **numerically identical results** to PyTorch,
+validating both correctness and the full compilation/execution pipeline.
+
+## Mark1 Lab Hardware
 
 ```
-+-------------------+-------------+----------+------------------------+---------------------+
-| Benchmark         | Dataset     | Runtime  | Pros                   | Cons                |
-+-------------------+-------------+----------+------------------------+---------------------+
-| BERT/SQuAD        | 35 MB       | 30-60min | Small, well-defined    | Older benchmark     |
-| ResNet-50/ImageNet| 150 GB      | Hours    | Classic MLPerf         | Huge dataset        |
-| Llama 3.1 8B      | 100+ GB     | Hours    | Current MLPerf v5.1    | Too large for night |
-| MNIST             | 11 MB       | Minutes  | Trivial to run         | Not representative  |
-| CIFAR-10/ResNet   | 170 MB      | 30 min   | Moderate size          | Less industry use   |
-+-------------------+-------------+----------+------------------------+---------------------+
++-------------+-------------------------+--------+---------------------------+
+| Node        | GPU                     | VRAM   | Notes                     |
++-------------+-------------------------+--------+---------------------------+
+| mark1nvidia | NVIDIA GeForce RTX 4080 | 16 GB  | Ada Lovelace, CUDA 12.x   |
+| mark1amd    | AMD Radeon RX 9070 XT   | 16 GB  | RDNA 4, ROCm 6.x          |
++-------------+-------------------------+--------+---------------------------+
+| Interconnect| Mellanox ConnectX-5     | 100GbE | RDMA, ~56 Gbps achieved   |
++-------------+-------------------------+--------+---------------------------+
 ```
 
-## Expected Results
-
-Based on industry benchmarks from DeepSpeed and HuggingFace:
+## Benchmark Schedule
 
 ```
-+------------------+---------------+---------------+
-| Metric           | BERT-base     | BERT-large    |
-+------------------+---------------+---------------+
-| F1 Score         | 88.5%         | 90.5-93%      |
-| Exact Match      | 81.2%         | 84.4%         |
-| Training Time    | 24 min        | 68 min        |
-| (single V100)    |               |               |
-+------------------+---------------+---------------+
++============+=======================+================+=======================+
+| Schedule   | Benchmark             | Duration       | License               |
++============+=======================+================+=======================+
+| Nightly    | BERT-large / SQuAD    | 2-3 hours      | CC BY-SA 4.0          |
+| (weekdays) | (NLP, Transformers)   | (both passes)  | (commercial OK)       |
++------------+-----------------------+----------------+-----------------------+
+| Saturday   | Faster R-CNN / COCO   | 10-12 hours    | CC BY 4.0             |
+| overnight  | (Vision, Detection)   | (both passes)  | (commercial OK)       |
++------------+-----------------------+----------------+-----------------------+
+| Sunday     | Llama 3.1 8B / QLoRA  | 8-12 hours     | Meta Community        |
+| overnight  | (LLM, Fine-tuning)    | (both passes)  | (commercial OK)       |
++============+=======================+================+=======================+
 ```
 
-For distributed training on Mark1 (2 nodes, NVIDIA + AMD):
+All datasets use commercially-friendly licenses suitable for WarpForge as a product.
+
+## Benchmark 1: BERT-large on SQuAD (Nightly)
+
+### Overview
 
 ```
-+------------------+---------------+---------------+
-| Metric           | Target        | Tolerance     |
-+------------------+---------------+---------------+
-| F1 Score         | > 88.0%       | +/- 0.5%      |
-| Loss Convergence | < 0.5         | Monotonic     |
-| Collective Perf  | > 30 Gbps     | AllReduce avg |
-| Training Time    | < 45 min      | BERT-base     |
-+------------------+---------------+---------------+
++-------------------+----------------------------------------------------------+
+| Item              | Details                                                  |
++-------------------+----------------------------------------------------------+
+| Model             | BERT-large-uncased (340M parameters)                     |
+| Dataset           | SQuAD v1.1 (35 MB download, 100K+ QA pairs)              |
+| Task              | Question Answering fine-tuning                           |
+| Target Metric     | F1 > 90%, Exact Match > 84%                              |
+| Training Time     | ~90 min per pass (2 passes = ~3 hours total)             |
+| VRAM Required     | ~14 GB (fits in 16 GB with batch_size=8)                 |
+| License           | CC BY-SA 4.0 (commercial OK with attribution)            |
+| Download          | https://huggingface.co/datasets/rajpurkar/squad          |
++-------------------+----------------------------------------------------------+
 ```
 
-## Architecture
+### Why BERT-large/SQuAD
 
-### Phase 1: PyTorch + WarpForge Collectives (Nightly CI Target)
+- **Transformer architecture** - Dominant in modern AI, exercises attention ops
+- **Small dataset** - 35 MB, downloads in seconds
+- **Well-defined metrics** - F1 score has clear expected values
+- **Fast iteration** - Full training in ~90 minutes per pass
+- **Industry standard** - Was MLPerf benchmark until v5.1
 
-This phase validates that warpforge-io collectives work correctly in real distributed
-training across heterogeneous GPUs.
+### Pass 1: PyTorch Golden Reference
 
 ```
 +----------------------------------+        +----------------------------------+
-|  NVIDIA Node (mark1nvidia)       |        |  AMD Node (mark1amd)             |
+|  mark1nvidia (RTX 4080)          |        |  mark1amd (RX 9070 XT)           |
 +----------------------------------+        +----------------------------------+
 |                                  |        |                                  |
-|  PyTorch BERT Model              |        |  PyTorch BERT Model              |
+|  PyTorch BERT-large              |        |  PyTorch BERT-large              |
+|  HuggingFace Transformers        |        |  HuggingFace Transformers        |
 |         |                        |        |         |                        |
 |         v                        |        |         v                        |
-|  Forward Pass (Embeddings,       |        |  Forward Pass (Embeddings,       |
-|    Attention, FFN layers)        |        |    Attention, FFN layers)        |
-|         |                        |        |         |                        |
-|         v                        |        |         v                        |
-|  Backward Pass (Gradients)       |        |  Backward Pass (Gradients)       |
+|  Forward/Backward Pass           |        |  Forward/Backward Pass           |
 |         |                        |        |         |                        |
 |         v                        |        |         v                        |
 |  +----------------------------+  |        |  +----------------------------+  |
-|  | warpforge-io               |  |<------>|  | warpforge-io               |  |
-|  | AllReduce(gradients)       |  |  UCC   |  | AllReduce(gradients)       |  |
-|  | over Mellanox 100GbE RDMA  |  |  RDMA  |  | over Mellanox 100GbE RDMA  |  |
+|  | PyTorch DDP                |  |<------>|  | PyTorch DDP                |  |
+|  | NCCL/Gloo AllReduce        |  |  TCP   |  | RCCL/Gloo AllReduce        |  |
+|  | (standard PyTorch)         |  |        |  | (standard PyTorch)         |  |
 |  +----------------------------+  |        |  +----------------------------+  |
 |         |                        |        |         |                        |
 |         v                        |        |         v                        |
-|  Optimizer Step (Adam)           |        |  Optimizer Step (Adam)           |
+|  Adam Optimizer Step             |        |  Adam Optimizer Step             |
 |                                  |        |                                  |
 +----------------------------------+        +----------------------------------+
+                              |
+                              v
+                 +---------------------------+
+                 | Golden Reference Output   |
+                 +---------------------------+
+                 | - checkpoint.pt           |
+                 | - loss_curve.json         |
+                 | - metrics.json (F1, EM)   |
+                 | - activations/*.pt        |
+                 +---------------------------+
 ```
 
-**What this validates:**
-- UCC collectives work correctly for gradient synchronization
-- Heterogeneous GPU training (NVIDIA + AMD) produces correct results
-- RDMA performance is utilized effectively
-- Loss converges to expected values
-
-### Phase 2: Full WarpForge Stack (Future Target)
-
-This phase validates the complete compilation and execution pipeline.
+### Pass 2: WarpForge Validation
 
 ```
 +------------------------------------------------------------------+
-|  PyTorch BERT Model (nn.Module)                                  |
+|  PyTorch BERT-large Model (nn.Module)                            |
 +------------------------------------------------------------------+
                               |
                               v torch.fx.symbolic_trace
 +------------------------------------------------------------------+
 |  SnakeGrinder                                                    |
-|  +------------------------------------------------------------+  |
-|  | FX Graph -> StableHLO Converter                            |  |
-|  | - Attention ops -> stablehlo.dot_general                   |  |
-|  | - Layer norms -> stablehlo.reduce + stablehlo.broadcast    |  |
-|  | - Activations -> stablehlo.custom_call("gelu")             |  |
-|  +------------------------------------------------------------+  |
+|  - Trace BERT encoder layers                                     |
+|  - Convert attention: matmul -> stablehlo.dot_general            |
+|  - Convert LayerNorm -> stablehlo.reduce + broadcast             |
+|  - Convert GELU -> stablehlo.custom_call                         |
+|  Output: bert_large.mlir                                         |
 +------------------------------------------------------------------+
                               |
-                              v  .mlir file (StableHLO text format)
+                              v
 +------------------------------------------------------------------+
 |  SnakeBurger                                                     |
-|  +------------------------------------------------------------+  |
-|  | StableHLO Parser                                           |  |
-|  |        |                                                   |  |
-|  |        v                                                   |  |
-|  | Type Checker                                               |  |
-|  |        |                                                   |  |
-|  |        v                                                   |  |
-|  | Babylon Code Reflection IR                                 |  |
-|  +------------------------------------------------------------+  |
+|  - Parse StableHLO MLIR                                          |
+|  - Type check and validate                                       |
+|  - Convert to Babylon Code Reflection IR                         |
 +------------------------------------------------------------------+
                               |
                               v
 +----------------------------------+        +----------------------------------+
 |  WarpForge Backend (NVIDIA)      |        |  WarpForge Backend (AMD)         |
-+----------------------------------+        +----------------------------------+
-|  - cuBLAS for matmuls            |        |  - hipBLAS for matmuls           |
-|  - cuDNN for attention           |        |  - MIOpen for attention          |
+|  - cuBLAS for attention matmuls  |        |  - hipBLAS for attention matmuls |
 |  - Custom CUDA kernels           |        |  - Custom HIP kernels            |
 +----------------------------------+        +----------------------------------+
           |                                           |
@@ -154,166 +174,429 @@ This phase validates the complete compilation and execution pipeline.
 +------------------------------------------------------------------+
 |  warpforge-io Collectives (UCC over Mellanox RDMA)               |
 |  - AllReduce for gradient synchronization                        |
-|  - Barrier for epoch boundaries                                  |
-|  - AllGather for model checkpointing                             |
+|  - ~56 Gbps actual throughput                                    |
 +------------------------------------------------------------------+
+                              |
+                              v
+                 +---------------------------+
+                 | Comparison vs Golden      |
+                 +---------------------------+
+                 | torch.allclose(golden,    |
+                 |   warpforge, rtol=1e-4)   |
+                 | Loss curves within 1%     |
+                 | F1 within 0.5%            |
+                 +---------------------------+
 ```
 
-## Nightly Build Integration
-
-### Tiered Testing Strategy
+### Expected Results
 
 ```
-+----------+----------+------------------+----------------------------------------+
-| Tier     | Duration | Configuration    | What it validates                      |
-+----------+----------+------------------+----------------------------------------+
-| Quick    | 5 min    | 1 epoch          | Collectives work, loss decreases       |
-|          |          | batch_size=8     | No crashes or hangs                    |
-+----------+----------+------------------+----------------------------------------+
-| Nightly  | 30 min   | 2 epochs         | Convergence trajectory is correct      |
-|          |          | batch_size=16    | Collective performance > 30 Gbps       |
-+----------+----------+------------------+----------------------------------------+
-| Weekend  | 2 hrs    | Full training    | F1 > 88% achieved                      |
-|          |          | batch_size=32    | Full regression validation             |
-+----------+----------+------------------+----------------------------------------+
++----------------------+------------------+------------------+
+| Metric               | Golden (PyTorch) | WarpForge Delta  |
++----------------------+------------------+------------------+
+| F1 Score             | > 90.0%          | within 0.5%      |
+| Exact Match          | > 84.0%          | within 0.5%      |
+| Final Loss           | < 0.5            | within 1%        |
+| Training Throughput  | baseline         | within 15%       |
++----------------------+------------------+------------------+
 ```
 
-### CI Workflow Integration
+## Benchmark 2: Faster R-CNN on COCO (Saturday Overnight)
 
-The benchmark integrates with the nightly build as Phase 8:
-
-```
-Phase 1-3: Clean, Build, Unit Tests (existing)
-Phase 4:   SnakeGrinder Distribution Tests (existing)
-Phase 5:   Native Image Build (existing)
-Phase 6:   GPU Box Tests (existing)
-Phase 7:   Head-to-Head Collective Benchmark (existing)
-Phase 8:   BERT/SQuAD Training Benchmark (NEW)
-           - Download SQuAD dataset (cached)
-           - Run distributed BERT training
-           - Validate loss convergence
-           - Check collective performance
-           - Compare against baseline metrics
-```
-
-### Regression Detection
-
-The benchmark tracks these metrics and fails if regression exceeds threshold:
+### Overview
 
 ```
-+----------------------+----------------+-------------+
-| Metric               | Baseline       | Threshold   |
-+----------------------+----------------+-------------+
-| Final Loss           | < 0.5          | +20%        |
-| F1 Score (weekend)   | > 88.0%        | -1.0%       |
-| AllReduce Throughput | > 30 Gbps      | -15%        |
-| Training Throughput  | > 50 samples/s | -20%        |
-| GPU Memory Usage     | < 12 GB        | +25%        |
-+----------------------+----------------+-------------+
++-------------------+----------------------------------------------------------+
+| Item              | Details                                                  |
++-------------------+----------------------------------------------------------+
+| Model             | Faster R-CNN with ResNet-50 FPN backbone                 |
+| Dataset           | COCO 2017 (118K train, 5K val images)                    |
+| Task              | Object Detection (80 classes)                            |
+| Target Metric     | mAP > 37% (standard baseline)                            |
+| Training Time     | ~5-6 hours per pass (2 passes = ~10-12 hours)            |
+| VRAM Required     | ~10 GB (batch_size=2 per GPU)                            |
+| Dataset Size      | ~25 GB                                                   |
+| License           | CC BY 4.0 (commercial OK with attribution)               |
+| Download          | https://cocodataset.org/#download                        |
++-------------------+----------------------------------------------------------+
 ```
 
-## Implementation Plan
-
-### Directory Structure
+### Why Faster R-CNN/COCO (not ImageNet)
 
 ```
-warpforge-benchmark/
-+-- build.gradle                    # Gradle build configuration
-+-- src/
-|   +-- main/
-|   |   +-- java/
-|   |   |   +-- io/surfworks/warpforge/benchmark/
-|   |   |       +-- BertSquadBenchmark.java      # Main benchmark runner
-|   |   |       +-- DistributedTrainer.java      # PyTorch training coordination
-|   |   |       +-- MetricsCollector.java        # Loss, F1, throughput tracking
-|   |   |       +-- BaselineValidator.java       # Regression detection
-|   |   +-- python/
-|   |       +-- bert_squad_training.py           # PyTorch training script
-|   |       +-- model_tracing.py                 # SnakeGrinder integration
-|   |       +-- evaluate_squad.py                # F1 score computation
-|   +-- test/
-|       +-- java/
-|           +-- BertSquadBenchmarkTest.java      # Smoke tests
-+-- datasets/
-|   +-- squad/                                   # Cached SQuAD dataset
-+-- baselines/
-|   +-- bert-base-metrics.json                   # Expected metrics
-+-- results/
-    +-- nightly-YYYYMMDD/                        # Results by date
++-------------------+------------------+------------------------------------------+
+| Consideration     | ImageNet         | COCO                                     |
++-------------------+------------------+------------------------------------------+
+| License           | Non-commercial   | CC BY 4.0 (commercial OK)                |
+| Dataset Size      | 150 GB           | 25 GB                                    |
+| Task              | Classification   | Detection (more complex)                 |
+| Industry Use      | Research only    | Production deployments OK                |
++-------------------+------------------+------------------------------------------+
 ```
 
-### Gradle Tasks
+### Operation Coverage
+
+This benchmark exercises different operations than BERT:
 
 ```
-+-------------------------------+------------------------------------------------+
-| Task                          | Description                                    |
-+-------------------------------+------------------------------------------------+
-| :warpforge-benchmark:quick    | 5-min smoke test (1 epoch)                     |
-| :warpforge-benchmark:nightly  | 30-min nightly run (2 epochs)                  |
-| :warpforge-benchmark:weekend  | 2-hr full training (convergence)               |
-| :warpforge-benchmark:baseline | Update baseline metrics from current run       |
-| :warpforge-benchmark:report   | Generate HTML report from results              |
-+-------------------------------+------------------------------------------------+
++----------------------+------------------+----------------------+
+| Operation Type       | BERT-large       | Faster R-CNN         |
++----------------------+------------------+----------------------+
+| Attention (matmul)   | Primary          | None                 |
+| Convolutions         | None             | Primary (ResNet FPN) |
+| Batch Normalization  | Layer Norm       | Batch Norm           |
+| Pooling              | None             | ROI Pooling, MaxPool |
+| Non-Max Suppression  | None             | NMS post-processing  |
+| Anchor Generation    | None             | RPN anchors          |
+| Skip Connections     | Residual in FFN  | ResNet skip blocks   |
+| Activation           | GELU             | ReLU                 |
++----------------------+------------------+----------------------+
 ```
 
-### Key Dependencies
+### Training Configuration
 
 ```
-+-------------------+---------+----------------------------------------------+
-| Dependency        | Version | Purpose                                      |
-+-------------------+---------+----------------------------------------------+
-| PyTorch           | 2.7.0   | Model training (via GraalPy)                 |
-| Transformers      | 4.40+   | BERT model and tokenizer                     |
-| Datasets          | 2.18+   | SQuAD dataset loading                        |
-| warpforge-io      | 0.0.1   | UCC collectives for distributed training     |
-| snakegrinder-dist | 0.0.1   | Model tracing to StableHLO (Phase 2)         |
-+-------------------+---------+----------------------------------------------+
++----------------------+------------------------------------------+
+| Parameter            | Value                                    |
++----------------------+------------------------------------------+
+| Epochs               | 12 (1x schedule)                         |
+| Batch size (global)  | 4 (2 per GPU x 2 GPUs)                   |
+| Optimizer            | SGD with momentum (0.9)                  |
+| Learning rate        | 0.02 with step decay at 8, 11 epochs     |
+| Weight decay         | 1e-4                                     |
+| Image size           | 800 x 1333 (short side 800)              |
+| Backbone             | ResNet-50 FPN (pretrained on ImageNet)   |
++----------------------+------------------------------------------+
 ```
 
-## Mixed GPU Cluster Considerations
+Note: Using pretrained backbone is standard practice and doesn't require ImageNet license
+since we use weights, not the dataset itself.
 
-The Mark1 lab runs a heterogeneous cluster (NVIDIA + AMD), which presents unique challenges:
-
-```
-+-------------------------+--------------------------------------------------+
-| Challenge               | WarpForge Solution                               |
-+-------------------------+--------------------------------------------------+
-| Different GPU vendors   | UCC/UCX abstracts transport layer                |
-| Different memory sizes  | Dynamic batch sizing per device                  |
-| Different compute rates | Gradient accumulation to balance load            |
-| Different frameworks    | warpforge-io provides unified collective API     |
-+-------------------------+--------------------------------------------------+
-```
-
-This benchmark validates that WarpForge enables **vendor-agnostic distributed training**,
-a key differentiator from NCCL-only solutions.
-
-## Dataset and Licensing
+### Expected Results
 
 ```
-+-------------+------------------------------------------------------------------+
-| Item        | Details                                                          |
-+-------------+------------------------------------------------------------------+
-| Dataset     | SQuAD v1.1 (Stanford Question Answering Dataset)                 |
-| Size        | 35 MB download, 125 MB on disk                                   |
-| License     | CC BY-SA 4.0                                                     |
-| Source      | https://huggingface.co/datasets/rajpurkar/squad                  |
-| Caching     | Downloaded once, cached in datasets/ directory                   |
-+-------------+------------------------------------------------------------------+
++----------------------+------------------+------------------+
+| Metric               | Golden (PyTorch) | WarpForge Delta  |
++----------------------+------------------+------------------+
+| mAP @ IoU=0.50:0.95  | > 37.0%          | within 0.3%      |
+| mAP @ IoU=0.50       | > 58.0%          | within 0.3%      |
+| mAP @ IoU=0.75       | > 40.0%          | within 0.3%      |
+| Final Loss           | < 0.5            | within 1%        |
+| Images/sec           | baseline         | within 15%       |
++----------------------+------------------+------------------+
+```
+
+## Benchmark 3: Llama 3.1 8B Fine-tuning (Sunday Overnight)
+
+### Overview
+
+```
++-------------------+----------------------------------------------------------+
+| Item              | Details                                                  |
++-------------------+----------------------------------------------------------+
+| Model             | Llama 3.1 8B (8 billion parameters)                      |
+| Method            | QLoRA (4-bit quantization + LoRA adapters)               |
+| Dataset           | Alpaca-style instruction tuning (~52K examples)          |
+| Task              | Instruction following fine-tuning                        |
+| Target Metric     | Loss convergence, perplexity improvement                 |
+| Training Time     | ~4-5 hours per pass (2 passes = ~8-10 hours)             |
+| VRAM Required     | ~12-14 GB with QLoRA (fits in 16 GB)                     |
+| License           | Meta Llama 3.1 Community License (commercial OK)         |
+| Download          | https://huggingface.co/meta-llama/Llama-3.1-8B           |
++-------------------+----------------------------------------------------------+
+```
+
+### Why QLoRA
+
+Full fine-tuning of 8B parameters requires ~64 GB VRAM. QLoRA enables training on consumer GPUs:
+
+```
++----------------------+------------------+------------------+
+| Approach             | VRAM Required    | Trainable Params |
++----------------------+------------------+------------------+
+| Full Fine-tuning     | ~64 GB           | 8B (100%)        |
+| LoRA (rank=64)       | ~24 GB           | ~40M (0.5%)      |
+| QLoRA (4-bit + LoRA) | ~12 GB           | ~40M (0.5%)      |
++----------------------+------------------+------------------+
+```
+
+### Training Configuration
+
+```
++----------------------+------------------------------------------+
+| Parameter            | Value                                    |
++----------------------+------------------------------------------+
+| Quantization         | 4-bit NormalFloat (NF4)                  |
+| LoRA rank            | 64                                       |
+| LoRA alpha           | 16                                       |
+| LoRA target modules  | q_proj, k_proj, v_proj, o_proj           |
+| Batch size (global)  | 8 (4 per GPU x 2 GPUs)                   |
+| Gradient accumulation| 4 steps (effective batch 32)             |
+| Optimizer            | Paged AdamW 8-bit                        |
+| Learning rate        | 2e-4                                     |
+| Epochs               | 3                                        |
+| Max sequence length  | 2048                                     |
++----------------------+------------------------------------------+
+```
+
+### Expected Results
+
+```
++----------------------+------------------+------------------+
+| Metric               | Golden (PyTorch) | WarpForge Delta  |
++----------------------+------------------+------------------+
+| Final Loss           | < 1.0            | within 2%        |
+| Perplexity           | baseline         | within 2%        |
+| Training Throughput  | baseline         | within 20%       |
++----------------------+------------------+------------------+
+```
+
+## Comparison Tolerances
+
+Numerical comparison between PyTorch golden reference and WarpForge output:
+
+```
++----------------------+-----------+-----------+--------------------------+
+| Comparison Type      | rtol      | atol      | Notes                    |
++----------------------+-----------+-----------+--------------------------+
+| Weights              | 1e-4      | 1e-6      | After training           |
+| Activations          | 1e-3      | 1e-5      | Per-layer checkpoints    |
+| Gradients            | 1e-3      | 1e-5      | Before AllReduce         |
+| Loss values          | 1e-4      | 1e-6      | Per iteration            |
+| Final metrics        | 5e-3      | -         | F1, mAP, perplexity      |
++----------------------+-----------+-----------+--------------------------+
+```
+
+Tolerance rationale:
+- Floating-point operations may differ in order between PyTorch and WarpForge
+- Different GEMM implementations (cuBLAS vs hipBLAS) have different rounding
+- AllReduce algorithms may sum in different orders
+- These tolerances are tight enough to catch real bugs while allowing for legitimate variation
+
+## CI Integration
+
+### Nightly Workflow (BERT-large/SQuAD) - Monday through Friday
+
+```yaml
+# Runs at 2 AM EST
+schedule:
+  - cron: '0 7 * * 1-5'  # 2 AM EST, Mon-Fri
+
+steps:
+  - name: BERT-large Golden Reference (Pass 1)
+    run: |
+      ./gradlew :warpforge-benchmark:bertSquadGolden \
+        --model bert-large-uncased \
+        --epochs 2 \
+        --batch-size 8
+
+  - name: BERT-large WarpForge Validation (Pass 2)
+    run: |
+      ./gradlew :warpforge-benchmark:bertSquadWarpforge \
+        --model bert-large-uncased \
+        --epochs 2 \
+        --batch-size 8 \
+        --compare-golden results/bert-golden/
+
+  - name: Validate Results Match
+    run: |
+      ./gradlew :warpforge-benchmark:validateResults \
+        --golden results/bert-golden/ \
+        --warpforge results/bert-warpforge/ \
+        --fail-on-mismatch
+```
+
+### Saturday Workflow (Faster R-CNN/COCO)
+
+```yaml
+# Runs Saturday at 6 PM EST
+schedule:
+  - cron: '0 23 * * 6'  # 6 PM EST Saturday
+
+steps:
+  - name: Faster R-CNN Golden Reference (Pass 1)
+    run: |
+      ./gradlew :warpforge-benchmark:cocoDetectionGolden \
+        --model faster-rcnn-resnet50-fpn \
+        --epochs 12 \
+        --batch-size 2
+
+  - name: Faster R-CNN WarpForge Validation (Pass 2)
+    run: |
+      ./gradlew :warpforge-benchmark:cocoDetectionWarpforge \
+        --model faster-rcnn-resnet50-fpn \
+        --epochs 12 \
+        --batch-size 2 \
+        --compare-golden results/coco-golden/
+
+  - name: Validate Results Match
+    run: |
+      ./gradlew :warpforge-benchmark:validateResults \
+        --golden results/coco-golden/ \
+        --warpforge results/coco-warpforge/ \
+        --fail-on-mismatch
+```
+
+### Sunday Workflow (Llama 3.1 8B QLoRA)
+
+```yaml
+# Runs Sunday at 12 PM EST
+schedule:
+  - cron: '0 17 * * 0'  # 12 PM EST Sunday
+
+steps:
+  - name: Llama 3.1 8B Golden Reference (Pass 1)
+    run: |
+      ./gradlew :warpforge-benchmark:llamaQloraGolden \
+        --model meta-llama/Llama-3.1-8B \
+        --epochs 3 \
+        --batch-size 4
+
+  - name: Llama 3.1 8B WarpForge Validation (Pass 2)
+    run: |
+      ./gradlew :warpforge-benchmark:llamaQloraWarpforge \
+        --model meta-llama/Llama-3.1-8B \
+        --epochs 3 \
+        --batch-size 4 \
+        --compare-golden results/llama-golden/
+
+  - name: Validate Results Match
+    run: |
+      ./gradlew :warpforge-benchmark:validateResults \
+        --golden results/llama-golden/ \
+        --warpforge results/llama-warpforge/ \
+        --fail-on-mismatch
+```
+
+## Dataset Management
+
+```
++------------------+----------+------------------+---------------------------+
+| Dataset          | Size     | License          | Storage Location          |
++------------------+----------+------------------+---------------------------+
+| SQuAD v1.1       | 35 MB    | CC BY-SA 4.0     | ~/.cache/huggingface/     |
+| COCO 2017        | 25 GB    | CC BY 4.0        | /data/coco/               |
+| Alpaca (instruct)| 50 MB    | CC BY-NC 4.0     | ~/.cache/huggingface/     |
+| Llama 3.1 8B     | 16 GB    | Meta Community   | ~/.cache/huggingface/     |
++------------------+----------+------------------+---------------------------+
+```
+
+### COCO Setup (One-time)
+
+```bash
+# Download COCO 2017 dataset
+mkdir -p /data/coco
+cd /data/coco
+
+# Training images (18 GB)
+wget http://images.cocodataset.org/zips/train2017.zip
+unzip train2017.zip
+
+# Validation images (1 GB)
+wget http://images.cocodataset.org/zips/val2017.zip
+unzip val2017.zip
+
+# Annotations (241 MB)
+wget http://images.cocodataset.org/annotations/annotations_trainval2017.zip
+unzip annotations_trainval2017.zip
+```
+
+### Llama 3.1 Access (One-time)
+
+```bash
+# 1. Accept license at https://huggingface.co/meta-llama/Llama-3.1-8B
+# 2. Login with HuggingFace CLI
+huggingface-cli login
+
+# 3. Model downloads automatically on first use
+```
+
+## Implementation Roadmap
+
+### Phase 1: Infrastructure (Week 1-2)
+
+```
++----+--------------------------------------------------+
+| #  | Task                                             |
++----+--------------------------------------------------+
+| 1  | Create warpforge-benchmark Gradle subproject     |
+| 2  | Implement golden reference runner (PyTorch DDP)  |
+| 3  | Implement result serialization (checkpoints,     |
+|    | loss curves, activations)                        |
+| 4  | Implement comparison framework with tolerances   |
+| 5  | Add CI workflow stubs for each schedule tier     |
++----+--------------------------------------------------+
+```
+
+### Phase 2: BERT/SQuAD Nightly (Week 3-4)
+
+```
++----+--------------------------------------------------+
+| #  | Task                                             |
++----+--------------------------------------------------+
+| 6  | Implement BERT golden reference training         |
+| 7  | Integrate SnakeGrinder for BERT tracing          |
+| 8  | Integrate SnakeBurger for BERT IR generation     |
+| 9  | Implement WarpForge BERT execution               |
+| 10 | Validate end-to-end on Mark1 hardware            |
+| 11 | Enable nightly CI                                |
++----+--------------------------------------------------+
+```
+
+### Phase 3: Faster R-CNN/COCO Saturday (Week 5-6)
+
+```
++----+--------------------------------------------------+
+| #  | Task                                             |
++----+--------------------------------------------------+
+| 12 | Download and set up COCO on Mark1 storage        |
+| 13 | Implement Faster R-CNN golden reference          |
+| 14 | Extend SnakeGrinder for conv/batchnorm/pool/NMS  |
+| 15 | Implement WarpForge detection execution          |
+| 16 | Validate on Mark1, enable Saturday CI            |
++----+--------------------------------------------------+
+```
+
+### Phase 4: Llama 3.1 8B Sunday (Week 7-8)
+
+```
++----+--------------------------------------------------+
+| #  | Task                                             |
++----+--------------------------------------------------+
+| 17 | Set up Llama 3.1 8B access and download          |
+| 18 | Implement QLoRA golden reference training        |
+| 19 | Extend SnakeGrinder for LLM-specific ops         |
+| 20 | Implement WarpForge Llama execution              |
+| 21 | Validate on Mark1, enable Sunday CI              |
++----+--------------------------------------------------+
+```
+
+## Success Criteria
+
+The benchmark suite is successful when:
+
+```
++----+------------------------------------------------------------------+
+| #  | Criterion                                                        |
++----+------------------------------------------------------------------+
+| 1  | All three benchmarks complete both passes without crashes        |
+| 2  | WarpForge results match PyTorch golden reference within          |
+|    | specified tolerances for all benchmarks                          |
+| 3  | Nightly BERT benchmark completes in < 4 hours                    |
+| 4  | Saturday COCO benchmark completes in < 14 hours                  |
+| 5  | Sunday Llama benchmark completes in < 12 hours                   |
+| 6  | CI automatically detects regressions and fails the build         |
+| 7  | All datasets use commercially-compatible licenses                |
++----+------------------------------------------------------------------+
 ```
 
 ## References
 
+- [COCO Dataset](https://cocodataset.org/) - CC BY 4.0 license
+- [SQuAD Dataset](https://huggingface.co/datasets/rajpurkar/squad) - CC BY-SA 4.0 license
+- [Llama 3.1](https://huggingface.co/meta-llama/Llama-3.1-8B) - Meta Community License
 - [MLPerf Training Benchmark](https://mlcommons.org/benchmarks/training/)
-- [HuggingFace SQuAD Dataset](https://huggingface.co/datasets/rajpurkar/squad)
-- [DeepSpeed BERT Fine-tuning](https://www.deepspeed.ai/tutorials/bert-finetuning/)
-- [Mixed AMD/NVIDIA Distributed Training](https://home.mlops.community/public/blogs/distributed-training-in-mlops-break-gpu-vendor-lock-in-distributed-mlops-across-mixed-amd-and-nvidia-clusters)
-- [PyTorch Distributed Data Parallel](https://pytorch.org/tutorials/beginner/ddp_series_multigpu.html)
-
-## Future Work
-
-1. **Phase 2 Implementation** - Full SnakeGrinder -> SnakeBurger -> WarpForge pipeline
-2. **GPU Direct RDMA** - Bypass host memory for gradient synchronization
-3. **Larger Models** - BERT-large, GPT-2, eventually Llama
-4. **Multi-node Scaling** - Extend beyond 2 nodes when hardware available
-5. **Automated Baseline Updates** - CI automatically updates baselines on improvement
+- [DeepSpeed BERT Training](https://www.deepspeed.ai/2020/05/27/fastest-bert-training.html)
+- [Faster R-CNN Paper](https://arxiv.org/abs/1506.01497)
+- [QLoRA Paper](https://arxiv.org/abs/2305.14314)
+- [Unsloth Llama Fine-tuning](https://unsloth.ai/blog/llama3-1)

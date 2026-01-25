@@ -453,6 +453,133 @@ class FXToStableHLO:
             input_type = self._tensor_type(node.args[0].name)
             return [f'{result_ssa} = stablehlo.reshape {input_ssa} : {input_type} -> {result_type}']
 
+        elif isinstance(module, torch.nn.LayerNorm):
+            # LayerNorm: y = (x - mean) / sqrt(var + eps) * weight + bias
+            input_ssa = self.ssa_map.get(node.args[0].name, '%unknown')
+            input_type = self._tensor_type(node.args[0].name)
+
+            normalized_shape = list(module.normalized_shape)
+            eps = module.eps
+            elementwise_affine = module.elementwise_affine
+
+            lines = [f'// LayerNorm layer: {node.target} (normalized_shape={normalized_shape}, eps={eps})']
+
+            # Determine reduction axes (last N dimensions where N = len(normalized_shape))
+            input_shape = self._get_shape(node.args[0].name)
+            if input_shape:
+                rank = len(input_shape)
+                reduce_axes = list(range(rank - len(normalized_shape), rank))
+            else:
+                # Fallback: assume last dimension
+                reduce_axes = [-1]
+
+            # Use custom_call for LayerNorm since StableHLO doesn't have native support
+            # This will be handled by SnakeBurger/WarpForge backend
+            if elementwise_affine:
+                weight_shape = 'x'.join(str(d) for d in normalized_shape)
+                weight_ssa = f'{result_ssa}_weight'
+                bias_ssa = f'{result_ssa}_bias'
+                weight_type = f'tensor<{weight_shape}xf32>'
+
+                lines.append(f'{weight_ssa} = stablehlo.constant dense<1.0> : {weight_type}  // placeholder for gamma')
+                lines.append(f'{bias_ssa} = stablehlo.constant dense<0.0> : {weight_type}  // placeholder for beta')
+                lines.append(
+                    f'{result_ssa} = stablehlo.custom_call @layer_norm({input_ssa}, {weight_ssa}, {bias_ssa}) '
+                    f'{{normalized_shape = [{", ".join(str(d) for d in normalized_shape)}], eps = {eps} : f32}} : '
+                    f'({input_type}, {weight_type}, {weight_type}) -> {result_type}'
+                )
+            else:
+                lines.append(
+                    f'{result_ssa} = stablehlo.custom_call @layer_norm({input_ssa}) '
+                    f'{{normalized_shape = [{", ".join(str(d) for d in normalized_shape)}], eps = {eps} : f32, elementwise_affine = false}} : '
+                    f'({input_type}) -> {result_type}'
+                )
+
+            return lines
+
+        elif isinstance(module, torch.nn.BatchNorm1d) or isinstance(module, torch.nn.BatchNorm2d):
+            # BatchNorm: use custom_call since it requires running stats
+            input_ssa = self.ssa_map.get(node.args[0].name, '%unknown')
+            input_type = self._tensor_type(node.args[0].name)
+
+            num_features = module.num_features
+            eps = module.eps
+            momentum = module.momentum
+
+            lines = [f'// BatchNorm layer: {node.target} (num_features={num_features}, eps={eps})']
+
+            weight_ssa = f'{result_ssa}_weight'
+            bias_ssa = f'{result_ssa}_bias'
+            mean_ssa = f'{result_ssa}_mean'
+            var_ssa = f'{result_ssa}_var'
+            param_type = f'tensor<{num_features}xf32>'
+
+            lines.append(f'{weight_ssa} = stablehlo.constant dense<1.0> : {param_type}  // placeholder for gamma')
+            lines.append(f'{bias_ssa} = stablehlo.constant dense<0.0> : {param_type}  // placeholder for beta')
+            lines.append(f'{mean_ssa} = stablehlo.constant dense<0.0> : {param_type}  // placeholder for running_mean')
+            lines.append(f'{var_ssa} = stablehlo.constant dense<1.0> : {param_type}  // placeholder for running_var')
+            lines.append(
+                f'{result_ssa} = stablehlo.custom_call @batch_norm({input_ssa}, {weight_ssa}, {bias_ssa}, {mean_ssa}, {var_ssa}) '
+                f'{{num_features = {num_features}, eps = {eps} : f32, momentum = {momentum} : f32}} : '
+                f'({input_type}, {param_type}, {param_type}, {param_type}, {param_type}) -> {result_type}'
+            )
+
+            return lines
+
+        elif isinstance(module, torch.nn.GELU):
+            # GELU activation
+            input_ssa = self.ssa_map.get(node.args[0].name, '%unknown')
+            approximate = getattr(module, 'approximate', 'none')
+
+            lines = [f'// GELU layer: {node.target} (approximate={approximate})']
+            lines.append(
+                f'{result_ssa} = stablehlo.custom_call @gelu({input_ssa}) '
+                f'{{approximate = "{approximate}"}} : ({self._tensor_type(node.args[0].name)}) -> {result_type}'
+            )
+            return lines
+
+        elif isinstance(module, torch.nn.SiLU):
+            # SiLU / Swish activation: x * sigmoid(x)
+            input_ssa = self.ssa_map.get(node.args[0].name, '%unknown')
+            input_type = self._tensor_type(node.args[0].name)
+
+            sigmoid_ssa = f'{result_ssa}_sigmoid'
+            lines = [f'// SiLU layer: {node.target}']
+            lines.append(f'{sigmoid_ssa} = stablehlo.logistic {input_ssa} : {input_type}')
+            lines.append(f'{result_ssa} = stablehlo.multiply {input_ssa}, {sigmoid_ssa} : {result_type}')
+            return lines
+
+        elif isinstance(module, torch.nn.Softmax):
+            # Softmax along specified dimension
+            input_ssa = self.ssa_map.get(node.args[0].name, '%unknown')
+            dim = module.dim if module.dim is not None else -1
+
+            lines = [f'// Softmax layer: {node.target} (dim={dim})']
+            lines.append(
+                f'{result_ssa} = stablehlo.custom_call @softmax({input_ssa}) '
+                f'{{dim = {dim}}} : ({self._tensor_type(node.args[0].name)}) -> {result_type}'
+            )
+            return lines
+
+        elif isinstance(module, torch.nn.Embedding):
+            # Embedding lookup
+            input_ssa = self.ssa_map.get(node.args[0].name, '%unknown')
+            input_type = self._tensor_type(node.args[0].name)
+
+            num_embeddings = module.num_embeddings
+            embedding_dim = module.embedding_dim
+            weight_ssa = f'{result_ssa}_weight'
+            weight_type = f'tensor<{num_embeddings}x{embedding_dim}xf32>'
+
+            lines = [f'// Embedding layer: {node.target} (num_embeddings={num_embeddings}, embedding_dim={embedding_dim})']
+            lines.append(f'{weight_ssa} = stablehlo.constant dense<0.0> : {weight_type}  // placeholder for embedding weights')
+            lines.append(
+                f'{result_ssa} = stablehlo.custom_call @embedding({input_ssa}, {weight_ssa}) '
+                f'{{num_embeddings = {num_embeddings}, embedding_dim = {embedding_dim}}} : '
+                f'({input_type}, {weight_type}) -> {result_type}'
+            )
+            return lines
+
         else:
             return [f'// Unsupported module: {type(module).__name__}']
 
@@ -2204,6 +2331,112 @@ class FXToStableHLO:
             input_type = get_input_type(0)
             num_groups = node.args[1] if len(node.args) > 1 else 1
             return [f'{result_ssa} = stablehlo.custom_call @group_norm({input_ssa}) {{num_groups = {num_groups}}} : ({input_type}) -> {result_type}']
+
+        elif target_name == 'layer_norm':
+            # F.layer_norm(input, normalized_shape, weight=None, bias=None, eps=1e-5)
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+
+            # normalized_shape is the second argument
+            normalized_shape = node.args[1] if len(node.args) > 1 else []
+            if isinstance(normalized_shape, int):
+                normalized_shape = [normalized_shape]
+            elif hasattr(normalized_shape, '__iter__'):
+                normalized_shape = list(normalized_shape)
+
+            # weight and bias are optional (args 2 and 3)
+            has_weight = len(node.args) > 2 and node.args[2] is not None
+            has_bias = len(node.args) > 3 and node.args[3] is not None
+            eps = node.args[4] if len(node.args) > 4 else node.kwargs.get('eps', 1e-5)
+
+            lines = [f'// F.layer_norm (normalized_shape={normalized_shape}, eps={eps})']
+
+            if has_weight and has_bias:
+                weight_ssa = get_input(2)
+                bias_ssa = get_input(3)
+                weight_type = get_input_type(2)
+                lines.append(
+                    f'{result_ssa} = stablehlo.custom_call @layer_norm({input_ssa}, {weight_ssa}, {bias_ssa}) '
+                    f'{{normalized_shape = {normalized_shape}, eps = {eps} : f32}} : '
+                    f'({input_type}, {weight_type}, {weight_type}) -> {result_type}'
+                )
+            elif has_weight:
+                weight_ssa = get_input(2)
+                weight_type = get_input_type(2)
+                lines.append(
+                    f'{result_ssa} = stablehlo.custom_call @layer_norm({input_ssa}, {weight_ssa}) '
+                    f'{{normalized_shape = {normalized_shape}, eps = {eps} : f32, has_bias = false}} : '
+                    f'({input_type}, {weight_type}) -> {result_type}'
+                )
+            else:
+                lines.append(
+                    f'{result_ssa} = stablehlo.custom_call @layer_norm({input_ssa}) '
+                    f'{{normalized_shape = {normalized_shape}, eps = {eps} : f32, elementwise_affine = false}} : '
+                    f'({input_type}) -> {result_type}'
+                )
+
+            return lines
+
+        elif target_name == 'batch_norm':
+            # F.batch_norm(input, running_mean, running_var, weight=None, bias=None, training=False, momentum=0.1, eps=1e-5)
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+            eps = node.kwargs.get('eps', 1e-5)
+            momentum = node.kwargs.get('momentum', 0.1)
+
+            lines = [f'// F.batch_norm (eps={eps}, momentum={momentum})']
+
+            # Get parameters if available
+            if len(node.args) > 1:
+                mean_ssa = get_input(1)
+                var_ssa = get_input(2) if len(node.args) > 2 else mean_ssa
+                weight_ssa = get_input(3) if len(node.args) > 3 else mean_ssa
+                bias_ssa = get_input(4) if len(node.args) > 4 else mean_ssa
+                mean_type = get_input_type(1)
+
+                lines.append(
+                    f'{result_ssa} = stablehlo.custom_call @batch_norm({input_ssa}, {weight_ssa}, {bias_ssa}, {mean_ssa}, {var_ssa}) '
+                    f'{{eps = {eps} : f32, momentum = {momentum} : f32}} : '
+                    f'({input_type}, {mean_type}, {mean_type}, {mean_type}, {mean_type}) -> {result_type}'
+                )
+            else:
+                lines.append(
+                    f'{result_ssa} = stablehlo.custom_call @batch_norm({input_ssa}) '
+                    f'{{eps = {eps} : f32}} : ({input_type}) -> {result_type}'
+                )
+
+            return lines
+
+        elif target_name == 'rms_norm':
+            # RMSNorm (used in LLaMA, Gemma, etc.)
+            input_ssa = get_input(0)
+            input_type = get_input_type(0)
+
+            normalized_shape = node.args[1] if len(node.args) > 1 else []
+            if isinstance(normalized_shape, int):
+                normalized_shape = [normalized_shape]
+            eps = node.kwargs.get('eps', 1e-5)
+
+            has_weight = len(node.args) > 2 and node.args[2] is not None
+
+            lines = [f'// rms_norm (normalized_shape={normalized_shape}, eps={eps})']
+
+            if has_weight:
+                weight_ssa = get_input(2)
+                weight_type = get_input_type(2)
+                lines.append(
+                    f'{result_ssa} = stablehlo.custom_call @rms_norm({input_ssa}, {weight_ssa}) '
+                    f'{{normalized_shape = {normalized_shape}, eps = {eps} : f32}} : '
+                    f'({input_type}, {weight_type}) -> {result_type}'
+                )
+            else:
+                lines.append(
+                    f'{result_ssa} = stablehlo.custom_call @rms_norm({input_ssa}) '
+                    f'{{normalized_shape = {normalized_shape}, eps = {eps} : f32}} : '
+                    f'({input_type}) -> {result_type}'
+                )
+
+            return lines
 
         # === Matrix operations (advanced) ===
         elif target_name == 'einsum':

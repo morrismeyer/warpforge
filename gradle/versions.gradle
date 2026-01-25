@@ -1,0 +1,40 @@
+/**
+ * WarpForge version loading utility.
+ *
+ * Usage: apply from: "${rootDir}/gradle/versions.gradle"
+ *
+ * This loads versions from gradle/versions.env into project.ext.warpforgeVersions
+ */
+
+ext.loadWarpforgeVersions = { ->
+    def versionsFile = file("${rootDir}/gradle/versions.env")
+    def versions = [:]
+
+    if (!versionsFile.exists()) {
+        throw new GradleException("Versions file not found: ${versionsFile}")
+    }
+
+    versionsFile.readLines().each { line ->
+        line = line.trim()
+        // Skip empty lines and comments
+        if (line && !line.startsWith('#') && line.contains('=')) {
+            def parts = line.split('=', 2)
+            def key = parts[0].trim()
+            def value = parts[1].trim()
+            // Remove surrounding quotes
+            if ((value.startsWith('"') && value.endsWith('"')) ||
+                (value.startsWith("'") && value.endsWith("'"))) {
+                value = value.substring(1, value.length() - 1)
+            }
+            versions[key] = value
+        }
+    }
+
+    return versions
+}
+
+// Load versions into project extension
+ext.warpforgeVersions = loadWarpforgeVersions()
+
+// Log loaded versions for debugging
+logger.info("WarpForge versions loaded: ${ext.warpforgeVersions}")

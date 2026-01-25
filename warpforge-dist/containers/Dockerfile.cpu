@@ -1,0 +1,46 @@
+# WarpForge CPU Container
+# Full-featured CPU image with PyTorch tracing support
+#
+# Build:
+#   docker build -f Dockerfile.cpu -t warpforge:0.1.0-cpu ..
+#
+# Run:
+#   docker run --rm warpforge:0.1.0-cpu warpforge-trace --help
+
+ARG WARPFORGE_VERSION=0.1.0
+ARG UBUNTU_VERSION=22.04
+
+FROM ubuntu:${UBUNTU_VERSION}
+
+# Install runtime dependencies for PyTorch and native binaries
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    libgomp1 \
+    libstdc++6 \
+    libc6 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy WarpForge distribution (includes PyTorch venv)
+ARG WARPFORGE_VERSION
+COPY build/warpforge-${WARPFORGE_VERSION} /opt/warpforge
+
+# Set up environment
+ENV WARPFORGE_HOME=/opt/warpforge
+ENV PATH="/opt/warpforge/bin:${PATH}"
+ENV PYTORCH_VENV="/opt/warpforge/lib/python"
+
+# Create non-root user
+RUN useradd -m -s /bin/bash warpforge && \
+    chown -R warpforge:warpforge /opt/warpforge
+
+USER warpforge
+WORKDIR /home/warpforge
+
+# Default entrypoint - can run any warpforge command
+ENTRYPOINT ["/opt/warpforge/bin/warpforge"]
+CMD ["--help"]
+
+# Labels
+LABEL org.opencontainers.image.title="WarpForge CPU"
+LABEL org.opencontainers.image.description="WarpForge ML Compiler - CPU image with PyTorch tracing"
+LABEL org.opencontainers.image.version="${WARPFORGE_VERSION}"

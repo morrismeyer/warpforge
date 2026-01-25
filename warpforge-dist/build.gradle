@@ -1,0 +1,683 @@
+/**
+ * WarpForge Unified Distribution Module
+ *
+ * Assembles all WarpForge components into a single, self-contained distribution.
+ * Follows the "It Just Works" philosophy - zero environment configuration required.
+ */
+
+plugins {
+    id 'base'
+}
+
+import org.gradle.internal.os.OperatingSystem
+
+group = 'io.surfworks.warpforge'
+version = rootProject.ext.warpforgeVersions.WARPFORGE_VERSION
+
+// Platform detection
+def currentOs = OperatingSystem.current()
+def isMac = currentOs.isMacOsX()
+def isLinux = currentOs.isLinux()
+
+def arch = System.getProperty('os.arch')
+def platformArch = switch (arch) {
+    case 'aarch64', 'arm64' -> 'aarch64'
+    case 'x86_64', 'amd64' -> 'amd64'
+    default -> arch
+}
+def platform = (isMac ? 'macos' : 'linux') + '-' + platformArch
+
+// Distribution directory
+def distVersion = rootProject.ext.warpforgeVersions.WARPFORGE_VERSION
+def distDir = file("${layout.buildDirectory.get()}/warpforge-${distVersion}")
+
+// =============================================================================
+// Assemble Unified Distribution
+// =============================================================================
+
+tasks.register('assembleUnifiedDist') {
+    group = 'distribution'
+    description = 'Assemble unified WarpForge distribution with all components'
+
+    // Dependencies on component distributions
+    dependsOn ':warpforge-launch-cli:assembleLaunchDist'
+    dependsOn ':snakegrinder-dist:assembleDist'
+
+    // Note: snakeburger requires Babylon JDK which may not be available
+    // We make it optional by checking if jlinkDist succeeds
+    def snakeburgerAvailable = false
+    try {
+        dependsOn ':snakeburger-cli:jlinkDist'
+        snakeburgerAvailable = true
+    } catch (Exception ignored) {
+        logger.warn("SnakeBurger distribution not available (Babylon JDK not built)")
+    }
+
+    outputs.dir(distDir)
+
+    doLast {
+        // Clean and create distribution directory
+        if (distDir.exists()) {
+            distDir.deleteDir()
+        }
+        distDir.mkdirs()
+
+        def binDir = new File(distDir, 'bin')
+        def libDir = new File(distDir, 'lib')
+        def confDir = new File(distDir, 'conf')
+        binDir.mkdirs()
+        libDir.mkdirs()
+        confDir.mkdirs()
+
+        // Copy warpforge-launch CLI
+        def launchDistDir = project(':warpforge-launch-cli').file('build/warpforge-launch-dist')
+        if (launchDistDir.exists()) {
+            ant.copy(todir: binDir.absolutePath) {
+                fileset(dir: new File(launchDistDir, 'bin').absolutePath)
+            }
+            // Rename to 'warpforge' for unified CLI
+            def launchBin = new File(binDir, 'warpforge-launch')
+            if (launchBin.exists()) {
+                launchBin.renameTo(new File(binDir, 'warpforge'))
+            }
+            println "Added: warpforge (launch CLI)"
+        } else {
+            logger.warn("warpforge-launch distribution not found")
+        }
+
+        // Copy snakegrinder distribution
+        def snakegrinderDistDir = project(':snakegrinder-dist').file('build/dist')
+        if (snakegrinderDistDir.exists()) {
+            // Copy binary as warpforge-trace
+            def sgBinDir = new File(snakegrinderDistDir, 'bin')
+            if (sgBinDir.exists()) {
+                ant.copy(todir: binDir.absolutePath) {
+                    fileset(dir: sgBinDir.absolutePath)
+                }
+                // Rename snakegrinder to warpforge-trace
+                def sgBin = new File(binDir, 'snakegrinder')
+                if (sgBin.exists()) {
+                    sgBin.renameTo(new File(binDir, 'warpforge-trace'))
+                }
+                def sgBinNative = new File(binDir, 'snakegrinder-bin')
+                if (sgBinNative.exists()) {
+                    sgBinNative.renameTo(new File(binDir, 'warpforge-trace-bin'))
+                }
+            }
+
+            // Copy Python venv
+            def sgVenv = new File(snakegrinderDistDir, 'venv')
+            if (sgVenv.exists()) {
+                def pythonLibDir = new File(libDir, 'python')
+                ant.copy(todir: pythonLibDir.absolutePath) {
+                    fileset(dir: sgVenv.absolutePath)
+                }
+                println "Added: lib/python (PyTorch venv)"
+            }
+            println "Added: warpforge-trace (snakegrinder)"
+        } else {
+            logger.warn("snakegrinder distribution not found")
+        }
+
+        // Copy snakeburger if available
+        def snakeburgerDistDir = project(':snakeburger-cli').file('build/snakeburger-dist')
+        if (snakeburgerDistDir.exists()) {
+            def sbLibDir = new File(libDir, 'snakeburger')
+            sbLibDir.mkdirs()
+            ant.copy(todir: sbLibDir.absolutePath) {
+                fileset(dir: snakeburgerDistDir.absolutePath)
+            }
+            // Set executable permissions on snakeburger launcher
+            def sbLauncher = new File(sbLibDir, 'snakeburger')
+            if (sbLauncher.exists()) {
+                sbLauncher.setExecutable(true)
+            }
+            // Also set permissions on runtime binaries
+            def sbRuntimeBin = new File(sbLibDir, 'runtime/bin')
+            if (sbRuntimeBin.exists()) {
+                sbRuntimeBin.listFiles()?.each { it.setExecutable(true) }
+            }
+            // Create wrapper in bin/
+            def wrapperScript = new File(binDir, 'warpforge-burger')
+            wrapperScript.text = """\
+#!/bin/bash
+SCRIPT_DIR="\$(cd "\$(dirname "\${BASH_SOURCE[0]}")" && pwd)"
+DIST_DIR="\$(dirname "\$SCRIPT_DIR")"
+exec "\$DIST_DIR/lib/snakeburger/snakeburger" "\$@"
+""".stripIndent()
+            wrapperScript.setExecutable(true)
+            println "Added: warpforge-burger (snakeburger)"
+        } else {
+            logger.info("snakeburger distribution not found (optional)")
+        }
+
+        // Update warpforge-trace wrapper to use unified paths
+        def traceWrapper = new File(binDir, 'warpforge-trace')
+        if (traceWrapper.exists()) {
+            traceWrapper.text = """\
+#!/bin/bash
+SCRIPT_DIR="\$(cd "\$(dirname "\${BASH_SOURCE[0]}")" && pwd)"
+DIST_DIR="\$(dirname "\$SCRIPT_DIR")"
+
+# Set library paths for PyTorch
+if [[ "\$(uname)" == "Darwin" ]]; then
+    export DYLD_LIBRARY_PATH="\$DIST_DIR/lib/python/lib/python3.12/site-packages/torch/lib:\$DYLD_LIBRARY_PATH"
+else
+    export LD_LIBRARY_PATH="\$DIST_DIR/lib/python/lib/python3.12/site-packages/torch/lib:\$LD_LIBRARY_PATH"
+fi
+
+# Set PyTorch venv path
+export PYTORCH_VENV="\$DIST_DIR/lib/python"
+
+exec "\$SCRIPT_DIR/warpforge-trace-bin" "\$@"
+""".stripIndent()
+            traceWrapper.setExecutable(true)
+        }
+
+        // Copy config template
+        def confTemplate = file('conf/warpforge.conf.template')
+        if (confTemplate.exists()) {
+            ant.copy(file: confTemplate.absolutePath, tofile: new File(confDir, 'warpforge.conf').absolutePath)
+        }
+
+        // Copy backend manifests and download script
+        def backendsDir = new File(distDir, 'backends')
+        def scriptsSourceDir = file('backends')
+        if (scriptsSourceDir.exists()) {
+            ant.copy(todir: backendsDir.absolutePath) {
+                fileset(dir: scriptsSourceDir.absolutePath)
+            }
+            println "Added: backends/ (GPU backend manifests)"
+        }
+
+        // Copy download-backend script to bin/
+        def downloadScript = file('scripts/download-backend.sh')
+        if (downloadScript.exists()) {
+            ant.copy(file: downloadScript.absolutePath, todir: binDir.absolutePath)
+            new File(binDir, 'download-backend.sh').setExecutable(true)
+            println "Added: download-backend.sh (GPU backend installer)"
+        }
+
+        // =================================================================
+        // UCX/UCC Library Bundling (Linux Only)
+        // =================================================================
+        if (isLinux) {
+            def ucxInstall = file("${rootDir}/../openucx/install")
+            def uccInstall = file("${rootDir}/../ucc/install")
+            def ucxLibDir = new File(ucxInstall, 'lib')
+            def uccLibDir = new File(uccInstall, 'lib')
+
+            if (ucxLibDir.exists() && uccLibDir.exists()) {
+                def ucxDestDir = new File(libDir, 'ucx')
+                ucxDestDir.mkdirs()
+
+                // Copy UCX libraries (libucp, libuct, libucs)
+                ant.copy(todir: ucxDestDir.absolutePath, flatten: true) {
+                    fileset(dir: ucxLibDir.absolutePath) {
+                        include(name: 'libucp.so*')
+                        include(name: 'libuct.so*')
+                        include(name: 'libucs.so*')
+                    }
+                }
+
+                // Copy UCC libraries
+                ant.copy(todir: ucxDestDir.absolutePath, flatten: true) {
+                    fileset(dir: uccLibDir.absolutePath) {
+                        include(name: 'libucc.so*')
+                    }
+                }
+
+                // Copy UCX transport modules (required for RDMA)
+                def ucxModulesDir = new File(ucxLibDir, 'ucx')
+                if (ucxModulesDir.exists()) {
+                    def destModulesDir = new File(ucxDestDir, 'ucx')
+                    destModulesDir.mkdirs()
+                    ant.copy(todir: destModulesDir.absolutePath) {
+                        fileset(dir: ucxModulesDir.absolutePath) {
+                            include(name: '*.so')
+                        }
+                    }
+                }
+
+                println "Added: lib/ucx/ (UCX/UCC RDMA libraries)"
+            } else {
+                logger.info("UCX/UCC libraries not found - skipping RDMA bundling")
+                logger.info("  Expected UCX at: ${ucxLibDir}")
+                logger.info("  Expected UCC at: ${uccLibDir}")
+            }
+
+            // Bundle warpforge-io native binary (ucc-perf-test)
+            def nativeBinary = project(':warpforge-io').file('build/native/nativeCompile/ucc-perf-test')
+            if (nativeBinary.exists()) {
+                // Copy native binary
+                ant.copy(file: nativeBinary.absolutePath, tofile: new File(binDir, 'ucc-perf-test-bin').absolutePath)
+                new File(binDir, 'ucc-perf-test-bin').setExecutable(true)
+
+                // Create wrapper script that sets LD_LIBRARY_PATH
+                def wrapper = new File(binDir, 'ucc-perf-test')
+                wrapper.text = """\
+#!/bin/bash
+# UCC Performance Test Wrapper
+# Sets library paths for bundled UCX/UCC libraries
+
+SCRIPT_DIR="\$(cd "\$(dirname "\${BASH_SOURCE[0]}")" && pwd)"
+DIST_DIR="\$(dirname "\$SCRIPT_DIR")"
+
+# Set library path for UCX/UCC
+export LD_LIBRARY_PATH="\$DIST_DIR/lib/ucx:\$LD_LIBRARY_PATH"
+
+# Set UCX module path for transport plugins
+export UCX_MODULE_DIR="\$DIST_DIR/lib/ucx/ucx"
+
+# Execute the native binary
+exec "\$SCRIPT_DIR/ucc-perf-test-bin" "\$@"
+""".stripIndent()
+                wrapper.setExecutable(true)
+
+                println "Added: ucc-perf-test (RDMA collective benchmark)"
+            } else {
+                logger.info("ucc-perf-test native binary not found - skipping")
+                logger.info("  To build: ./gradlew :warpforge-io:nativeCompile")
+            }
+        }
+
+        // Set executable permissions
+        binDir.listFiles()?.each { f ->
+            if (f.isFile()) {
+                f.setExecutable(true)
+            }
+        }
+
+        // Report distribution contents
+        println ""
+        println "=" * 60
+        println "WarpForge ${distVersion} Distribution"
+        println "=" * 60
+        println "Location: ${distDir}"
+        println ""
+        println "Contents:"
+        binDir.listFiles()?.sort()?.each { f ->
+            println "  bin/${f.name}"
+        }
+        libDir.listFiles()?.sort()?.each { f ->
+            def size = f.isDirectory() ?
+                f.directorySize() / 1024 / 1024 :
+                f.size() / 1024 / 1024
+            println "  lib/${f.name}/ (${size.round(1)} MB)"
+        }
+        println ""
+        println "Run: ${distDir}/bin/warpforge --help"
+    }
+}
+
+// Helper to calculate directory size
+File.metaClass.directorySize = {
+    long size = 0
+    delegate.eachFileRecurse { size += it.size() }
+    return size
+}
+
+// =============================================================================
+// UCX/UCC Library Bundling (Linux Only)
+// =============================================================================
+
+// UCX/UCC libraries are required for RDMA collective operations on Linux.
+// These are bundled into the distribution so users don't need to install them.
+tasks.register('bundleUcxLibraries') {
+    group = 'distribution'
+    description = 'Bundle UCX/UCC libraries for RDMA support (Linux only)'
+
+    // Only run on Linux
+    onlyIf { isLinux }
+
+    def ucxInstall = file("${rootDir}/../openucx/install")
+    def uccInstall = file("${rootDir}/../ucc/install")
+    def ucxLibDir = new File(ucxInstall, 'lib')
+    def uccLibDir = new File(uccInstall, 'lib')
+
+    // Check if libraries exist
+    onlyIf {
+        if (!ucxLibDir.exists()) {
+            logger.warn("UCX libraries not found at ${ucxLibDir} - skipping UCX bundling")
+            logger.warn("To build UCX: cd ../openucx && ./contrib/configure-release && make -j install")
+            return false
+        }
+        if (!uccLibDir.exists()) {
+            logger.warn("UCC libraries not found at ${uccLibDir} - skipping UCC bundling")
+            logger.warn("To build UCC: cd ../ucc && ./configure --with-ucx=../openucx/install && make -j install")
+            return false
+        }
+        return true
+    }
+
+    outputs.dir(new File(distDir, 'lib/ucx'))
+
+    doLast {
+        def ucxDestDir = new File(distDir, 'lib/ucx')
+        ucxDestDir.mkdirs()
+
+        // Copy UCX libraries (libucp, libuct, libucs)
+        ant.copy(todir: ucxDestDir.absolutePath, flatten: true) {
+            fileset(dir: ucxLibDir.absolutePath) {
+                include(name: 'libucp.so*')
+                include(name: 'libuct.so*')
+                include(name: 'libucs.so*')
+                // Also include transport plugins
+                include(name: 'ucx/*.so')
+            }
+        }
+
+        // Copy UCC libraries
+        ant.copy(todir: ucxDestDir.absolutePath, flatten: true) {
+            fileset(dir: uccLibDir.absolutePath) {
+                include(name: 'libucc.so*')
+            }
+        }
+
+        // Copy UCX transport modules (required for RDMA)
+        def ucxModulesDir = new File(ucxLibDir, 'ucx')
+        if (ucxModulesDir.exists()) {
+            def destModulesDir = new File(ucxDestDir, 'ucx')
+            destModulesDir.mkdirs()
+            ant.copy(todir: destModulesDir.absolutePath) {
+                fileset(dir: ucxModulesDir.absolutePath) {
+                    include(name: '*.so')
+                }
+            }
+        }
+
+        // Report what was bundled
+        def bundledLibs = ucxDestDir.listFiles()?.findAll { it.isFile() }?.collect { it.name } ?: []
+        println "Bundled UCX/UCC libraries: ${bundledLibs.size()} files"
+        bundledLibs.sort().each { println "  lib/ucx/${it}" }
+    }
+}
+
+// Bundle warpforge-io native binary (ucc-perf-test)
+tasks.register('bundleWarpforgeIo') {
+    group = 'distribution'
+    description = 'Bundle warpforge-io native binary (ucc-perf-test) for RDMA testing'
+
+    // Only run on Linux (RDMA requires Linux)
+    onlyIf { isLinux }
+
+    def nativeBinary = project(':warpforge-io').file('build/native/nativeCompile/ucc-perf-test')
+
+    // Check if native binary exists
+    onlyIf {
+        if (!nativeBinary.exists()) {
+            logger.warn("ucc-perf-test native binary not found at ${nativeBinary}")
+            logger.warn("To build: ./gradlew :warpforge-io:nativeCompile")
+            return false
+        }
+        return true
+    }
+
+    outputs.file(new File(distDir, 'bin/ucc-perf-test-bin'))
+
+    doLast {
+        def binDir = new File(distDir, 'bin')
+        binDir.mkdirs()
+
+        // Copy native binary
+        ant.copy(file: nativeBinary.absolutePath, tofile: new File(binDir, 'ucc-perf-test-bin').absolutePath)
+        new File(binDir, 'ucc-perf-test-bin').setExecutable(true)
+
+        // Create wrapper script that sets LD_LIBRARY_PATH
+        def wrapper = new File(binDir, 'ucc-perf-test')
+        wrapper.text = """\
+#!/bin/bash
+# UCC Performance Test Wrapper
+# Sets library paths for bundled UCX/UCC libraries
+
+SCRIPT_DIR="\$(cd "\$(dirname "\${BASH_SOURCE[0]}")" && pwd)"
+DIST_DIR="\$(dirname "\$SCRIPT_DIR")"
+
+# Set library path for UCX/UCC
+export LD_LIBRARY_PATH="\$DIST_DIR/lib/ucx:\$LD_LIBRARY_PATH"
+
+# Set UCX module path for transport plugins
+export UCX_MODULE_DIR="\$DIST_DIR/lib/ucx/ucx"
+
+# Execute the native binary
+exec "\$SCRIPT_DIR/ucc-perf-test-bin" "\$@"
+""".stripIndent()
+        wrapper.setExecutable(true)
+
+        println "Added: ucc-perf-test (RDMA collective benchmark)"
+    }
+}
+
+// =============================================================================
+// Distribution Archive Tasks
+// =============================================================================
+
+tasks.register('distTarGz', Tar) {
+    group = 'distribution'
+    description = 'Create tar.gz distribution archive'
+
+    dependsOn 'assembleUnifiedDist'
+
+    archiveBaseName = 'warpforge'
+    archiveVersion = distVersion
+    archiveClassifier = platform
+    compression = Compression.GZIP
+
+    from(distDir) {
+        into "warpforge-${distVersion}"
+    }
+
+    doLast {
+        println "Created: ${archiveFile.get().asFile}"
+        println "Size: ${(archiveFile.get().asFile.size() / 1024 / 1024).round(1)} MB"
+    }
+}
+
+tasks.register('distZip', Zip) {
+    group = 'distribution'
+    description = 'Create zip distribution archive'
+
+    dependsOn 'assembleUnifiedDist'
+
+    archiveBaseName = 'warpforge'
+    archiveVersion = distVersion
+    archiveClassifier = platform
+
+    from(distDir) {
+        into "warpforge-${distVersion}"
+    }
+
+    doLast {
+        println "Created: ${archiveFile.get().asFile}"
+    }
+}
+
+// =============================================================================
+// Test Distribution
+// =============================================================================
+
+tasks.register('testDist', Exec) {
+    group = 'verification'
+    description = 'Test the unified distribution'
+
+    dependsOn 'assembleUnifiedDist'
+
+    def warpforgeBin = file("${distDir}/bin/warpforge")
+
+    doFirst {
+        if (!warpforgeBin.exists()) {
+            throw new GradleException("warpforge binary not found at: ${warpforgeBin}")
+        }
+        println "Testing: ${warpforgeBin}"
+    }
+
+    commandLine warpforgeBin.absolutePath, '--help'
+}
+
+// =============================================================================
+// Container Build Tasks
+// =============================================================================
+
+// Helper to check if a command exists (called at execution time)
+def commandExists = { String cmd ->
+    try {
+        def process = [cmd, '--version'].execute()
+        process.waitFor()
+        return process.exitValue() == 0
+    } catch (Exception e) {
+        return false
+    }
+}
+
+// Docker: Build base image (CPU-only, minimal)
+tasks.register('buildDockerBase', Exec) {
+    group = 'container'
+    description = 'Build WarpForge base Docker image (CPU-only)'
+
+    dependsOn 'assembleUnifiedDist'
+    onlyIf { commandExists('docker') }
+
+    workingDir projectDir
+    commandLine 'docker', 'build',
+        '-f', 'containers/Dockerfile.base',
+        '-t', "warpforge:${distVersion}",
+        '-t', "warpforge:latest",
+        '--build-arg', "WARPFORGE_VERSION=${distVersion}",
+        '.'
+
+    doFirst {
+        println "Building Docker image: warpforge:${distVersion}"
+    }
+}
+
+// Docker: Build CPU image (with PyTorch tracing)
+tasks.register('buildDockerCpu', Exec) {
+    group = 'container'
+    description = 'Build WarpForge CPU Docker image (with PyTorch)'
+
+    dependsOn 'assembleUnifiedDist'
+    onlyIf { commandExists('docker') }
+
+    workingDir projectDir
+    commandLine 'docker', 'build',
+        '-f', 'containers/Dockerfile.cpu',
+        '-t', "warpforge:${distVersion}-cpu",
+        '--build-arg', "WARPFORGE_VERSION=${distVersion}",
+        '.'
+
+    doFirst {
+        println "Building Docker image: warpforge:${distVersion}-cpu"
+    }
+}
+
+// Docker: Build CUDA image
+tasks.register('buildDockerCuda', Exec) {
+    group = 'container'
+    description = 'Build WarpForge CUDA Docker image'
+
+    dependsOn 'assembleUnifiedDist'
+    onlyIf { commandExists('docker') }
+
+    workingDir projectDir
+    commandLine 'docker', 'build',
+        '-f', 'containers/Dockerfile.cuda',
+        '-t', "warpforge:${distVersion}-cuda",
+        '--build-arg', "WARPFORGE_VERSION=${distVersion}",
+        '.'
+
+    doFirst {
+        println "Building Docker image: warpforge:${distVersion}-cuda"
+    }
+}
+
+// Docker: Build ROCm image
+tasks.register('buildDockerRocm', Exec) {
+    group = 'container'
+    description = 'Build WarpForge ROCm Docker image'
+
+    dependsOn 'assembleUnifiedDist'
+    onlyIf { commandExists('docker') }
+
+    workingDir projectDir
+    commandLine 'docker', 'build',
+        '-f', 'containers/Dockerfile.rocm',
+        '-t', "warpforge:${distVersion}-rocm",
+        '--build-arg', "WARPFORGE_VERSION=${distVersion}",
+        '.'
+
+    doFirst {
+        println "Building Docker image: warpforge:${distVersion}-rocm"
+    }
+}
+
+// Docker: Build all images
+tasks.register('buildDockerAll') {
+    group = 'container'
+    description = 'Build all WarpForge Docker images'
+
+    dependsOn 'buildDockerBase', 'buildDockerCpu', 'buildDockerCuda', 'buildDockerRocm'
+}
+
+// Singularity: Build CUDA image
+tasks.register('buildSingularityCuda', Exec) {
+    group = 'container'
+    description = 'Build WarpForge CUDA Singularity image'
+
+    dependsOn 'assembleUnifiedDist'
+    onlyIf { isLinux && commandExists('singularity') }
+
+    workingDir projectDir
+    commandLine 'singularity', 'build',
+        "${layout.buildDirectory.get()}/warpforge-${distVersion}-cuda.sif",
+        'containers/singularity/warpforge-cuda.def'
+
+    doFirst {
+        println "Building Singularity image: warpforge-${distVersion}-cuda.sif"
+    }
+}
+
+// Singularity: Build ROCm image
+tasks.register('buildSingularityRocm', Exec) {
+    group = 'container'
+    description = 'Build WarpForge ROCm Singularity image'
+
+    dependsOn 'assembleUnifiedDist'
+    onlyIf { isLinux && commandExists('singularity') }
+
+    workingDir projectDir
+    commandLine 'singularity', 'build',
+        "${layout.buildDirectory.get()}/warpforge-${distVersion}-rocm.sif",
+        'containers/singularity/warpforge-rocm.def'
+
+    doFirst {
+        println "Building Singularity image: warpforge-${distVersion}-rocm.sif"
+    }
+}
+
+// Singularity: Build all images
+tasks.register('buildSingularityAll') {
+    group = 'container'
+    description = 'Build all WarpForge Singularity images'
+
+    dependsOn 'buildSingularityCuda', 'buildSingularityRocm'
+}
+
+// Build all containers (Docker + Singularity)
+tasks.register('buildContainersAll') {
+    group = 'container'
+    description = 'Build all WarpForge container images (Docker and Singularity)'
+
+    dependsOn 'buildDockerAll'
+    if (isLinux) {
+        dependsOn 'buildSingularityAll'
+    }
+}
+
+// =============================================================================
+// Clean
+// =============================================================================
+
+clean {
+    delete distDir
+    delete file("${layout.buildDirectory.get()}")
+}

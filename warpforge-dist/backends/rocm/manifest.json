@@ -1,0 +1,25 @@
+{
+  "backend": "rocm",
+  "version": "6.0",
+  "description": "AMD ROCm runtime libraries for GPU acceleration",
+  "platforms": {
+    "linux-amd64": {
+      "url": "https://github.com/surfworks/warpforge-backends/releases/download/v0.1.0/rocm-6.0-linux-amd64.tar.gz",
+      "sha256": "placeholder-sha256-to-be-updated-on-release",
+      "size_mb": 768
+    }
+  },
+  "libraries": [
+    "libamdhip64.so.6",
+    "librocblas.so.4",
+    "libMIOpen.so.1",
+    "librccl.so.1"
+  ],
+  "detection": {
+    "device_path": "/dev/kfd",
+    "cli_tool": "rocm-smi",
+    "env_var": "HIP_VISIBLE_DEVICES"
+  },
+  "min_driver_version": "6.0.0",
+  "supported_gpus": ["gfx908", "gfx90a", "gfx942", "gfx1100", "gfx1101"]
+}

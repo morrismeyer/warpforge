@@ -1,0 +1,406 @@
+name: Release
+
+# Automated multi-platform release builds
+# Triggers on version tags (v*)
+# Builds distributions for all supported platforms and creates GitHub Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+  # Allow manual trigger for testing
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (e.g., 0.1.0)'
+        required: true
+        type: string
+      dry_run:
+        description: 'Dry run (build but do not publish)'
+        required: false
+        default: true
+        type: boolean
+
+env:
+  WARPFORGE_VERSION: ${{ github.event.inputs.version || github.ref_name }}
+
+jobs:
+  # ==========================================================================
+  # Build Linux AMD64 Distribution
+  # ==========================================================================
+  build-linux-amd64:
+    name: Build Linux AMD64
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up GraalVM
+        uses: graalvm/setup-graalvm@v1
+        with:
+          java-version: '25'
+          distribution: 'graalvm'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build build-essential
+
+      - name: Build PyTorch venv
+        run: |
+          ./gradlew :snakegrinder-dist:buildPytorchVenv --no-build-cache
+          ./gradlew :snakegrinder-dist:prunePytorchVenv
+
+      - name: Build unified distribution
+        run: |
+          ./gradlew :warpforge-dist:distTarGz --no-configuration-cache
+
+      - name: Smoke test distribution
+        run: |
+          mkdir -p /tmp/smoke-test
+          tar -xzf warpforge-dist/build/warpforge-*.tar.gz -C /tmp/smoke-test
+
+          # Unset Java environment to verify zero-config
+          unset JAVA_HOME
+          unset GRAALVM_HOME
+
+          cd /tmp/smoke-test/warpforge-*
+
+          # Test each binary
+          ./bin/warpforge --version
+          ./bin/warpforge-trace --help | head -5
+
+          echo "Smoke test passed!"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: warpforge-linux-amd64
+          path: warpforge-dist/build/warpforge-*.tar.gz
+          retention-days: 7
+
+  # ==========================================================================
+  # Build Linux ARM64 Distribution
+  # ==========================================================================
+  build-linux-arm64:
+    name: Build Linux ARM64
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 180
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up GraalVM
+        uses: graalvm/setup-graalvm@v1
+        with:
+          java-version: '25'
+          distribution: 'graalvm'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build build-essential
+
+      - name: Build PyTorch venv
+        run: |
+          ./gradlew :snakegrinder-dist:buildPytorchVenv --no-build-cache
+          ./gradlew :snakegrinder-dist:prunePytorchVenv
+
+      - name: Build unified distribution
+        run: |
+          ./gradlew :warpforge-dist:distTarGz --no-configuration-cache
+
+      - name: Smoke test distribution
+        run: |
+          mkdir -p /tmp/smoke-test
+          tar -xzf warpforge-dist/build/warpforge-*.tar.gz -C /tmp/smoke-test
+          cd /tmp/smoke-test/warpforge-*
+          ./bin/warpforge --version
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: warpforge-linux-arm64
+          path: warpforge-dist/build/warpforge-*.tar.gz
+          retention-days: 7
+
+  # ==========================================================================
+  # Build macOS ARM64 Distribution
+  # ==========================================================================
+  build-macos-arm64:
+    name: Build macOS ARM64
+    runs-on: macos-14
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up GraalVM
+        uses: graalvm/setup-graalvm@v1
+        with:
+          java-version: '25'
+          distribution: 'graalvm'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install build dependencies
+        run: |
+          brew install cmake ninja
+
+      - name: Build PyTorch venv
+        run: |
+          ./gradlew :snakegrinder-dist:buildPytorchVenv --no-build-cache
+          ./gradlew :snakegrinder-dist:prunePytorchVenv
+
+      - name: Build unified distribution
+        run: |
+          ./gradlew :warpforge-dist:distTarGz --no-configuration-cache
+
+      - name: Smoke test distribution
+        run: |
+          mkdir -p /tmp/smoke-test
+          tar -xzf warpforge-dist/build/warpforge-*.tar.gz -C /tmp/smoke-test
+          cd /tmp/smoke-test/warpforge-*
+          ./bin/warpforge --version
+          ./bin/warpforge-trace --help | head -5
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: warpforge-macos-arm64
+          path: warpforge-dist/build/warpforge-*.tar.gz
+          retention-days: 7
+
+  # ==========================================================================
+  # Build macOS AMD64 Distribution
+  # ==========================================================================
+  build-macos-amd64:
+    name: Build macOS AMD64
+    runs-on: macos-13
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up GraalVM
+        uses: graalvm/setup-graalvm@v1
+        with:
+          java-version: '25'
+          distribution: 'graalvm'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install build dependencies
+        run: |
+          brew install cmake ninja
+
+      - name: Build PyTorch venv
+        run: |
+          ./gradlew :snakegrinder-dist:buildPytorchVenv --no-build-cache
+          ./gradlew :snakegrinder-dist:prunePytorchVenv
+
+      - name: Build unified distribution
+        run: |
+          ./gradlew :warpforge-dist:distTarGz --no-configuration-cache
+
+      - name: Smoke test distribution
+        run: |
+          mkdir -p /tmp/smoke-test
+          tar -xzf warpforge-dist/build/warpforge-*.tar.gz -C /tmp/smoke-test
+          cd /tmp/smoke-test/warpforge-*
+          ./bin/warpforge --version
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: warpforge-macos-amd64
+          path: warpforge-dist/build/warpforge-*.tar.gz
+          retention-days: 7
+
+  # ==========================================================================
+  # Create GitHub Release
+  # ==========================================================================
+  create-release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: [build-linux-amd64, build-linux-arm64, build-macos-arm64, build-macos-amd64]
+    if: ${{ !inputs.dry_run }}
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Prepare release assets
+        run: |
+          mkdir -p release-assets
+
+          # Rename artifacts to include version
+          VERSION="${{ env.WARPFORGE_VERSION }}"
+          VERSION="${VERSION#v}"  # Remove 'v' prefix if present
+
+          for dir in artifacts/warpforge-*; do
+            PLATFORM=$(basename "$dir" | sed 's/warpforge-//')
+            TARBALL=$(ls "$dir"/*.tar.gz 2>/dev/null | head -1)
+            if [[ -n "$TARBALL" ]]; then
+              cp "$TARBALL" "release-assets/warpforge-${VERSION}-${PLATFORM}.tar.gz"
+            fi
+          done
+
+          echo "Release assets:"
+          ls -la release-assets/
+
+      - name: Generate release notes
+        run: |
+          VERSION="${{ env.WARPFORGE_VERSION }}"
+          VERSION="${VERSION#v}"
+
+          cat > release-notes.md << 'EOF'
+          ## WarpForge ${{ env.WARPFORGE_VERSION }}
+
+          ### Installation
+
+          Download the archive for your platform and extract:
+
+          ```bash
+          # Linux AMD64
+          curl -LO https://github.com/surfworks/warpforge/releases/download/${{ env.WARPFORGE_VERSION }}/warpforge-VERSION-linux-amd64.tar.gz
+          tar -xzf warpforge-VERSION-linux-amd64.tar.gz
+          export PATH="$PWD/warpforge-VERSION/bin:$PATH"
+
+          # macOS ARM64 (Apple Silicon)
+          curl -LO https://github.com/surfworks/warpforge/releases/download/${{ env.WARPFORGE_VERSION }}/warpforge-VERSION-macos-arm64.tar.gz
+          tar -xzf warpforge-VERSION-macos-arm64.tar.gz
+          export PATH="$PWD/warpforge-VERSION/bin:$PATH"
+          ```
+
+          Or use the one-liner install script:
+
+          ```bash
+          curl -sSL https://raw.githubusercontent.com/surfworks/warpforge/main/warpforge-dist/scripts/install.sh | bash
+          ```
+
+          ### Verify Installation
+
+          ```bash
+          warpforge --version
+          warpforge gpu-info
+          ```
+
+          ### What's Included
+
+          - `warpforge` - Main CLI for job submission and management
+          - `warpforge-trace` - PyTorch model tracing (generates StableHLO MLIR)
+          - `warpforge-burger` - Babylon code reflection tools
+          - `download-backend.sh` - GPU backend installer (CUDA/ROCm)
+
+          ### Platform Support
+
+          | Platform | Architecture | Status |
+          |----------|--------------|--------|
+          | Linux | AMD64 (x86_64) | ✅ Full support |
+          | Linux | ARM64 (aarch64) | ✅ Full support |
+          | macOS | ARM64 (Apple Silicon) | ✅ Full support |
+          | macOS | AMD64 (Intel) | ✅ Full support |
+
+          ### GPU Support
+
+          GPU backends are downloaded on-demand:
+
+          ```bash
+          # Auto-detect and install
+          warpforge gpu-info --install
+
+          # Or manually
+          download-backend.sh cuda   # NVIDIA
+          download-backend.sh rocm   # AMD
+          ```
+
+          ---
+
+          **Full Changelog**: https://github.com/surfworks/warpforge/compare/.../${{ env.WARPFORGE_VERSION }}
+          EOF
+
+          # Replace VERSION placeholder
+          sed -i "s/VERSION/${VERSION}/g" release-notes.md
+
+      - name: Create release
+        uses: softprops/action-gh-release@v1
+        with:
+          name: WarpForge ${{ env.WARPFORGE_VERSION }}
+          body_path: release-notes.md
+          files: release-assets/*
+          draft: false
+          prerelease: ${{ contains(env.WARPFORGE_VERSION, '-') }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ==========================================================================
+  # Build Docker Images (after release)
+  # ==========================================================================
+  build-docker-images:
+    name: Build Docker Images
+    runs-on: ubuntu-latest
+    needs: [create-release]
+    if: ${{ !inputs.dry_run }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download Linux AMD64 artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: warpforge-linux-amd64
+          path: warpforge-dist/build
+
+      - name: Extract distribution
+        run: |
+          cd warpforge-dist/build
+          tar -xzf warpforge-*.tar.gz
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push base image
+        uses: docker/build-push-action@v5
+        with:
+          context: warpforge-dist
+          file: warpforge-dist/containers/Dockerfile.base
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/warpforge:${{ env.WARPFORGE_VERSION }}
+            ghcr.io/${{ github.repository_owner }}/warpforge:latest
+          build-args: |
+            WARPFORGE_VERSION=${{ env.WARPFORGE_VERSION }}
+
+      - name: Build and push CUDA image
+        uses: docker/build-push-action@v5
+        with:
+          context: warpforge-dist
+          file: warpforge-dist/containers/Dockerfile.cuda
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/warpforge:${{ env.WARPFORGE_VERSION }}-cuda
+          build-args: |
+            WARPFORGE_VERSION=${{ env.WARPFORGE_VERSION }}

@@ -56,4 +56,5 @@ subprojects {
 }
 
 apply from: "$rootDir/gradle/jdk-routing.gradle"
+apply from: "$rootDir/gradle/versions.gradle"
 

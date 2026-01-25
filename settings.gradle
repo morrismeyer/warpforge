@@ -38,5 +38,6 @@ include('openucx-runtime')
 include('warpforge-io')
 include('warpforge-data')
 include('warpforge-benchmark')
+include('warpforge-dist')
 include('tools:mcp-shared-context')
 

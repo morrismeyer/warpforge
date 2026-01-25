@@ -1,0 +1,49 @@
+# WarpForge Base Container
+# CPU-only image with all WarpForge tools
+#
+# Build:
+#   docker build -f Dockerfile.base -t warpforge:0.1.0 ..
+#
+# Run:
+#   docker run --rm warpforge:0.1.0 --help
+#   docker run --rm -v /data:/data warpforge:0.1.0 submit --source /data/model.py
+
+ARG WARPFORGE_VERSION=0.1.0
+ARG UBUNTU_VERSION=22.04
+
+FROM ubuntu:${UBUNTU_VERSION} AS base
+
+# Install minimal runtime dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy WarpForge distribution
+ARG WARPFORGE_VERSION
+COPY build/warpforge-${WARPFORGE_VERSION} /opt/warpforge
+
+# Set up environment
+ENV WARPFORGE_HOME=/opt/warpforge
+ENV PATH="/opt/warpforge/bin:${PATH}"
+
+# Create non-root user for security
+RUN useradd -m -s /bin/bash warpforge && \
+    chown -R warpforge:warpforge /opt/warpforge
+
+USER warpforge
+WORKDIR /home/warpforge
+
+# Default entrypoint
+ENTRYPOINT ["/opt/warpforge/bin/warpforge"]
+CMD ["--help"]
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD ["/opt/warpforge/bin/warpforge", "--version"]
+
+# Labels
+LABEL org.opencontainers.image.title="WarpForge"
+LABEL org.opencontainers.image.description="WarpForge ML Compiler - CPU-only base image"
+LABEL org.opencontainers.image.version="${WARPFORGE_VERSION}"
+LABEL org.opencontainers.image.source="https://github.com/surfworks/warpforge"

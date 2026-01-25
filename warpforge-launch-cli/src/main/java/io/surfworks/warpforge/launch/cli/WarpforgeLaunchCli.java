@@ -2,6 +2,7 @@ package io.surfworks.warpforge.launch.cli;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
+import io.surfworks.warpforge.core.backend.GpuDetector;
 import io.surfworks.warpforge.launch.artifact.ArtifactException;
 import io.surfworks.warpforge.launch.artifact.ArtifactRegistry;
 import io.surfworks.warpforge.launch.artifact.ArtifactStore;
@@ -87,6 +88,7 @@ public class WarpforgeLaunchCli {
                 case "cluster-info" -> handleClusterInfo(commandArgs);
                 case "parity-test" -> handleParityTest(commandArgs);
                 case "config" -> handleConfig(commandArgs);
+                case "gpu-info" -> handleGpuInfo(commandArgs);
                 default -> {
                     System.err.println("Unknown command: " + command);
                     System.err.println("Run 'warpforge-launch --help' for usage.");
@@ -384,6 +386,75 @@ public class WarpforgeLaunchCli {
         }
     }
 
+    private static void handleGpuInfo(String[] args) throws IOException {
+        if (hasFlag(args, "--help")) {
+            System.out.println("Usage: warpforge-launch gpu-info [--json] [--install]");
+            System.out.println();
+            System.out.println("Display detected GPUs and backend installation status.");
+            System.out.println();
+            System.out.println("Options:");
+            System.out.println("  --json       Output as JSON");
+            System.out.println("  --install    Install backend for detected GPU");
+            return;
+        }
+
+        boolean json = hasFlag(args, "--json");
+        boolean install = hasFlag(args, "--install");
+
+        var gpus = GpuDetector.detectAll();
+
+        if (json) {
+            System.out.println(JSON.writeValueAsString(gpus));
+        } else {
+            if (gpus.isEmpty()) {
+                System.out.println("No GPUs detected.");
+                System.out.println();
+                System.out.println("Supported GPUs:");
+                System.out.println("  - NVIDIA GPUs (CUDA)");
+                System.out.println("  - AMD GPUs (ROCm)");
+                System.out.println();
+                System.out.println("If you have a GPU that's not detected:");
+                System.out.println("  - NVIDIA: Ensure nvidia-smi is available");
+                System.out.println("  - AMD: Ensure rocm-smi is available");
+            } else {
+                System.out.println("Detected GPUs:");
+                System.out.println("=".repeat(50));
+
+                for (var gpu : gpus) {
+                    System.out.printf("%s GPU %d: %s%n", gpu.vendor(), gpu.deviceIndex(), gpu.name());
+                    System.out.printf("  Memory:  %d MB%n", gpu.totalMemoryBytes() / (1024 * 1024));
+                    System.out.printf("  Driver:  %s%n", gpu.driverVersion());
+
+                    boolean installed = gpu.isBackendInstalled();
+                    System.out.printf("  Backend: %s (%s)%n",
+                            gpu.vendor().backendName(),
+                            installed ? "installed" : "not installed");
+
+                    if (!installed && install) {
+                        System.out.println();
+                        System.out.println("Installing " + gpu.vendor().backendName() + " backend...");
+                        try {
+                            GpuDetector.ensureBackendInstalled(gpu.vendor());
+                            System.out.println("Backend installed successfully.");
+                        } catch (GpuDetector.BackendNotAvailableException e) {
+                            System.err.println("Failed to install backend: " + e.getMessage());
+                        }
+                    }
+                    System.out.println();
+                }
+
+                // Show summary
+                boolean anyNotInstalled = gpus.stream().anyMatch(g -> !g.isBackendInstalled());
+                if (anyNotInstalled && !install) {
+                    System.out.println("To install missing backends, run:");
+                    System.out.println("  warpforge gpu-info --install");
+                    System.out.println("Or use the download script:");
+                    System.out.println("  download-backend.sh auto");
+                }
+            }
+        }
+    }
+
     private static void handleConfig(String[] args) throws IOException {
         if (hasFlag(args, "--help")) {
             System.out.println("Usage: warpforge-launch config [--show] [--set <key>=<value>] [--json]");
@@ -619,6 +690,7 @@ public class WarpforgeLaunchCli {
         System.out.println("  cancel        Cancel a job");
         System.out.println("  list          List jobs");
         System.out.println("  cluster-info  Show cluster topology");
+        System.out.println("  gpu-info      Show GPU info and backend status");
         System.out.println("  parity-test   Run PyTorch vs WarpForge comparison");
         System.out.println("  config        Show/set configuration");
         System.out.println();

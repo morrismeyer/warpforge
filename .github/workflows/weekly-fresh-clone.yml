@@ -376,6 +376,75 @@ jobs:
           echo "All SnakeGrinder distribution tests passed"
 
       # ========================================
+      # PHASE 7.5: Unified Distribution & Zero-Config Verification
+      # ========================================
+      - name: Build unified WarpForge distribution
+        run: |
+          set -euo pipefail
+          cd "$FRESH_CLONE_DIR"
+
+          echo "=== Unified WarpForge Distribution Build ==="
+
+          ./gradlew :warpforge-dist:assembleUnifiedDist --no-build-cache --no-configuration-cache 2>&1 | tee unified-dist-build.log
+
+          DIST_DIR="warpforge-dist/build/warpforge-"*
+          if [[ -d $DIST_DIR ]]; then
+            echo "Distribution assembled:"
+            ls -la $DIST_DIR/bin/
+            echo "Total size: $(du -sh $DIST_DIR | cut -f1)"
+          fi
+
+      - name: Verify zero-config deployment
+        run: |
+          set -euo pipefail
+          cd "$FRESH_CLONE_DIR"
+
+          echo "=== Zero-Config Deployment Verification ==="
+          echo "This is the ultimate 'It Just Works' test."
+          echo ""
+
+          # Create distribution archive
+          ./gradlew :warpforge-dist:distTarGz --no-build-cache --no-configuration-cache
+
+          TARBALL=$(ls warpforge-dist/build/*.tar.gz 2>/dev/null | head -1)
+          if [[ -z "$TARBALL" ]]; then
+            echo "ERROR: Distribution archive not created"
+            exit 1
+          fi
+
+          echo "Testing distribution in isolated Docker container..."
+          echo "(Simulates a fresh machine with no Java installed)"
+
+          # Run distribution in a fresh Ubuntu container
+          docker run --rm -v "$(pwd)/warpforge-dist/build:/dist:ro" ubuntu:22.04 bash -c '
+            set -e
+            cd /tmp
+            tar -xzf /dist/warpforge-*.tar.gz
+            cd warpforge-*
+
+            echo "Testing warpforge CLI..."
+            ./bin/warpforge --version
+
+            echo ""
+            echo "Testing warpforge-trace..."
+            ./bin/warpforge-trace --help | head -3
+
+            echo ""
+            echo "Testing gpu-info (no GPU expected)..."
+            ./bin/warpforge gpu-info || true
+
+            echo ""
+            echo "=========================================="
+            echo "  ZERO-CONFIG DEPLOYMENT: SUCCESS"
+            echo "=========================================="
+            echo "WarpForge runs on a fresh Ubuntu system"
+            echo "with NO Java, NO Python, NO environment setup!"
+          '
+
+          echo ""
+          echo "Zero-config deployment verification PASSED"
+
+      # ========================================
       # PHASE 8: UCC Native Image Build
       # ========================================
       - name: Build native-image UCC performance test

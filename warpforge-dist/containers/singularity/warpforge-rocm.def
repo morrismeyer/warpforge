@@ -1,0 +1,75 @@
+# WarpForge ROCm Singularity Container
+# For HPC clusters with Slurm and AMD GPUs
+#
+# Build:
+#   singularity build warpforge-rocm.sif warpforge-rocm.def
+#
+# Run:
+#   singularity run --rocm warpforge-rocm.sif --help
+#   singularity exec --rocm warpforge-rocm.sif warpforge gpu-info
+#
+# Slurm example:
+#   srun --gres=gpu:1 singularity exec --rocm warpforge-rocm.sif warpforge submit --source model.py
+
+Bootstrap: docker
+From: rocm/dev-ubuntu-22.04:6.0
+
+%labels
+    Author WarpForge Team
+    Version 0.1.0
+    Description WarpForge ML Compiler - AMD ROCm GPU container for HPC
+
+%post
+    # Install runtime dependencies
+    apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        libgomp1 \
+        libstdc++6 \
+        libc6 \
+        libibverbs1 \
+        librdmacm1 \
+        && rm -rf /var/lib/apt/lists/*
+
+    # Create WarpForge directory
+    mkdir -p /opt/warpforge
+
+%files
+    # Copy WarpForge distribution (relative to build context)
+    build/warpforge-0.1.0 /opt/warpforge
+
+%environment
+    export WARPFORGE_HOME=/opt/warpforge
+    export PATH="/opt/warpforge/bin:${PATH}"
+    export PYTORCH_VENV="/opt/warpforge/lib/python"
+    export ROCM_HOME=/opt/rocm
+    export HIP_PATH=${ROCM_HOME}
+    export LD_LIBRARY_PATH="${ROCM_HOME}/lib:${LD_LIBRARY_PATH}"
+    # UCX settings for InfiniBand
+    export UCX_TLS=rc,ud,sm,self
+
+%runscript
+    exec /opt/warpforge/bin/warpforge "$@"
+
+%test
+    /opt/warpforge/bin/warpforge --version
+
+%help
+    WarpForge ML Compiler - ROCm Container for HPC
+
+    This container includes:
+    - WarpForge CLI tools
+    - PyTorch tracing (warpforge-trace)
+    - ROCm 6.0 runtime
+
+    Usage:
+      singularity run --rocm warpforge-rocm.sif [command] [options]
+      singularity exec --rocm warpforge-rocm.sif warpforge gpu-info
+
+    Commands:
+      warpforge          - Job submission and management
+      warpforge-trace    - PyTorch model tracing
+      warpforge-burger   - Babylon code reflection tools
+
+    For multi-node jobs with Slurm:
+      srun --nodes=2 --gres=gpu:1 singularity exec --rocm warpforge-rocm.sif \
+          warpforge submit --source model.py --gpu-count 2

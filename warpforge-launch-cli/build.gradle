@@ -1,6 +1,9 @@
 plugins {
     id 'application'
+    id 'org.graalvm.buildtools.native' version '0.10.4'
 }
+
+import org.gradle.jvm.toolchain.JvmVendorSpec
 
 group = 'io.surfworks.warpforge'
 version = '0.0.1-SNAPSHOT'
@@ -13,6 +16,7 @@ description = 'WarpForge Launch CLI - Distributed job submission tool'
 
 dependencies {
     implementation project(':warpforge-launch-core')
+    implementation project(':warpforge-core')
     implementation project(':warpforge-license')
 
     // Jackson for JSON output formatting
@@ -22,6 +26,7 @@ dependencies {
 java {
     toolchain {
         languageVersion = JavaLanguageVersion.of(25)
+        vendor = JvmVendorSpec.matching("GraalVM")
     }
 }
 
@@ -31,4 +36,111 @@ application {
 
 tasks.named('test') {
     useJUnitPlatform()
+}
+
+// ===== GraalVM Native Image Configuration =====
+
+// GraalVM toolchain launcher for native-image
+def graalLauncher = javaToolchains.launcherFor {
+    languageVersion = JavaLanguageVersion.of(25)
+    vendor = JvmVendorSpec.matching("GraalVM")
+}
+
+// Fix broken native-image symlink in Gradle-provisioned GraalVM
+// Gradle auto-provisions GraalVM with a 0-byte native-image placeholder instead of a proper symlink
+tasks.register('fixNativeImageSymlink') {
+    description = 'Fixes broken native-image symlink in Gradle-provisioned GraalVM'
+    doLast {
+        def launcher = graalLauncher.get()
+        def javaHome = launcher.metadata.installationPath.asFile
+        def binNativeImage = new File(javaHome, 'bin/native-image')
+        def svmNativeImage = new File(javaHome, 'lib/svm/bin/native-image')
+
+        if (!svmNativeImage.exists()) {
+            logger.warn("No native-image found at ${svmNativeImage} - skipping symlink fix")
+            return
+        }
+
+        // Fix if bin/native-image is missing, empty, or not a working symlink
+        def needsFix = !binNativeImage.exists() ||
+                       (binNativeImage.isFile() && binNativeImage.length() == 0) ||
+                       (!binNativeImage.canExecute() && !java.nio.file.Files.isSymbolicLink(binNativeImage.toPath()))
+
+        if (needsFix) {
+            logger.lifecycle("Fixing broken native-image symlink in ${javaHome}")
+            binNativeImage.delete()
+            java.nio.file.Files.createSymbolicLink(
+                binNativeImage.toPath(),
+                binNativeImage.parentFile.toPath().relativize(svmNativeImage.toPath())
+            )
+            logger.lifecycle("Created symlink: ${binNativeImage} -> ${svmNativeImage}")
+        }
+    }
+}
+
+tasks.named('nativeCompile') {
+    dependsOn 'fixNativeImageSymlink'
+}
+
+// Native image configuration for warpforge-launch CLI
+graalvmNative {
+    binaries {
+        main {
+            imageName = 'warpforge-launch'
+            mainClass = 'io.surfworks.warpforge.launch.cli.WarpforgeLaunchCli'
+            javaLauncher.set(graalLauncher)
+
+            // Force executable output (not shared library)
+            sharedLibrary = false
+
+            // Native image build options
+            buildArgs.addAll([
+                '-H:+ReportExceptionStackTraces',
+                '--no-fallback',
+                // Initialize Jackson at build time for faster startup
+                '--initialize-at-build-time=com.fasterxml.jackson',
+                // Optimization
+                '-O2'
+            ])
+        }
+    }
+
+    toolchainDetection = false
+}
+
+// ===== Distribution Tasks =====
+
+// Build native executable
+tasks.register('buildNativeLaunch') {
+    description = 'Build native-image executable for warpforge-launch CLI'
+    group = 'build'
+    dependsOn 'nativeCompile'
+}
+
+// Assemble distribution with native binary
+tasks.register('assembleLaunchDist', Copy) {
+    description = 'Assemble warpforge-launch distribution'
+    group = 'distribution'
+    dependsOn 'nativeCompile'
+
+    from("${layout.buildDirectory.get()}/native/nativeCompile/warpforge-launch")
+    into("${layout.buildDirectory.get()}/warpforge-launch-dist/bin")
+
+    doLast {
+        logger.lifecycle("Distribution assembled at: ${layout.buildDirectory.get()}/warpforge-launch-dist/")
+    }
+}
+
+// Test the native binary
+tasks.register('testNativeLaunch', Exec) {
+    description = 'Test native warpforge-launch binary'
+    group = 'verification'
+    dependsOn 'nativeCompile'
+
+    def nativeExe = file("${layout.buildDirectory.get()}/native/nativeCompile/warpforge-launch")
+    commandLine nativeExe, '--help'
+
+    doFirst {
+        logger.lifecycle("Testing native binary: ${nativeExe}")
+    }
 }

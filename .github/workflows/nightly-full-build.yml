@@ -313,6 +313,85 @@ jobs:
           echo "All SnakeGrinder distribution tests passed"
 
       # ========================================
+      # PHASE 4.5: Unified WarpForge Distribution
+      # ========================================
+      - name: Build unified WarpForge distribution
+        run: |
+          set -euo pipefail
+          cd ~/surfworks/warpforge
+
+          echo "=== Unified WarpForge Distribution Build ==="
+          echo "Building self-contained distribution with all components..."
+
+          ./gradlew :warpforge-dist:assembleUnifiedDist --no-build-cache --no-configuration-cache 2>&1 | tee unified-dist-build.log
+
+          DIST_DIR="warpforge-dist/build/warpforge-"*
+          if [[ -d $DIST_DIR ]]; then
+            echo ""
+            echo "Distribution assembled:"
+            ls -la $DIST_DIR/bin/
+            echo ""
+            echo "Total size: $(du -sh $DIST_DIR | cut -f1)"
+          else
+            echo "ERROR: Unified distribution not created"
+            exit 1
+          fi
+
+      - name: Smoke test unified distribution
+        run: |
+          set -euo pipefail
+          cd ~/surfworks/warpforge
+
+          echo "=== Unified Distribution Smoke Test ==="
+          echo "Testing zero-config deployment (no Java environment)..."
+
+          # Copy distribution to isolated location
+          mkdir -p /tmp/warpforge-smoke-test
+          cp -r warpforge-dist/build/warpforge-* /tmp/warpforge-smoke-test/
+          cd /tmp/warpforge-smoke-test/warpforge-*
+
+          # Unset all Java environment variables
+          unset JAVA_HOME
+          unset GRAALVM_HOME
+          unset JDK_HOME
+
+          # Test each binary
+          echo ""
+          echo "Testing warpforge CLI..."
+          ./bin/warpforge --version
+
+          echo ""
+          echo "Testing warpforge-trace..."
+          ./bin/warpforge-trace --help | head -5
+
+          echo ""
+          echo "Testing warpforge-burger..."
+          ./bin/warpforge-burger --help | head -5
+
+          echo ""
+          echo "Testing gpu-info..."
+          ./bin/warpforge gpu-info
+
+          echo ""
+          echo "=== Zero-Config Deployment Verified ==="
+          echo "All binaries work without Java environment!"
+
+      - name: Create distribution archive
+        run: |
+          set -euo pipefail
+          cd ~/surfworks/warpforge
+
+          echo "=== Creating Distribution Archive ==="
+
+          ./gradlew :warpforge-dist:distTarGz --no-build-cache --no-configuration-cache 2>&1 | tee dist-archive.log
+
+          TARBALL=$(ls warpforge-dist/build/*.tar.gz 2>/dev/null | head -1)
+          if [[ -f "$TARBALL" ]]; then
+            echo "Distribution archive created:"
+            ls -lh "$TARBALL"
+          fi
+
+      # ========================================
       # PHASE 5: Native Image Build
       # ========================================
       - name: Build native-image UCC performance test

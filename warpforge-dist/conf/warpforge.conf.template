@@ -1,0 +1,23 @@
+# WarpForge Configuration
+# This file is optional - WarpForge uses sensible defaults.
+
+# Default scheduler for job submission
+# Options: local, ray, kubernetes, slurm
+# scheduler = local
+
+# Shared directory for artifacts (optional)
+# shared_dir = /opt/warpforge/shared
+
+# Ray configuration (if using Ray scheduler)
+# [ray]
+# dashboard_url = http://localhost:8265
+
+# Kubernetes configuration (if using Kubernetes scheduler)
+# [kubernetes]
+# namespace = warpforge
+# config_file = ~/.kube/config
+
+# Slurm configuration (if using Slurm scheduler)
+# [slurm]
+# ssh_host = slurm-login.example.com
+# partition = gpu

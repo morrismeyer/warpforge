@@ -1,0 +1,70 @@
+{
+  "reflection": [
+    {
+      "type": "com.fasterxml.jackson.databind.ObjectMapper",
+      "allDeclaredConstructors": true,
+      "allDeclaredMethods": true
+    },
+    {
+      "type": "com.fasterxml.jackson.databind.SerializationFeature",
+      "allDeclaredFields": true
+    },
+    {
+      "type": "io.surfworks.warpforge.launch.cli.WarpforgeLaunchCli$SubmitResponse",
+      "allDeclaredConstructors": true,
+      "allDeclaredMethods": true,
+      "allDeclaredFields": true
+    },
+    {
+      "type": "io.surfworks.warpforge.launch.job.JobStatus",
+      "allDeclaredConstructors": true,
+      "allDeclaredMethods": true,
+      "allDeclaredFields": true
+    },
+    {
+      "type": "io.surfworks.warpforge.launch.job.JobResult",
+      "allDeclaredConstructors": true,
+      "allDeclaredMethods": true,
+      "allDeclaredFields": true
+    },
+    {
+      "type": "io.surfworks.warpforge.launch.job.JobState",
+      "allDeclaredFields": true
+    },
+    {
+      "type": "io.surfworks.warpforge.launch.scheduler.ClusterInfo",
+      "allDeclaredConstructors": true,
+      "allDeclaredMethods": true,
+      "allDeclaredFields": true
+    },
+    {
+      "type": "io.surfworks.warpforge.launch.scheduler.NodeInfo",
+      "allDeclaredConstructors": true,
+      "allDeclaredMethods": true,
+      "allDeclaredFields": true
+    },
+    {
+      "type": "io.surfworks.warpforge.launch.config.LaunchConfig",
+      "allDeclaredConstructors": true,
+      "allDeclaredMethods": true,
+      "allDeclaredFields": true
+    },
+    {
+      "type": "io.surfworks.warpforge.launch.pipeline.ParityResult",
+      "allDeclaredConstructors": true,
+      "allDeclaredMethods": true,
+      "allDeclaredFields": true
+    },
+    {
+      "type": "io.surfworks.warpforge.launch.pipeline.ParityResult$OutputDifference",
+      "allDeclaredConstructors": true,
+      "allDeclaredMethods": true,
+      "allDeclaredFields": true
+    }
+  ],
+  "resources": [
+    {
+      "glob": "META-INF/services/java.time.zone.ZoneRulesProvider"
+    }
+  ]
+}

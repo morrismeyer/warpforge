@@ -1,0 +1,74 @@
+# WarpForge CUDA Singularity Container
+# For HPC clusters with Slurm and NVIDIA GPUs
+#
+# Build:
+#   singularity build warpforge-cuda.sif warpforge-cuda.def
+#
+# Run:
+#   singularity run --nv warpforge-cuda.sif --help
+#   singularity exec --nv warpforge-cuda.sif warpforge gpu-info
+#
+# Slurm example:
+#   srun --gres=gpu:1 singularity exec --nv warpforge-cuda.sif warpforge submit --source model.py
+
+Bootstrap: docker
+From: nvidia/cuda:12.4.0-runtime-ubuntu22.04
+
+%labels
+    Author WarpForge Team
+    Version 0.1.0
+    Description WarpForge ML Compiler - NVIDIA CUDA GPU container for HPC
+
+%post
+    # Install runtime dependencies
+    apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        libgomp1 \
+        libstdc++6 \
+        libc6 \
+        libibverbs1 \
+        librdmacm1 \
+        && rm -rf /var/lib/apt/lists/*
+
+    # Create WarpForge directory
+    mkdir -p /opt/warpforge
+
+%files
+    # Copy WarpForge distribution (relative to build context)
+    build/warpforge-0.1.0 /opt/warpforge
+
+%environment
+    export WARPFORGE_HOME=/opt/warpforge
+    export PATH="/opt/warpforge/bin:${PATH}"
+    export PYTORCH_VENV="/opt/warpforge/lib/python"
+    export CUDA_HOME=/usr/local/cuda
+    export LD_LIBRARY_PATH="${CUDA_HOME}/lib64:${LD_LIBRARY_PATH}"
+    # UCX settings for InfiniBand
+    export UCX_TLS=rc,ud,sm,self
+
+%runscript
+    exec /opt/warpforge/bin/warpforge "$@"
+
+%test
+    /opt/warpforge/bin/warpforge --version
+
+%help
+    WarpForge ML Compiler - CUDA Container for HPC
+
+    This container includes:
+    - WarpForge CLI tools
+    - PyTorch tracing (warpforge-trace)
+    - CUDA 12.4 runtime
+
+    Usage:
+      singularity run --nv warpforge-cuda.sif [command] [options]
+      singularity exec --nv warpforge-cuda.sif warpforge gpu-info
+
+    Commands:
+      warpforge          - Job submission and management
+      warpforge-trace    - PyTorch model tracing
+      warpforge-burger   - Babylon code reflection tools
+
+    For multi-node jobs with Slurm:
+      srun --nodes=2 --gres=gpu:1 singularity exec --nv warpforge-cuda.sif \
+          warpforge submit --source model.py --gpu-count 2

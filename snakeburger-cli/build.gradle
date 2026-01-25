@@ -246,3 +246,121 @@ tasks.register('packageSnakeBurger') {
     description = 'Build the complete SnakeBurger distribution'
     dependsOn 'jlinkDist'
 }
+
+// =============================================================================
+// Platform-specific packaging via jpackage scripts
+// =============================================================================
+
+// macOS DMG installer
+tasks.register('buildSnakeBurgerDmg', Exec) {
+    group = 'distribution'
+    description = 'Create macOS DMG installer (macOS only)'
+
+    dependsOn 'jlinkDist'
+    onlyIf { isMac }
+
+    workingDir projectRootDir
+    commandLine 'bash', 'tools/snakeburger-jpackage/build-snakeburger-cli-dmg.sh'
+
+    doFirst {
+        println "Building macOS DMG installer..."
+    }
+
+    doLast {
+        println "DMG created in: ${buildDir}/"
+    }
+}
+
+// macOS PKG installer
+tasks.register('buildSnakeBurgerPkg', Exec) {
+    group = 'distribution'
+    description = 'Create macOS PKG installer (macOS only)'
+
+    dependsOn 'jlinkDist'
+    onlyIf { isMac }
+
+    workingDir projectRootDir
+    commandLine 'bash', 'tools/snakeburger-jpackage/build-snakeburger-cli-pkg.sh'
+
+    doFirst {
+        println "Building macOS PKG installer..."
+    }
+
+    doLast {
+        println "PKG created in: ${buildDir}/"
+    }
+}
+
+// Linux DEB package
+tasks.register('buildSnakeBurgerDeb', Exec) {
+    group = 'distribution'
+    description = 'Create Linux DEB package (Linux only)'
+
+    dependsOn 'jlinkDist'
+    onlyIf { isLinux }
+
+    workingDir projectRootDir
+    commandLine 'bash', 'tools/snakeburger-jpackage/build-snakeburger-cli-deb.sh'
+
+    doFirst {
+        println "Building Linux DEB package..."
+    }
+
+    doLast {
+        println "DEB package created in: ${buildDir}/"
+    }
+}
+
+// Linux RPM package
+tasks.register('buildSnakeBurgerRpm', Exec) {
+    group = 'distribution'
+    description = 'Create Linux RPM package (Linux only)'
+
+    dependsOn 'jlinkDist'
+    onlyIf { isLinux }
+
+    workingDir projectRootDir
+    commandLine 'bash', 'tools/snakeburger-jpackage/build-snakeburger-cli-rpm.sh'
+
+    doFirst {
+        println "Building Linux RPM package..."
+    }
+
+    doLast {
+        println "RPM package created in: ${buildDir}/"
+    }
+}
+
+// Linux AppImage
+tasks.register('buildSnakeBurgerAppImage', Exec) {
+    group = 'distribution'
+    description = 'Create Linux AppImage (Linux only)'
+
+    dependsOn 'jlinkDist'
+    onlyIf { isLinux }
+
+    workingDir projectRootDir
+    commandLine 'bash', 'tools/snakeburger-jpackage/build-snakeburger-cli-linux-appimage.sh'
+
+    doFirst {
+        println "Building Linux AppImage..."
+    }
+
+    doLast {
+        println "AppImage created in: ${buildDir}/"
+    }
+}
+
+// Build all platform packages (for current platform)
+tasks.register('buildSnakeBurgerAll') {
+    group = 'distribution'
+    description = 'Build all platform-specific installers for current platform'
+
+    dependsOn 'jlinkDist'
+
+    if (isMac) {
+        dependsOn 'buildSnakeBurgerDmg', 'buildSnakeBurgerPkg'
+    } else if (isLinux) {
+        dependsOn 'buildSnakeBurgerDeb', 'buildSnakeBurgerRpm', 'buildSnakeBurgerAppImage'
+    }
+}

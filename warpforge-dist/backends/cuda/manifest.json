@@ -1,0 +1,30 @@
+{
+  "backend": "cuda",
+  "version": "12.4",
+  "description": "NVIDIA CUDA runtime libraries for GPU acceleration",
+  "platforms": {
+    "linux-amd64": {
+      "url": "https://github.com/surfworks/warpforge-backends/releases/download/v0.1.0/cuda-12.4-linux-amd64.tar.gz",
+      "sha256": "placeholder-sha256-to-be-updated-on-release",
+      "size_mb": 512
+    },
+    "linux-aarch64": {
+      "url": "https://github.com/surfworks/warpforge-backends/releases/download/v0.1.0/cuda-12.4-linux-aarch64.tar.gz",
+      "sha256": "placeholder-sha256-to-be-updated-on-release",
+      "size_mb": 512
+    }
+  },
+  "libraries": [
+    "libcudart.so.12",
+    "libcublas.so.12",
+    "libcublasLt.so.12",
+    "libcudnn.so.9"
+  ],
+  "detection": {
+    "device_path": "/dev/nvidia0",
+    "cli_tool": "nvidia-smi",
+    "env_var": "CUDA_VISIBLE_DEVICES"
+  },
+  "min_driver_version": "535.0",
+  "compute_capabilities": ["7.0", "7.5", "8.0", "8.6", "8.9", "9.0"]
+}

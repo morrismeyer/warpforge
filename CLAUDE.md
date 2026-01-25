@@ -584,20 +584,25 @@ Track PyTorch version support: https://github.com/oracle/graalpython/issues/588
 
 - **Never include Co-Authored-By lines** in commit messages under any circumstances
 
-## Pre-Commit Validation: Clean and Build for Green CI Build
+## Pre-Commit Checklist
 
-**Before every commit, run a full clean build and all unit tests locally.**
+**Before every commit, complete these steps in order:**
 
-CI builds will grow longer over time. Catching compilation errors and test failures locally—before pushing—avoids wasted CI cycles and keeps the main branch green.
+1. **Run `git status`** - Review both staged AND unstaged changes
+2. **Verify no unstaged dependencies** - If unstaged files are modified, ask: "Does my staged code depend on any of these?" If yes, stage them too.
+3. **Run `./gradlew clean assemble`** - A clean build catches missing files because it compiles only committed/staged code
+4. **Run `./gradlew test`** - Verify tests pass
+5. **Commit and push**
 
-**Required pre-commit checks:**
+**The most common CI failure is committing code that calls methods/classes in files you forgot to stage.** Step 2 catches this by inspection, step 3 catches it by compilation failure. Both are needed—step 2 is faster, step 3 is more thorough.
 
 ```bash
-# 1. Clean rebuild - catches missing imports, syntax errors, dependency issues
-./gradlew clean assemble
-
-# 2. Run all unit tests - catches regressions and logic errors
-./gradlew test
+# Full pre-commit sequence
+git status                    # Step 1-2: Review staged AND unstaged
+./gradlew clean assemble      # Step 3: Clean rebuild
+./gradlew test                # Step 4: Run tests
+git commit -m "message"       # Step 5: Commit
+git push                      # Push
 ```
 
 **Why this matters:**

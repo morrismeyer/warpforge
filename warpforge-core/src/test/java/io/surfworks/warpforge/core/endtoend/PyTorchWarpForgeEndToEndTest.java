@@ -42,7 +42,7 @@ import static org.junit.jupiter.api.Assertions.fail;
  */
 @Tag("cpu")
 @DisplayName("PyTorch vs WarpForge E2E Tests")
-class PytorchWarpforgeE2ETest {
+class PyTorchWarpForgeEndToEndTest {
 
     private static final Path FIXTURES_DIR = Paths.get(
         "src/test/resources/fixtures/e2e"

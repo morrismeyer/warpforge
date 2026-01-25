@@ -38,6 +38,15 @@ public final class WarpForge {
     private WarpForge() {}
 
     /**
+     * Get the current cache directory.
+     *
+     * @return Path to the cache directory
+     */
+    public static Path cacheDir() {
+        return config.cacheDir();
+    }
+
+    /**
      * Load a model by identifier or path.
      *
      * <p>Supported formats:

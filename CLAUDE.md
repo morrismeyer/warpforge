@@ -662,6 +662,10 @@ The goal is zero human intervention for routine CI failures. If you broke it, yo
   - Every import must specify the exact class being imported
   - This improves code readability and makes dependencies explicit
   - Static imports must also be explicit (e.g., `import static org.junit.jupiter.api.Assertions.assertEquals`)
+- **Use "EndToEnd" not "E2E"** in class names, method names, and documentation
+  - `EndToEndBenchmark` not `E2EBenchmark`
+  - `runEndToEndTests()` not `runE2ETests()`
+  - This improves readability and avoids cryptic abbreviations
 - Example:
   ```java
   package io.surfworks.warpforge.example;

@@ -93,30 +93,128 @@ public final class MatrixOps {
     }
 
     /**
-     * Batched matrix multiplication for 3D tensors.
+     * Batched matrix multiplication for Rank3 tensors.
      *
      * <p>For A[B, M, K] and B[B, K, N], produces C[B, M, N].
      * Batch dimension and inner dimensions must match.
      *
-     * <p>Note: This method accepts Matrix-typed tensors but operates on their
-     * 3D equivalent interpretation. Use reshape to convert Rank3 to batched matrices.
+     * <p>This is the core operation for multi-head attention in transformers.
+     * Each batch element is multiplied independently.
      *
-     * @param a left batch of matrices
-     * @param b right batch of matrices
-     * @param batchSize the batch dimension
+     * @param a left batch of matrices [B, M, K]
+     * @param b right batch of matrices [B, K, N]
      * @param <D> the dtype type
      * @param <V> the device type
-     * @return result batch of matrices
+     * @return result batch of matrices [B, M, N]
+     * @throws IllegalArgumentException if batch sizes or inner dimensions don't match
      */
     public static <D extends DTypeTag, V extends DeviceTag>
-    TypedTensor<Matrix, D, V> batchedMatmul(
-            TypedTensor<Matrix, D, V> a,
-            TypedTensor<Matrix, D, V> b,
-            int batchSize) {
-        // For simplicity, this is a placeholder that shows the type signature.
-        // Full batched matmul implementation would require Rank3 tensor support.
-        throw new UnsupportedOperationException(
-                "Batched matmul requires Rank3 tensor support. Use reshape and loop for now.");
+    TypedTensor<Rank3, D, V> batchedMatmul(TypedTensor<Rank3, D, V> a, TypedTensor<Rank3, D, V> b) {
+        int[] shapeA = a.dimensions();
+        int[] shapeB = b.dimensions();
+
+        int batchA = shapeA[0];
+        int M = shapeA[1];
+        int K1 = shapeA[2];
+
+        int batchB = shapeB[0];
+        int K2 = shapeB[1];
+        int N = shapeB[2];
+
+        // Validate batch dimensions match
+        if (batchA != batchB) {
+            throw new IllegalArgumentException(
+                    "Batch dimensions don't match: " + batchA + " vs " + batchB);
+        }
+
+        // Validate inner dimensions match
+        if (K1 != K2) {
+            throw new IllegalArgumentException(
+                    "Inner dimensions don't match: [*, *, " + K1 + "] @ [*, " + K2 + ", *]. " +
+                    "Left matrix has " + K1 + " columns, right matrix has " + K2 + " rows.");
+        }
+
+        Rank3 resultShape = new Rank3(batchA, M, N);
+        Tensor result = Tensor.zeros(a.underlying().dtype(), batchA, M, N);
+
+        ScalarType dtype = a.underlying().dtype();
+        if (dtype == ScalarType.F32) {
+            batchedMatmulF32(a.underlying().data(), b.underlying().data(), result.data(),
+                    batchA, M, K1, N);
+        } else if (dtype == ScalarType.F64) {
+            batchedMatmulF64(a.underlying().data(), b.underlying().data(), result.data(),
+                    batchA, M, K1, N);
+        } else {
+            throw new UnsupportedOperationException("batchedMatmul not implemented for dtype: " + dtype);
+        }
+
+        return TypedTensor.from(result, resultShape, a.dtypeType(), a.deviceType());
+    }
+
+    /**
+     * Batched matrix multiplication for Rank4 tensors (multi-head attention).
+     *
+     * <p>For A[B, H, M, K] and B[B, H, K, N], produces C[B, H, M, N].
+     * This is specifically designed for multi-head attention where:
+     * - B is batch size
+     * - H is number of attention heads
+     * - M is sequence length (query)
+     * - K is head dimension
+     * - N is sequence length (key/value)
+     *
+     * @param a left tensor [B, H, M, K] - typically Q after reshape
+     * @param b right tensor [B, H, K, N] - typically K^T after reshape
+     * @param <D> the dtype type
+     * @param <V> the device type
+     * @return result tensor [B, H, M, N] - attention scores
+     */
+    public static <D extends DTypeTag, V extends DeviceTag>
+    TypedTensor<Rank4, D, V> batchedMatmulRank4(TypedTensor<Rank4, D, V> a, TypedTensor<Rank4, D, V> b) {
+        int[] shapeA = a.dimensions();
+        int[] shapeB = b.dimensions();
+
+        int batchA = shapeA[0];
+        int headsA = shapeA[1];
+        int M = shapeA[2];
+        int K1 = shapeA[3];
+
+        int batchB = shapeB[0];
+        int headsB = shapeB[1];
+        int K2 = shapeB[2];
+        int N = shapeB[3];
+
+        // Validate batch and head dimensions match
+        if (batchA != batchB) {
+            throw new IllegalArgumentException(
+                    "Batch dimensions don't match: " + batchA + " vs " + batchB);
+        }
+        if (headsA != headsB) {
+            throw new IllegalArgumentException(
+                    "Head dimensions don't match: " + headsA + " vs " + headsB);
+        }
+
+        // Validate inner dimensions match
+        if (K1 != K2) {
+            throw new IllegalArgumentException(
+                    "Inner dimensions don't match: [*, *, *, " + K1 + "] @ [*, *, " + K2 + ", *]. " +
+                    "Left matrix has " + K1 + " columns, right matrix has " + K2 + " rows.");
+        }
+
+        Rank4 resultShape = new Rank4(batchA, headsA, M, N);
+        Tensor result = Tensor.zeros(a.underlying().dtype(), batchA, headsA, M, N);
+
+        ScalarType dtype = a.underlying().dtype();
+        if (dtype == ScalarType.F32) {
+            batchedMatmulRank4F32(a.underlying().data(), b.underlying().data(), result.data(),
+                    batchA, headsA, M, K1, N);
+        } else if (dtype == ScalarType.F64) {
+            batchedMatmulRank4F64(a.underlying().data(), b.underlying().data(), result.data(),
+                    batchA, headsA, M, K1, N);
+        } else {
+            throw new UnsupportedOperationException("batchedMatmulRank4 not implemented for dtype: " + dtype);
+        }
+
+        return TypedTensor.from(result, resultShape, a.dtypeType(), a.deviceType());
     }
 
     // ==================== Matrix-Vector Operations ====================
@@ -442,6 +540,120 @@ public final class MatrixOps {
             for (int j = 0; j < N; j++) {
                 double bVal = b.getAtIndex(ValueLayout.JAVA_DOUBLE, j);
                 out.setAtIndex(ValueLayout.JAVA_DOUBLE, (long) i * N + j, aVal * bVal);
+            }
+        }
+    }
+
+    // Batched matmul implementations (Rank3)
+    private static void batchedMatmulF32(MemorySegment a, MemorySegment b, MemorySegment c,
+                                         int batch, int M, int K, int N) {
+        long aStride = (long) M * K;
+        long bStride = (long) K * N;
+        long cStride = (long) M * N;
+
+        for (int bIdx = 0; bIdx < batch; bIdx++) {
+            long aOffset = bIdx * aStride;
+            long bOffset = bIdx * bStride;
+            long cOffset = bIdx * cStride;
+
+            for (int i = 0; i < M; i++) {
+                for (int j = 0; j < N; j++) {
+                    float sum = 0.0f;
+                    for (int k = 0; k < K; k++) {
+                        float aVal = a.getAtIndex(ValueLayout.JAVA_FLOAT, aOffset + (long) i * K + k);
+                        float bVal = b.getAtIndex(ValueLayout.JAVA_FLOAT, bOffset + (long) k * N + j);
+                        sum += aVal * bVal;
+                    }
+                    c.setAtIndex(ValueLayout.JAVA_FLOAT, cOffset + (long) i * N + j, sum);
+                }
+            }
+        }
+    }
+
+    private static void batchedMatmulF64(MemorySegment a, MemorySegment b, MemorySegment c,
+                                         int batch, int M, int K, int N) {
+        long aStride = (long) M * K;
+        long bStride = (long) K * N;
+        long cStride = (long) M * N;
+
+        for (int bIdx = 0; bIdx < batch; bIdx++) {
+            long aOffset = bIdx * aStride;
+            long bOffset = bIdx * bStride;
+            long cOffset = bIdx * cStride;
+
+            for (int i = 0; i < M; i++) {
+                for (int j = 0; j < N; j++) {
+                    double sum = 0.0;
+                    for (int k = 0; k < K; k++) {
+                        double aVal = a.getAtIndex(ValueLayout.JAVA_DOUBLE, aOffset + (long) i * K + k);
+                        double bVal = b.getAtIndex(ValueLayout.JAVA_DOUBLE, bOffset + (long) k * N + j);
+                        sum += aVal * bVal;
+                    }
+                    c.setAtIndex(ValueLayout.JAVA_DOUBLE, cOffset + (long) i * N + j, sum);
+                }
+            }
+        }
+    }
+
+    // Batched matmul implementations (Rank4 - for multi-head attention)
+    private static void batchedMatmulRank4F32(MemorySegment a, MemorySegment b, MemorySegment c,
+                                              int batch, int heads, int M, int K, int N) {
+        long aHeadStride = (long) M * K;
+        long bHeadStride = (long) K * N;
+        long cHeadStride = (long) M * N;
+
+        long aBatchStride = heads * aHeadStride;
+        long bBatchStride = heads * bHeadStride;
+        long cBatchStride = heads * cHeadStride;
+
+        for (int bIdx = 0; bIdx < batch; bIdx++) {
+            for (int hIdx = 0; hIdx < heads; hIdx++) {
+                long aOffset = bIdx * aBatchStride + hIdx * aHeadStride;
+                long bOffset = bIdx * bBatchStride + hIdx * bHeadStride;
+                long cOffset = bIdx * cBatchStride + hIdx * cHeadStride;
+
+                for (int i = 0; i < M; i++) {
+                    for (int j = 0; j < N; j++) {
+                        float sum = 0.0f;
+                        for (int k = 0; k < K; k++) {
+                            float aVal = a.getAtIndex(ValueLayout.JAVA_FLOAT, aOffset + (long) i * K + k);
+                            float bVal = b.getAtIndex(ValueLayout.JAVA_FLOAT, bOffset + (long) k * N + j);
+                            sum += aVal * bVal;
+                        }
+                        c.setAtIndex(ValueLayout.JAVA_FLOAT, cOffset + (long) i * N + j, sum);
+                    }
+                }
+            }
+        }
+    }
+
+    private static void batchedMatmulRank4F64(MemorySegment a, MemorySegment b, MemorySegment c,
+                                              int batch, int heads, int M, int K, int N) {
+        long aHeadStride = (long) M * K;
+        long bHeadStride = (long) K * N;
+        long cHeadStride = (long) M * N;
+
+        long aBatchStride = heads * aHeadStride;
+        long bBatchStride = heads * bHeadStride;
+        long cBatchStride = heads * cHeadStride;
+
+        for (int bIdx = 0; bIdx < batch; bIdx++) {
+            for (int hIdx = 0; hIdx < heads; hIdx++) {
+                long aOffset = bIdx * aBatchStride + hIdx * aHeadStride;
+                long bOffset = bIdx * bBatchStride + hIdx * bHeadStride;
+                long cOffset = bIdx * cBatchStride + hIdx * cHeadStride;
+
+                for (int i = 0; i < M; i++) {
+                    for (int j = 0; j < N; j++) {
+                        double sum = 0.0;
+                        for (int k = 0; k < K; k++) {
+                            double aVal = a.getAtIndex(ValueLayout.JAVA_DOUBLE, aOffset + (long) i * K + k);
+                            double bVal = b.getAtIndex(ValueLayout.JAVA_DOUBLE, bOffset + (long) k * N + j);
+                            sum += aVal * bVal;
+                        }
+                        c.setAtIndex(ValueLayout.JAVA_DOUBLE, cOffset + (long) i * N + j, sum);
+                    }
+                }
             }
         }
     }

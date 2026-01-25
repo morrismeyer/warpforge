@@ -334,6 +334,8 @@ public final class StableHloTypeChecker {
             // Other operations
             case OptimizationBarrierOp o -> {} // Pass-through, no validation needed
             case CompositeOp o -> {} // Opaque, no validation needed
+            // Fused operations (from fusion pass)
+            case FusedOperation o -> {} // Already validated during fusion
         }
     }
 

@@ -343,6 +343,8 @@ public final class StableHloToBabylon {
             // Other operations
             case OptimizationBarrierOp o -> emitOptimizationBarrier(o, valueTypes);
             case CompositeOp c -> emitComposite(c, valueTypes);
+            // Fused operations (from fusion pass)
+            case FusedOperation f -> emitFusedOperation(f, valueTypes);
         };
 
         emitLine("%s", opText);
@@ -1216,5 +1218,36 @@ public final class StableHloToBabylon {
         return String.format("%%%-8s = composite \"%s\" %s version=%d  // -> %s",
                 resultName, op.name(), inputs, op.version(),
                 shapeToString(op.tensorResultType()));
+    }
+
+    // ==================== Fused Operations ====================
+
+    private String emitFusedOperation(FusedOperation op, Map<String, String> valueTypes) {
+        String resultName = op.results().isEmpty() ? "void" : op.results().get(0).name();
+        if (!op.results().isEmpty()) {
+            String javaType = typeToJavaType(op.tensorResultType());
+            valueTypes.put(resultName, javaType);
+        }
+
+        StringBuilder inputs = new StringBuilder();
+        for (int i = 0; i < op.operands().size(); i++) {
+            if (i > 0) inputs.append(", ");
+            inputs.append("%").append(op.operands().get(i).name());
+        }
+
+        // Format configuration parameters
+        StringBuilder config = new StringBuilder();
+        if (op.axis() != -1) {
+            config.append("axis=").append(op.axis());
+        }
+        if (op.epsilon() != 1e-5) {
+            if (config.length() > 0) config.append(", ");
+            config.append("eps=").append(op.epsilon());
+        }
+
+        String configStr = config.length() > 0 ? " " + config : "";
+        return String.format("%%%-8s = fused.%s %s%s  // %d ops fused -> %s",
+                resultName, op.fusionType(), inputs, configStr,
+                op.fusedOpCount(), shapeToString(op.tensorResultType()));
     }
 }

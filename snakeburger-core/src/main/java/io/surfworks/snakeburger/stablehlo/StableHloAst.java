@@ -290,7 +290,9 @@ public final class StableHloAst {
             // Signal processing
             FftOp,
             // Other
-            SortOp, RngOp, RngBitGeneratorOp, OptimizationBarrierOp, CompositeOp {
+            SortOp, RngOp, RngBitGeneratorOp, OptimizationBarrierOp, CompositeOp,
+            // Fused operations (from fusion pass)
+            FusedOperation {
 
         String opName();
         List<Value> results();

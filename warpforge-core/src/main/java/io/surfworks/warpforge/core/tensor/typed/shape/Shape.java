@@ -8,10 +8,24 @@ package io.surfworks.warpforge.core.tensor.typed.shape;
  * information as record fields, but the primary purpose is type-level
  * differentiation between tensor ranks.
  *
- * <p>Example usage:
+ * <h2>Basic Shape Types</h2>
+ * <p>For simple rank-based typing without dimension type parameters:
  * <pre>{@code
  * TypedTensor<Matrix, F32, Cpu> weights = TypedTensor.zeros(
  *     new Matrix(768, 512), F32.INSTANCE, Cpu.INSTANCE);
+ * }</pre>
+ *
+ * <h2>Dimension-Typed Shapes</h2>
+ * <p>For compile-time dimension checking, use the Dim* variants:
+ * <pre>{@code
+ * interface Batch extends Dim {}
+ * interface Hidden extends Dim {}
+ *
+ * TypedTensor<DimMatrix<Batch, Hidden>, F32, Cpu> input = ...;
+ * TypedTensor<DimMatrix<Hidden, Vocab>, F32, Cpu> weights = ...;
+ *
+ * // matmul enforces Hidden matches at COMPILE TIME
+ * var output = DimOps.matmul(input, weights);
  * }</pre>
  *
  * @see Scalar for 0D tensors
@@ -20,8 +34,14 @@ package io.surfworks.warpforge.core.tensor.typed.shape;
  * @see Rank3 for 3D tensors
  * @see Rank4 for 4D tensors (e.g., NCHW image batches)
  * @see Dynamic for tensors with unknown shape
+ * @see DimVector for 1D tensors with dimension type parameter
+ * @see DimMatrix for 2D tensors with dimension type parameters
+ * @see DimRank3 for 3D tensors with dimension type parameters
+ * @see DimRank4 for 4D tensors with dimension type parameters
  */
-public sealed interface Shape permits Scalar, Vector, Matrix, Rank3, Rank4, Dynamic {
+public sealed interface Shape permits
+        Scalar, Vector, Matrix, Rank3, Rank4, Dynamic,
+        DimVector, DimMatrix, DimRank3, DimRank4 {
 
     /**
      * Returns the rank (number of dimensions) for this shape type.

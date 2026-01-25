@@ -465,7 +465,7 @@ class FXToStableHLO:
             lines = [f'// LayerNorm layer: {node.target} (normalized_shape={normalized_shape}, eps={eps})']
 
             # Determine reduction axes (last N dimensions where N = len(normalized_shape))
-            input_shape = self._get_shape(node.args[0].name)
+            input_shape = self.shape_map.get(node.args[0].name, ())
             if input_shape:
                 rank = len(input_shape)
                 reduce_axes = list(range(rank - len(normalized_shape), rank))
@@ -484,14 +484,12 @@ class FXToStableHLO:
                 lines.append(f'{weight_ssa} = stablehlo.constant dense<1.0> : {weight_type}  // placeholder for gamma')
                 lines.append(f'{bias_ssa} = stablehlo.constant dense<0.0> : {weight_type}  // placeholder for beta')
                 lines.append(
-                    f'{result_ssa} = stablehlo.custom_call @layer_norm({input_ssa}, {weight_ssa}, {bias_ssa}) '
-                    f'{{normalized_shape = [{", ".join(str(d) for d in normalized_shape)}], eps = {eps} : f32}} : '
+                    f'{result_ssa} = stablehlo.custom_call @layer_norm({input_ssa}, {weight_ssa}, {bias_ssa}) : '
                     f'({input_type}, {weight_type}, {weight_type}) -> {result_type}'
                 )
             else:
                 lines.append(
-                    f'{result_ssa} = stablehlo.custom_call @layer_norm({input_ssa}) '
-                    f'{{normalized_shape = [{", ".join(str(d) for d in normalized_shape)}], eps = {eps} : f32, elementwise_affine = false}} : '
+                    f'{result_ssa} = stablehlo.custom_call @layer_norm({input_ssa}) : '
                     f'({input_type}) -> {result_type}'
                 )
 
@@ -519,8 +517,7 @@ class FXToStableHLO:
             lines.append(f'{mean_ssa} = stablehlo.constant dense<0.0> : {param_type}  // placeholder for running_mean')
             lines.append(f'{var_ssa} = stablehlo.constant dense<1.0> : {param_type}  // placeholder for running_var')
             lines.append(
-                f'{result_ssa} = stablehlo.custom_call @batch_norm({input_ssa}, {weight_ssa}, {bias_ssa}, {mean_ssa}, {var_ssa}) '
-                f'{{num_features = {num_features}, eps = {eps} : f32, momentum = {momentum} : f32}} : '
+                f'{result_ssa} = stablehlo.custom_call @batch_norm({input_ssa}, {weight_ssa}, {bias_ssa}, {mean_ssa}, {var_ssa}) : '
                 f'({input_type}, {param_type}, {param_type}, {param_type}, {param_type}) -> {result_type}'
             )
 
@@ -533,8 +530,7 @@ class FXToStableHLO:
 
             lines = [f'// GELU layer: {node.target} (approximate={approximate})']
             lines.append(
-                f'{result_ssa} = stablehlo.custom_call @gelu({input_ssa}) '
-                f'{{approximate = "{approximate}"}} : ({self._tensor_type(node.args[0].name)}) -> {result_type}'
+                f'{result_ssa} = stablehlo.custom_call @gelu({input_ssa}) : ({self._tensor_type(node.args[0].name)}) -> {result_type}'
             )
             return lines
 
@@ -556,8 +552,7 @@ class FXToStableHLO:
 
             lines = [f'// Softmax layer: {node.target} (dim={dim})']
             lines.append(
-                f'{result_ssa} = stablehlo.custom_call @softmax({input_ssa}) '
-                f'{{dim = {dim}}} : ({self._tensor_type(node.args[0].name)}) -> {result_type}'
+                f'{result_ssa} = stablehlo.custom_call @softmax({input_ssa}) : ({self._tensor_type(node.args[0].name)}) -> {result_type}'
             )
             return lines
 
@@ -1169,8 +1164,7 @@ class FXToStableHLO:
             input_ssa = get_input(0)
             input_type = get_input_type(0)
             dim = node.args[1] if len(node.args) > 1 else node.kwargs.get('dim', -1)
-            return [f'{result_ssa} = stablehlo.custom_call @softmax({input_ssa}) '
-                    f'{{dim = {dim}}} : ({input_type}) -> {result_type}']
+            return [f'{result_ssa} = stablehlo.custom_call @softmax({input_ssa}) : ({input_type}) -> {result_type}']
 
         # ===== EMBEDDING OPERATIONS =====
         # Embedding lookup operations for NLP and recommendation systems.
@@ -2356,22 +2350,19 @@ class FXToStableHLO:
                 bias_ssa = get_input(3)
                 weight_type = get_input_type(2)
                 lines.append(
-                    f'{result_ssa} = stablehlo.custom_call @layer_norm({input_ssa}, {weight_ssa}, {bias_ssa}) '
-                    f'{{normalized_shape = {normalized_shape}, eps = {eps} : f32}} : '
+                    f'{result_ssa} = stablehlo.custom_call @layer_norm({input_ssa}, {weight_ssa}, {bias_ssa}) : '
                     f'({input_type}, {weight_type}, {weight_type}) -> {result_type}'
                 )
             elif has_weight:
                 weight_ssa = get_input(2)
                 weight_type = get_input_type(2)
                 lines.append(
-                    f'{result_ssa} = stablehlo.custom_call @layer_norm({input_ssa}, {weight_ssa}) '
-                    f'{{normalized_shape = {normalized_shape}, eps = {eps} : f32, has_bias = false}} : '
+                    f'{result_ssa} = stablehlo.custom_call @layer_norm({input_ssa}, {weight_ssa}) : '
                     f'({input_type}, {weight_type}) -> {result_type}'
                 )
             else:
                 lines.append(
-                    f'{result_ssa} = stablehlo.custom_call @layer_norm({input_ssa}) '
-                    f'{{normalized_shape = {normalized_shape}, eps = {eps} : f32, elementwise_affine = false}} : '
+                    f'{result_ssa} = stablehlo.custom_call @layer_norm({input_ssa}) : '
                     f'({input_type}) -> {result_type}'
                 )
 
@@ -2395,14 +2386,12 @@ class FXToStableHLO:
                 mean_type = get_input_type(1)
 
                 lines.append(
-                    f'{result_ssa} = stablehlo.custom_call @batch_norm({input_ssa}, {weight_ssa}, {bias_ssa}, {mean_ssa}, {var_ssa}) '
-                    f'{{eps = {eps} : f32, momentum = {momentum} : f32}} : '
+                    f'{result_ssa} = stablehlo.custom_call @batch_norm({input_ssa}, {weight_ssa}, {bias_ssa}, {mean_ssa}, {var_ssa}) : '
                     f'({input_type}, {mean_type}, {mean_type}, {mean_type}, {mean_type}) -> {result_type}'
                 )
             else:
                 lines.append(
-                    f'{result_ssa} = stablehlo.custom_call @batch_norm({input_ssa}) '
-                    f'{{eps = {eps} : f32}} : ({input_type}) -> {result_type}'
+                    f'{result_ssa} = stablehlo.custom_call @batch_norm({input_ssa}) : ({input_type}) -> {result_type}'
                 )
 
             return lines
@@ -2425,14 +2414,12 @@ class FXToStableHLO:
                 weight_ssa = get_input(2)
                 weight_type = get_input_type(2)
                 lines.append(
-                    f'{result_ssa} = stablehlo.custom_call @rms_norm({input_ssa}, {weight_ssa}) '
-                    f'{{normalized_shape = {normalized_shape}, eps = {eps} : f32}} : '
+                    f'{result_ssa} = stablehlo.custom_call @rms_norm({input_ssa}, {weight_ssa}) : '
                     f'({input_type}, {weight_type}) -> {result_type}'
                 )
             else:
                 lines.append(
-                    f'{result_ssa} = stablehlo.custom_call @rms_norm({input_ssa}) '
-                    f'{{normalized_shape = {normalized_shape}, eps = {eps} : f32}} : '
+                    f'{result_ssa} = stablehlo.custom_call @rms_norm({input_ssa}) : '
                     f'({input_type}) -> {result_type}'
                 )
 

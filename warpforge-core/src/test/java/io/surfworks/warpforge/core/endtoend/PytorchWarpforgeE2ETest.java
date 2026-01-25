@@ -154,8 +154,8 @@ class PytorchWarpforgeE2ETest {
                 assertArrayEquals(expected.shape(), actual.shape(),
                     "Output " + i + " shape mismatch for " + fixture.name());
 
-                // Values must match within tolerance
-                ToleranceConfig tolerance = ToleranceConfig.forDtype(expected.dtype());
+                // Values must match within tolerance (use fixture name for operation-specific tolerance)
+                ToleranceConfig tolerance = ToleranceConfig.forOp(fixture.name(), expected.dtype());
                 try {
                     TensorAssert.assertEquals(expected, actual, tolerance);
                 } catch (AssertionError e) {

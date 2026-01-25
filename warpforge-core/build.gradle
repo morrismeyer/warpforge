@@ -7,6 +7,7 @@ repositories { mavenCentral() }
 
 dependencies {
     api project(':snakeburger-core')
+    api project(':warpforge-data')
 
     testImplementation project(':warpforge-backend-cpu')
     testImplementation 'org.junit.jupiter:junit-jupiter-api:5.10.2'

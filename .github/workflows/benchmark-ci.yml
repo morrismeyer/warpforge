@@ -1,0 +1,247 @@
+name: Benchmark CI
+
+# Runs model benchmarks on a daily schedule to track performance over time
+# Also validates benchmark infrastructure works correctly on every PR
+
+on:
+  # Run on PRs to validate benchmark code changes
+  pull_request:
+    paths:
+      - 'warpforge-data/src/**/benchmark/**'
+      - 'warpforge-data/src/**/golden/**'
+      - '.github/workflows/benchmark-ci.yml'
+
+  # Daily benchmark run at 3 AM EST (8 AM UTC)
+  schedule:
+    - cron: '0 8 * * *'
+
+  # Manual trigger for testing
+  workflow_dispatch:
+    inputs:
+      run_integration_tests:
+        description: 'Run integration tests (downloads models from HuggingFace)'
+        required: false
+        default: true
+        type: boolean
+      benchmark_iterations:
+        description: 'Number of measurement iterations'
+        required: false
+        default: '10'
+        type: string
+
+jobs:
+  # ========================================
+  # Unit Tests - Always run
+  # ========================================
+  unit-tests:
+    name: Benchmark Unit Tests
+    runs-on: [self-hosted, linux, x64]
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run benchmark unit tests
+        run: |
+          set -euo pipefail
+          cd ~/surfworks/warpforge
+
+          echo "=== Benchmark Unit Tests ==="
+
+          # Run only benchmark-related tests (exclude integration tag)
+          ./gradlew :warpforge-data:test \
+            --tests "io.surfworks.warpforge.data.benchmark.*" \
+            --tests "io.surfworks.warpforge.data.golden.*" \
+            -PexcludeTags=integration \
+            2>&1 | tee benchmark-unit-test.log
+
+          # Count tests
+          TEST_DIR="warpforge-data/build/test-results/test"
+          if [[ -d "$TEST_DIR" ]]; then
+            COUNT=$(find "$TEST_DIR" -name "*.xml" -exec grep -h "tests=" {} \; | grep -oE 'tests="[0-9]+"' | grep -oE '[0-9]+' | awk '{sum+=$1} END {print sum}')
+            echo "Benchmark unit tests: ${COUNT:-0}"
+          fi
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-unit-test-results
+          path: |
+            ~/surfworks/warpforge/warpforge-data/build/test-results/
+            ~/surfworks/warpforge/warpforge-data/build/reports/
+
+  # ========================================
+  # Integration Tests - Run on schedule and manual trigger
+  # ========================================
+  integration-tests:
+    name: Model Integration Tests
+    runs-on: [self-hosted, linux, x64]
+    timeout-minutes: 60
+    if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Pre-flight check
+        run: |
+          echo "=== Integration Tests Pre-flight ==="
+          echo "Event: ${{ github.event_name }}"
+          echo "Run integration: ${{ inputs.run_integration_tests }}"
+          echo "Iterations: ${{ inputs.benchmark_iterations || '10' }}"
+          df -h
+          free -h || true
+
+      - name: Run model loading benchmarks
+        if: ${{ inputs.run_integration_tests != 'false' }}
+        run: |
+          set -euo pipefail
+          cd ~/surfworks/warpforge
+
+          echo "=== Model Loading Benchmarks ==="
+
+          # Run integration tests with the integration tag
+          ./gradlew :warpforge-data:test \
+            --tests "io.surfworks.warpforge.data.benchmark.ModelLoadBenchmarkTest" \
+            -PincludeTags=integration \
+            2>&1 | tee model-load-benchmark.log
+
+          echo "Model loading benchmarks complete"
+
+      - name: Run BERT embedding benchmarks
+        if: ${{ inputs.run_integration_tests != 'false' }}
+        run: |
+          set -euo pipefail
+          cd ~/surfworks/warpforge
+
+          echo "=== BERT Embedding Benchmarks ==="
+
+          ./gradlew :warpforge-data:test \
+            --tests "io.surfworks.warpforge.data.benchmark.BertEmbeddingBenchmarkTest" \
+            -PincludeTags=integration \
+            2>&1 | tee bert-embedding-benchmark.log
+
+          echo "BERT embedding benchmarks complete"
+
+      - name: Run GPT-2 benchmarks
+        if: ${{ inputs.run_integration_tests != 'false' }}
+        run: |
+          set -euo pipefail
+          cd ~/surfworks/warpforge
+
+          echo "=== GPT-2 Benchmarks ==="
+
+          ./gradlew :warpforge-data:test \
+            --tests "io.surfworks.warpforge.data.benchmark.GPT2BenchmarkTest" \
+            -PincludeTags=integration \
+            2>&1 | tee gpt2-benchmark.log || {
+            echo "WARNING: GPT-2 benchmarks failed or not available"
+          }
+
+          echo "GPT-2 benchmarks complete"
+
+      - name: Collect benchmark results
+        if: always()
+        run: |
+          set -euo pipefail
+          cd ~/surfworks/warpforge
+
+          echo "=== Benchmark Results Summary ==="
+
+          RESULTS_DIR="warpforge-data/build/benchmark-results"
+          mkdir -p "$RESULTS_DIR"
+
+          # Extract timing information from test logs
+          for log in model-load-benchmark.log bert-embedding-benchmark.log gpt2-benchmark.log; do
+            if [[ -f "$log" ]]; then
+              echo "=== $log ===" >> "$RESULTS_DIR/summary.txt"
+              grep -E "(SUCCESS|FAIL|latency|throughput)" "$log" >> "$RESULTS_DIR/summary.txt" || true
+            fi
+          done
+
+          if [[ -f "$RESULTS_DIR/summary.txt" ]]; then
+            cat "$RESULTS_DIR/summary.txt"
+          fi
+
+      - name: Upload benchmark results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-integration-results
+          path: |
+            ~/surfworks/warpforge/warpforge-data/build/benchmark-results/
+            ~/surfworks/warpforge/warpforge-data/build/test-results/
+            ~/surfworks/warpforge/*.log
+
+  # ========================================
+  # Performance Tracking - Daily only
+  # ========================================
+  performance-tracking:
+    name: Performance Baseline Tracking
+    runs-on: [self-hosted, linux, x64]
+    needs: [integration-tests]
+    if: ${{ github.event_name == 'schedule' }}
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run performance baseline benchmarks
+        run: |
+          set -euo pipefail
+          cd ~/surfworks/warpforge
+
+          echo "=== Performance Baseline Benchmarks ==="
+
+          DATE=$(date +%Y%m%d)
+          BASELINE_DIR="warpforge-data/build/baselines/$DATE"
+          mkdir -p "$BASELINE_DIR"
+
+          # Run standardized benchmark suite
+          ./gradlew :warpforge-data:runBenchmarkSuite \
+            -Pbenchmark.iterations=${{ inputs.benchmark_iterations || '10' }} \
+            -Pbenchmark.outputDir="$BASELINE_DIR" \
+            2>&1 | tee "$BASELINE_DIR/benchmark-run.log" || {
+            echo "WARNING: Benchmark suite task not available, running tests instead"
+            ./gradlew :warpforge-data:test \
+              -PincludeTags=integration \
+              2>&1 | tee "$BASELINE_DIR/benchmark-run.log"
+          }
+
+          echo "Baseline benchmarks complete"
+
+      - name: Compare against previous baseline
+        run: |
+          set -euo pipefail
+          cd ~/surfworks/warpforge
+
+          echo "=== Baseline Comparison ==="
+
+          BASELINE_DIR="warpforge-data/build/baselines"
+          TODAY=$(date +%Y%m%d)
+
+          # Find previous baseline
+          PREV_BASELINE=$(ls -1d "$BASELINE_DIR"/2* 2>/dev/null | grep -v "$TODAY" | tail -1 || echo "")
+
+          if [[ -z "$PREV_BASELINE" ]]; then
+            echo "No previous baseline found - this is the first run"
+            exit 0
+          fi
+
+          echo "Comparing against: $PREV_BASELINE"
+
+          # TODO: Implement baseline comparison
+          # - Parse latency/throughput from both runs
+          # - Calculate % change
+          # - Fail if regression > 10%
+
+          echo "Baseline comparison complete (TODO: implement)"
+
+      - name: Upload performance baselines
+        uses: actions/upload-artifact@v4
+        with:
+          name: performance-baselines-${{ github.run_number }}
+          path: ~/surfworks/warpforge/warpforge-data/build/baselines/

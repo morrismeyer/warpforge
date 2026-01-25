@@ -198,6 +198,196 @@ class E2EFixtureGenerator {
             """, "[(4,)]");
     }
 
+    // ==================== Tier 4: Transformer Operations ====================
+
+    @Test
+    @DisplayName("Generate: layer_norm")
+    void generateLayerNorm() throws Exception {
+        generateFixture("layer_norm", """
+            import torch
+            import torch.nn as nn
+
+            class Model(nn.Module):
+                def __init__(self):
+                    super().__init__()
+                    self.ln = nn.LayerNorm(8)
+
+                def forward(self, x):
+                    return self.ln(x)
+            """, "[(2, 8)]");
+    }
+
+    @Test
+    @DisplayName("Generate: layer_norm_3d")
+    void generateLayerNorm3D() throws Exception {
+        generateFixture("layer_norm_3d", """
+            import torch
+            import torch.nn as nn
+
+            class Model(nn.Module):
+                def __init__(self):
+                    super().__init__()
+                    self.ln = nn.LayerNorm(16)
+
+                def forward(self, x):
+                    return self.ln(x)
+            """, "[(2, 4, 16)]");
+    }
+
+    @Test
+    @DisplayName("Generate: gelu")
+    void generateGelu() throws Exception {
+        generateFixture("gelu", """
+            import torch
+            import torch.nn as nn
+
+            class Model(nn.Module):
+                def __init__(self):
+                    super().__init__()
+                    self.gelu = nn.GELU()
+
+                def forward(self, x):
+                    return self.gelu(x)
+            """, "[(4, 8)]");
+    }
+
+    @Test
+    @DisplayName("Generate: gelu_tanh")
+    void generateGeluTanh() throws Exception {
+        generateFixture("gelu_tanh", """
+            import torch
+            import torch.nn as nn
+
+            class Model(nn.Module):
+                def __init__(self):
+                    super().__init__()
+                    self.gelu = nn.GELU(approximate='tanh')
+
+                def forward(self, x):
+                    return self.gelu(x)
+            """, "[(4, 8)]");
+    }
+
+    @Test
+    @DisplayName("Generate: silu")
+    void generateSilu() throws Exception {
+        generateFixture("silu", """
+            import torch
+            import torch.nn as nn
+
+            class Model(nn.Module):
+                def __init__(self):
+                    super().__init__()
+                    self.silu = nn.SiLU()
+
+                def forward(self, x):
+                    return self.silu(x)
+            """, "[(4, 8)]");
+    }
+
+    @Test
+    @DisplayName("Generate: softmax")
+    void generateSoftmax() throws Exception {
+        generateFixture("softmax", """
+            import torch
+            import torch.nn as nn
+
+            class Model(nn.Module):
+                def __init__(self):
+                    super().__init__()
+                    self.softmax = nn.Softmax(dim=-1)
+
+                def forward(self, x):
+                    return self.softmax(x)
+            """, "[(2, 8)]");
+    }
+
+    @Test
+    @DisplayName("Generate: softmax_3d")
+    void generateSoftmax3D() throws Exception {
+        generateFixture("softmax_3d", """
+            import torch
+            import torch.nn as nn
+
+            class Model(nn.Module):
+                def __init__(self):
+                    super().__init__()
+                    self.softmax = nn.Softmax(dim=-1)
+
+                def forward(self, x):
+                    return self.softmax(x)
+            """, "[(2, 4, 8)]");
+    }
+
+    // ==================== Tier 5: Composite Transformer Patterns ====================
+
+    @Test
+    @DisplayName("Generate: attention_scores")
+    void generateAttentionScores() throws Exception {
+        // Q @ K^T / sqrt(d_k) pattern
+        generateFixture("attention_scores", """
+            import torch
+            import torch.nn as nn
+            import math
+
+            class Model(nn.Module):
+                def forward(self, q, k):
+                    # q: [batch, seq, d_k], k: [batch, seq, d_k]
+                    d_k = q.size(-1)
+                    # Transpose k: [batch, d_k, seq]
+                    k_t = k.transpose(-2, -1)
+                    # Attention scores: [batch, seq, seq]
+                    scores = torch.matmul(q, k_t) / math.sqrt(d_k)
+                    return scores
+            """, "[(1, 4, 8), (1, 4, 8)]");
+    }
+
+    @Test
+    @DisplayName("Generate: ffn_block")
+    void generateFfnBlock() throws Exception {
+        // Feed-forward network: Linear -> GELU -> Linear
+        generateFixture("ffn_block", """
+            import torch
+            import torch.nn as nn
+
+            class Model(nn.Module):
+                def __init__(self):
+                    super().__init__()
+                    self.fc1 = nn.Linear(16, 64, bias=False)
+                    self.gelu = nn.GELU()
+                    self.fc2 = nn.Linear(64, 16, bias=False)
+
+                def forward(self, x):
+                    x = self.fc1(x)
+                    x = self.gelu(x)
+                    x = self.fc2(x)
+                    return x
+            """, "[(2, 4, 16)]");
+    }
+
+    @Test
+    @DisplayName("Generate: pre_norm_residual")
+    void generatePreNormResidual() throws Exception {
+        // Pre-norm residual: x + FFN(LayerNorm(x))
+        generateFixture("pre_norm_residual", """
+            import torch
+            import torch.nn as nn
+
+            class Model(nn.Module):
+                def __init__(self):
+                    super().__init__()
+                    self.ln = nn.LayerNorm(16)
+                    self.fc = nn.Linear(16, 16, bias=False)
+
+                def forward(self, x):
+                    # Pre-norm: normalize before transformation
+                    residual = x
+                    x = self.ln(x)
+                    x = self.fc(x)
+                    return x + residual
+            """, "[(2, 4, 16)]");
+    }
+
     // ==================== Helper Methods ====================
 
     private void generateFixture(String name, String modelSource, String inputSpecs) throws Exception {

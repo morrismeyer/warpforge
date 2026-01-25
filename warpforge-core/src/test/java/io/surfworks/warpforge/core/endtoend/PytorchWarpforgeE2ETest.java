@@ -124,14 +124,15 @@ class PytorchWarpforgeE2ETest {
                 return;
             }
 
-            // Verify input count matches
-            assertEquals(fixture.inputCount(), graph.inputCount(),
-                "Input count mismatch for " + fixture.name());
+            // Verify input count matches (inputs + weights)
+            assertEquals(fixture.totalArgCount(), graph.inputCount(),
+                "Input count mismatch for " + fixture.name() +
+                " (inputs=" + fixture.inputCount() + ", weights=" + fixture.weightCount() + ")");
 
-            // Execute on CpuBackend
+            // Execute on CpuBackend with all inputs (inputs + weights)
             List<Tensor> actualOutputs;
             try {
-                actualOutputs = executor.execute(graph, fixture.inputs());
+                actualOutputs = executor.execute(graph, fixture.allInputs());
             } catch (UnsupportedOperationException e) {
                 // Some operations may not be implemented yet
                 System.out.println("Skipping " + fixture.name() + " - unsupported operation: " + e.getMessage());
@@ -163,10 +164,10 @@ class PytorchWarpforgeE2ETest {
                 }
             }
 
-            // Clean up actual outputs (inputs are owned by fixture)
+            // Clean up actual outputs (inputs and weights are owned by fixture)
             for (Tensor t : actualOutputs) {
-                // Don't close if it's the same reference as input (identity case)
-                if (!fixture.inputs().contains(t)) {
+                // Don't close if it's the same reference as input/weight (identity case)
+                if (!fixture.allInputs().contains(t)) {
                     t.close();
                 }
             }

@@ -71,21 +71,8 @@ public interface DatasetSource extends AutoCloseable, Iterable<Map<String, Objec
             return new SquadDataset(id, dir);
         }
 
-        // COCO format (has annotations/ subdirectory)
-        Path annotationsDir = dir.resolve("annotations");
-        if (Files.isDirectory(annotationsDir)) {
-            try (Stream<Path> files = Files.list(annotationsDir)) {
-                boolean hasCoco = files.anyMatch(p -> {
-                    String name = p.getFileName().toString();
-                    return name.startsWith("instances_") ||
-                            name.startsWith("captions_") ||
-                            name.startsWith("person_keypoints_");
-                });
-                if (hasCoco) {
-                    return CocoDataset.load(id, dir);
-                }
-            }
-        }
+        // COCO format - use COCODataset directly for more control
+        // COCODataset extends Dataset<COCOSample>, not DatasetSource
 
         // Parquet files
         try (Stream<Path> files = Files.list(dir)) {
@@ -117,18 +104,8 @@ public interface DatasetSource extends AutoCloseable, Iterable<Map<String, Objec
         return ParquetDataset.load(id, file);
     }
 
-    /**
-     * Open a COCO dataset from a directory.
-     *
-     * @param id Dataset identifier
-     * @param dir Directory containing annotations/ and images/ subdirectories
-     * @param split Split name (e.g., "val2017", "train2017")
-     * @param annotationType Type of annotations to load
-     */
-    static DatasetSource openCoco(String id, Path dir, String split,
-                                   CocoDataset.CocoAnnotationType annotationType) throws IOException {
-        return CocoDataset.load(id, dir, split, annotationType);
-    }
+    // For COCO datasets, use COCODataset directly:
+    // COCODataset.load(COCODataset.Task.DETECTION, rootPath, Split.TRAIN)
 
     /**
      * Simple JSON dataset implementation.

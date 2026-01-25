@@ -22,9 +22,16 @@ import java.util.Map;
  * ├── inputs/
  * │   ├── input_0.npy
  * │   └── input_1.npy
+ * ├── weights/          (optional - for fixtures with model parameters)
+ * │   ├── weight_0.npy
+ * │   └── weight_1.npy
  * └── outputs/
  *     └── output_0.npy
  * </pre>
+ *
+ * <p>When weights are present, they are treated as additional function arguments
+ * after the regular inputs. The MLIR function signature will be:
+ * {@code @forward(%arg0_input, %arg1_input, %arg2_weight, %arg3_bias, ...) -> ...}
  */
 public final class EndToEndTestFixture implements AutoCloseable {
 
@@ -32,17 +39,20 @@ public final class EndToEndTestFixture implements AutoCloseable {
     private final String name;
     private final String mlir;
     private final List<Tensor> inputs;
+    private final List<Tensor> weights;
     private final List<Tensor> expectedOutputs;
     private final Map<String, Object> manifest;
     private final long seed;
 
     private EndToEndTestFixture(Path fixtureDir, String name, String mlir,
-                                List<Tensor> inputs, List<Tensor> expectedOutputs,
+                                List<Tensor> inputs, List<Tensor> weights,
+                                List<Tensor> expectedOutputs,
                                 Map<String, Object> manifest, long seed) {
         this.fixtureDir = fixtureDir;
         this.name = name;
         this.mlir = mlir;
         this.inputs = inputs;
+        this.weights = weights;
         this.expectedOutputs = expectedOutputs;
         this.manifest = manifest;
         this.seed = seed;
@@ -80,10 +90,13 @@ public final class EndToEndTestFixture implements AutoCloseable {
         // Load input tensors
         List<Tensor> inputs = loadTensorsFromDir(fixtureDir.resolve("inputs"));
 
+        // Load weight tensors (optional - for fixtures with model parameters)
+        List<Tensor> weights = loadTensorsFromDir(fixtureDir.resolve("weights"));
+
         // Load expected output tensors
         List<Tensor> outputs = loadTensorsFromDir(fixtureDir.resolve("outputs"));
 
-        return new EndToEndTestFixture(fixtureDir, name, mlir, inputs, outputs, manifest, seed);
+        return new EndToEndTestFixture(fixtureDir, name, mlir, inputs, weights, outputs, manifest, seed);
     }
 
     /**
@@ -217,6 +230,24 @@ public final class EndToEndTestFixture implements AutoCloseable {
         return inputs;
     }
 
+    public List<Tensor> weights() {
+        return weights;
+    }
+
+    /**
+     * Returns all function arguments in order: inputs followed by weights.
+     * This is the complete argument list for the MLIR function.
+     */
+    public List<Tensor> allInputs() {
+        if (weights.isEmpty()) {
+            return inputs;
+        }
+        List<Tensor> all = new ArrayList<>(inputs.size() + weights.size());
+        all.addAll(inputs);
+        all.addAll(weights);
+        return all;
+    }
+
     public List<Tensor> expectedOutputs() {
         return expectedOutputs;
     }
@@ -233,6 +264,17 @@ public final class EndToEndTestFixture implements AutoCloseable {
         return inputs.size();
     }
 
+    public int weightCount() {
+        return weights.size();
+    }
+
+    /**
+     * Total number of function arguments (inputs + weights).
+     */
+    public int totalArgCount() {
+        return inputs.size() + weights.size();
+    }
+
     public int outputCount() {
         return expectedOutputs.size();
     }
@@ -240,6 +282,9 @@ public final class EndToEndTestFixture implements AutoCloseable {
     @Override
     public void close() {
         for (Tensor t : inputs) {
+            t.close();
+        }
+        for (Tensor t : weights) {
             t.close();
         }
         for (Tensor t : expectedOutputs) {
@@ -252,6 +297,7 @@ public final class EndToEndTestFixture implements AutoCloseable {
         return "EndToEndTestFixture{" +
                "name='" + name + '\'' +
                ", inputs=" + inputs.size() +
+               ", weights=" + weights.size() +
                ", outputs=" + expectedOutputs.size() +
                ", seed=" + seed +
                '}';

@@ -43,12 +43,19 @@ public record ToleranceConfig(double atol, double rtol) {
 
         // Custom call transformer operations (higher tolerance for composite ops)
         Map.entry("gelu", new ToleranceConfig(5e-4, 5e-4)),
+        Map.entry("gelu_tanh", new ToleranceConfig(5e-4, 5e-4)),
         Map.entry("silu", new ToleranceConfig(1e-4, 1e-3)),
         Map.entry("softmax", new ToleranceConfig(1e-4, 1e-3)),
         Map.entry("layer_norm", new ToleranceConfig(1e-4, 1e-3)),
         Map.entry("batch_norm", new ToleranceConfig(1e-4, 1e-3)),
         Map.entry("rms_norm", new ToleranceConfig(1e-4, 1e-3)),
         Map.entry("custom_call", new ToleranceConfig(1e-3, 1e-2)),
+
+        // Composite transformer patterns (accumulated errors from multiple ops)
+        Map.entry("ffn_block", new ToleranceConfig(5e-4, 5e-4)),
+        Map.entry("pre_norm_residual", new ToleranceConfig(5e-4, 5e-4)),
+        Map.entry("attention_scores", new ToleranceConfig(5e-4, 5e-4)),
+        Map.entry("transformer_block", new ToleranceConfig(1e-3, 1e-3)),
 
         // Matrix operations (accumulated errors)
         Map.entry("dot_general", new ToleranceConfig(1e-4, 1e-3)),

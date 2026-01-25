@@ -463,8 +463,59 @@ tasks.register('distTarGz', Tar) {
     archiveClassifier = platform
     compression = Compression.GZIP
 
-    from(distDir) {
-        into "warpforge-${distVersion}"
+    // Copy bin/ with executable permissions (rwxr-xr-x)
+    from("${distDir}/bin") {
+        into "warpforge-${distVersion}/bin"
+        eachFile { details ->
+            details.permissions {
+                user {
+                    read = true
+                    write = true
+                    execute = true
+                }
+                group {
+                    read = true
+                    execute = true
+                }
+                other {
+                    read = true
+                    execute = true
+                }
+            }
+        }
+    }
+
+    // Copy lib/ - set executable permissions for snakeburger binaries
+    from("${distDir}/lib") {
+        into "warpforge-${distVersion}/lib"
+        eachFile { details ->
+            if (details.path.contains('snakeburger/snakeburger') ||
+                details.path.contains('runtime/bin/')) {
+                details.permissions {
+                    user {
+                        read = true
+                        write = true
+                        execute = true
+                    }
+                    group {
+                        read = true
+                        execute = true
+                    }
+                    other {
+                        read = true
+                        execute = true
+                    }
+                }
+            }
+        }
+    }
+
+    // Copy conf/ and backends/ with default permissions
+    from("${distDir}/conf") {
+        into "warpforge-${distVersion}/conf"
+    }
+    from("${distDir}/backends") {
+        into "warpforge-${distVersion}/backends"
     }
 
     doLast {
@@ -483,8 +534,59 @@ tasks.register('distZip', Zip) {
     archiveVersion = distVersion
     archiveClassifier = platform
 
-    from(distDir) {
-        into "warpforge-${distVersion}"
+    // Copy bin/ with executable permissions (rwxr-xr-x)
+    from("${distDir}/bin") {
+        into "warpforge-${distVersion}/bin"
+        eachFile { details ->
+            details.permissions {
+                user {
+                    read = true
+                    write = true
+                    execute = true
+                }
+                group {
+                    read = true
+                    execute = true
+                }
+                other {
+                    read = true
+                    execute = true
+                }
+            }
+        }
+    }
+
+    // Copy lib/ - set executable permissions for snakeburger binaries
+    from("${distDir}/lib") {
+        into "warpforge-${distVersion}/lib"
+        eachFile { details ->
+            if (details.path.contains('snakeburger/snakeburger') ||
+                details.path.contains('runtime/bin/')) {
+                details.permissions {
+                    user {
+                        read = true
+                        write = true
+                        execute = true
+                    }
+                    group {
+                        read = true
+                        execute = true
+                    }
+                    other {
+                        read = true
+                        execute = true
+                    }
+                }
+            }
+        }
+    }
+
+    // Copy conf/ and backends/ with default permissions
+    from("${distDir}/conf") {
+        into "warpforge-${distVersion}/conf"
+    }
+    from("${distDir}/backends") {
+        into "warpforge-${distVersion}/backends"
     }
 
     doLast {

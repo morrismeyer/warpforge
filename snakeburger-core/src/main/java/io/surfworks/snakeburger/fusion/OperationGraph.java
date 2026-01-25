@@ -158,26 +158,32 @@ public final class OperationGraph {
     }
 
     /**
-     * Checks if all intermediate values in a chain have single use.
+     * Checks if a subgraph can be safely fused without duplicating computation.
      *
-     * <p>This is used to verify that a subgraph can be safely fused without
-     * duplicating computation. If any intermediate result is used elsewhere,
-     * fusion might cause the computation to be done multiple times.
+     * <p>Fusion is safe if all intermediate results are only used within the
+     * fused subgraph. If an intermediate result is used by an operation outside
+     * the matched ops, fusion would require duplicating that computation.
      *
      * @param ops the operations in the potential fusion
-     * @param finalResult the final result that's allowed to have multiple uses
-     * @return true if all intermediates have single use
+     * @param finalResult the final result that's allowed to have external uses
+     * @return true if fusion is safe (no external uses of intermediate results)
      */
     public boolean canFuseWithoutDuplication(List<Operation> ops, Value finalResult) {
+        // Convert ops to set for fast lookup
+        java.util.Set<Operation> opsSet = new java.util.HashSet<>(ops);
+
         for (Operation op : ops) {
             for (Value result : op.results()) {
-                // Skip the final result - it's OK if that has multiple uses
+                // Skip the final result - it's OK if that has external uses
                 if (result.equals(finalResult)) {
                     continue;
                 }
-                // Intermediate results must have single use
-                if (!hasSingleUse(result)) {
-                    return false;
+                // Check if any consumer is outside the matched ops
+                for (Operation consumer : consumers(result)) {
+                    if (!opsSet.contains(consumer)) {
+                        // This result is used outside the fused subgraph
+                        return false;
+                    }
                 }
             }
         }

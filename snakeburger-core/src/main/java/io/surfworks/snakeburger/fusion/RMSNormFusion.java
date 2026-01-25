@@ -89,6 +89,7 @@ public final class RMSNormFusion implements FusionPattern {
             // normalized = input * rsqrt(rms)
             Operation lhsProducer = graph.producer(normMul.lhs());
             Operation rhsProducer = graph.producer(normMul.rhs());
+            Value rsqrtValue = null;  // Track which value leads to rsqrt
 
             if (rhsProducer instanceof RsqrtOp) {
                 inputValue = normMul.lhs();
@@ -101,17 +102,23 @@ public final class RMSNormFusion implements FusionPattern {
                 rsqrtOrSqrtOp = traceToRsqrt(graph, normMul.rhs());
                 if (rsqrtOrSqrtOp != null) {
                     inputValue = normMul.lhs();
+                    rsqrtValue = normMul.rhs();
                 } else {
                     rsqrtOrSqrtOp = traceToRsqrt(graph, normMul.lhs());
                     if (rsqrtOrSqrtOp != null) {
                         inputValue = normMul.rhs();
+                        rsqrtValue = normMul.lhs();
                     } else {
                         return Optional.empty();
                     }
                 }
             }
-            normOps.add(normMul);
             normOps.add(rsqrtOrSqrtOp);
+            // Add broadcasts between rsqrt and normMul
+            if (rsqrtValue != null) {
+                addBroadcastsBetween(graph, rsqrtOrSqrtOp.results().get(0), rsqrtValue, normOps);
+            }
+            normOps.add(normMul);
         } else if (normalizeOp instanceof DivideOp normDiv) {
             // normalized = input / sqrt(rms)
             inputValue = normDiv.lhs();
@@ -161,14 +168,27 @@ public final class RMSNormFusion implements FusionPattern {
         List<Long> dims = meanSqReduce.dimensions();
         int axis = dims.isEmpty() ? -1 : dims.get(dims.size() - 1).intValue();
 
-        // Collect all matched operations
+        // Collect all matched operations - including all intermediate broadcasts and ops
         List<Operation> matchedOps = new ArrayList<>();
         matchedOps.add(sqMul);
         matchedOps.add(meanSqReduce);
-        if (addEpsOp != null && addEpsOp != reduceOp) {
-            matchedOps.add(addEpsOp);
-        }
+
+        // Add all operations between reduce result and rsqrt input (broadcasts, divides, adds)
+        addIntermediateOps(graph, meanSqReduce.result(), rsqrtInput, matchedOps);
+
+        // Add rsqrt and any broadcasts after it
         matchedOps.addAll(normOps);
+
+        // If normalizeOp is different from scaleMul, add it and intermediate broadcasts
+        if (normalizeOp != scaleMul) {
+            if (!matchedOps.contains(normalizeOp)) {
+                matchedOps.add(normalizeOp);
+            }
+            // Add broadcasts between normalizeOp result and scaleMul operand
+            addIntermediateOps(graph, normalizeOp.results().get(0), scaleMul.lhs(), matchedOps);
+            addIntermediateOps(graph, normalizeOp.results().get(0), scaleMul.rhs(), matchedOps);
+        }
+
         matchedOps.add(scaleMul);
 
         return Optional.of(new FusionMatch(
@@ -246,6 +266,49 @@ public final class RMSNormFusion implements FusionPattern {
 
     private boolean isBroadcast(Operation op) {
         return op.opName().contains("broadcast");
+    }
+
+    /**
+     * Adds any broadcast operations between source and target to the matched ops list.
+     */
+    private void addBroadcastsBetween(OperationGraph graph, Value source, Value target,
+                                       List<Operation> matchedOps) {
+        Value current = target;
+        while (!current.equals(source) && !current.name().equals(source.name())) {
+            Operation producer = graph.producer(current);
+            if (producer == null || !isBroadcast(producer)) {
+                break;
+            }
+            if (!matchedOps.contains(producer)) {
+                matchedOps.add(producer);
+            }
+            current = producer.operands().get(0);
+        }
+    }
+
+    /**
+     * Adds all operations between source and target values to the matched ops list.
+     * This includes broadcasts, divides (for mean), and adds (for epsilon).
+     */
+    private void addIntermediateOps(OperationGraph graph, Value source, Value target,
+                                     List<Operation> matchedOps) {
+        if (source.equals(target) || source.name().equals(target.name())) {
+            return;
+        }
+        Value current = target;
+        while (!current.equals(source) && !current.name().equals(source.name())) {
+            Operation producer = graph.producer(current);
+            if (producer == null) {
+                break;
+            }
+            if (!matchedOps.contains(producer)) {
+                matchedOps.add(producer);
+            }
+            if (producer.operands().isEmpty()) {
+                break;
+            }
+            current = producer.operands().get(0);
+        }
     }
 
     private boolean tracesToValue(OperationGraph graph, Value value, Value target) {

@@ -112,9 +112,8 @@ public final class LayerNormFusion implements FusionPattern {
         List<Operation> normOps = new ArrayList<>();
 
         if (normalizeOp instanceof DivideOp divOp) {
-            // normalized = centered / std
+            // normalized = centered / std_broadcast
             centeredValue = divOp.lhs();
-            normOps.add(divOp);
 
             // std should come from sqrt(var + eps)
             Operation stdProducer = traceToSqrt(graph, divOp.rhs());
@@ -122,20 +121,45 @@ public final class LayerNormFusion implements FusionPattern {
                 return Optional.empty();
             }
             normOps.add(stdProducer);
+
+            // Add broadcasts between sqrt and divide
+            addBroadcastsBetween(graph, stdProducer.results().get(0), divOp.rhs(), normOps);
+            normOps.add(divOp);
+
+            // Trace back from sqrt input to find variance calculation ops
+            Value sqrtInput = stdProducer.operands().get(0);
+            addVarianceOps(graph, sqrtInput, centeredValue, normOps);
         } else if (normalizeOp instanceof MultiplyOp mulOp) {
             // normalized = centered * rsqrt(var + eps)
+            Value rsqrtValue = null;
             Operation rsqrtOp = graph.producer(mulOp.rhs());
             if (!(rsqrtOp instanceof RsqrtOp)) {
-                rsqrtOp = graph.producer(mulOp.lhs());
-                centeredValue = mulOp.rhs();
+                rsqrtOp = traceToRsqrt(graph, mulOp.rhs());
+                if (rsqrtOp != null) {
+                    rsqrtValue = mulOp.rhs();
+                    centeredValue = mulOp.lhs();
+                } else {
+                    rsqrtOp = traceToRsqrt(graph, mulOp.lhs());
+                    if (rsqrtOp != null) {
+                        rsqrtValue = mulOp.lhs();
+                        centeredValue = mulOp.rhs();
+                    } else {
+                        // Neither side traces to rsqrt
+                        return Optional.empty();
+                    }
+                }
             } else {
                 centeredValue = mulOp.lhs();
             }
-            if (!(rsqrtOp instanceof RsqrtOp)) {
-                return Optional.empty();
+            normOps.add(rsqrtOp);
+            if (rsqrtValue != null) {
+                addBroadcastsBetween(graph, rsqrtOp.results().get(0), rsqrtValue, normOps);
             }
             normOps.add(mulOp);
-            normOps.add(rsqrtOp);
+
+            // Trace back from rsqrt input to find variance calculation ops
+            Value rsqrtInput = rsqrtOp.operands().get(0);
+            addVarianceOps(graph, rsqrtInput, centeredValue, normOps);
         } else {
             return Optional.empty();
         }
@@ -273,6 +297,65 @@ public final class LayerNormFusion implements FusionPattern {
             } else {
                 break;
             }
+        }
+    }
+
+    private Operation traceToRsqrt(OperationGraph graph, Value value) {
+        Operation producer = graph.producer(value);
+        while (producer != null && isBroadcast(producer)) {
+            Value input = producer.operands().get(0);
+            producer = graph.producer(input);
+        }
+        return (producer instanceof RsqrtOp) ? producer : null;
+    }
+
+    /**
+     * Adds any broadcast operations between source and target to the matched ops list.
+     */
+    private void addBroadcastsBetween(OperationGraph graph, Value source, Value target,
+                                       List<Operation> matchedOps) {
+        Value current = target;
+        while (!current.equals(source) && !current.name().equals(source.name())) {
+            Operation producer = graph.producer(current);
+            if (producer == null || !isBroadcast(producer)) {
+                break;
+            }
+            if (!matchedOps.contains(producer)) {
+                matchedOps.add(producer);
+            }
+            current = producer.operands().get(0);
+        }
+    }
+
+    /**
+     * Adds variance calculation operations (multiply for sq, reduce, broadcasts, divides, adds for epsilon)
+     * between the centered value and the sqrt input.
+     */
+    private void addVarianceOps(OperationGraph graph, Value sqrtInput, Value centeredValue,
+                                 List<Operation> matchedOps) {
+        // Trace back from sqrtInput to find all variance calculation ops
+        Value current = sqrtInput;
+        while (current != null) {
+            Operation producer = graph.producer(current);
+            if (producer == null) {
+                break;
+            }
+            if (!matchedOps.contains(producer)) {
+                matchedOps.add(producer);
+            }
+            // Stop when we reach the centered value or a reduce op
+            if (producer instanceof ReduceOp) {
+                // Also add the multiply (sq = centered * centered)
+                Operation sqOp = graph.producer(((ReduceOp) producer).operand());
+                if (sqOp instanceof MultiplyOp && !matchedOps.contains(sqOp)) {
+                    matchedOps.add(sqOp);
+                }
+                break;
+            }
+            if (producer.operands().isEmpty()) {
+                break;
+            }
+            current = producer.operands().get(0);
         }
     }
 }

@@ -1,0 +1,219 @@
+<templateSet group="WarpForge">
+  <!-- ==================== Dimension Definitions ==================== -->
+
+  <template name="dimdef"
+            value="interface $NAME$ extends Dim {}"
+            description="Define a dimension marker interface"
+            toReformat="true"
+            toShortenFQNames="true">
+    <variable name="NAME" expression="" defaultValue="&quot;MyDim&quot;" alwaysStopAt="true"/>
+    <context>
+      <option name="JAVA_DECLARATION" value="true"/>
+    </context>
+  </template>
+
+  <template name="dimdefs"
+            value="// Dimension markers for $PURPOSE$&#10;interface $DIM1$ extends Dim {}&#10;interface $DIM2$ extends Dim {}&#10;interface $DIM3$ extends Dim {}"
+            description="Define multiple dimension marker interfaces"
+            toReformat="true"
+            toShortenFQNames="true">
+    <variable name="PURPOSE" expression="" defaultValue="&quot;this model&quot;" alwaysStopAt="true"/>
+    <variable name="DIM1" expression="" defaultValue="&quot;Batch&quot;" alwaysStopAt="true"/>
+    <variable name="DIM2" expression="" defaultValue="&quot;Hidden&quot;" alwaysStopAt="true"/>
+    <variable name="DIM3" expression="" defaultValue="&quot;Output&quot;" alwaysStopAt="true"/>
+    <context>
+      <option name="JAVA_DECLARATION" value="true"/>
+    </context>
+  </template>
+
+  <!-- ==================== Tensor Creation ==================== -->
+
+  <template name="dimvec"
+            value="TypedTensor&lt;DimVector&lt;$DIM$&gt;, F32, Cpu&gt; $NAME$ = TypedTensor.zeros(&#10;        new DimVector&lt;&gt;($LENGTH$), F32.INSTANCE, Cpu.INSTANCE);"
+            description="Create a dimension-typed vector tensor"
+            toReformat="true"
+            toShortenFQNames="true">
+    <variable name="DIM" expression="" defaultValue="&quot;N&quot;" alwaysStopAt="true"/>
+    <variable name="NAME" expression="" defaultValue="&quot;vector&quot;" alwaysStopAt="true"/>
+    <variable name="LENGTH" expression="" defaultValue="&quot;128&quot;" alwaysStopAt="true"/>
+    <context>
+      <option name="JAVA_STATEMENT" value="true"/>
+    </context>
+  </template>
+
+  <template name="dimmat"
+            value="TypedTensor&lt;DimMatrix&lt;$ROW$, $COL$&gt;, F32, Cpu&gt; $NAME$ = TypedTensor.zeros(&#10;        new DimMatrix&lt;&gt;($ROWS$, $COLS$), F32.INSTANCE, Cpu.INSTANCE);"
+            description="Create a dimension-typed matrix tensor [Row, Col]"
+            toReformat="true"
+            toShortenFQNames="true">
+    <variable name="ROW" expression="" defaultValue="&quot;M&quot;" alwaysStopAt="true"/>
+    <variable name="COL" expression="" defaultValue="&quot;N&quot;" alwaysStopAt="true"/>
+    <variable name="NAME" expression="" defaultValue="&quot;matrix&quot;" alwaysStopAt="true"/>
+    <variable name="ROWS" expression="" defaultValue="&quot;32&quot;" alwaysStopAt="true"/>
+    <variable name="COLS" expression="" defaultValue="&quot;768&quot;" alwaysStopAt="true"/>
+    <context>
+      <option name="JAVA_STATEMENT" value="true"/>
+    </context>
+  </template>
+
+  <template name="dimr3"
+            value="TypedTensor&lt;DimRank3&lt;$D0$, $D1$, $D2$&gt;, F32, Cpu&gt; $NAME$ = TypedTensor.zeros(&#10;        new DimRank3&lt;&gt;($SIZE0$, $SIZE1$, $SIZE2$), F32.INSTANCE, Cpu.INSTANCE);"
+            description="Create a dimension-typed rank-3 tensor [D0, D1, D2]"
+            toReformat="true"
+            toShortenFQNames="true">
+    <variable name="D0" expression="" defaultValue="&quot;Batch&quot;" alwaysStopAt="true"/>
+    <variable name="D1" expression="" defaultValue="&quot;SeqLen&quot;" alwaysStopAt="true"/>
+    <variable name="D2" expression="" defaultValue="&quot;Hidden&quot;" alwaysStopAt="true"/>
+    <variable name="NAME" expression="" defaultValue="&quot;tensor&quot;" alwaysStopAt="true"/>
+    <variable name="SIZE0" expression="" defaultValue="&quot;8&quot;" alwaysStopAt="true"/>
+    <variable name="SIZE1" expression="" defaultValue="&quot;128&quot;" alwaysStopAt="true"/>
+    <variable name="SIZE2" expression="" defaultValue="&quot;768&quot;" alwaysStopAt="true"/>
+    <context>
+      <option name="JAVA_STATEMENT" value="true"/>
+    </context>
+  </template>
+
+  <template name="dimr4"
+            value="TypedTensor&lt;DimRank4&lt;$D0$, $D1$, $D2$, $D3$&gt;, F32, Cpu&gt; $NAME$ = TypedTensor.zeros(&#10;        new DimRank4&lt;&gt;($SIZE0$, $SIZE1$, $SIZE2$, $SIZE3$), F32.INSTANCE, Cpu.INSTANCE);"
+            description="Create a dimension-typed rank-4 tensor [D0, D1, D2, D3]"
+            toReformat="true"
+            toShortenFQNames="true">
+    <variable name="D0" expression="" defaultValue="&quot;Batch&quot;" alwaysStopAt="true"/>
+    <variable name="D1" expression="" defaultValue="&quot;NumHeads&quot;" alwaysStopAt="true"/>
+    <variable name="D2" expression="" defaultValue="&quot;SeqLen&quot;" alwaysStopAt="true"/>
+    <variable name="D3" expression="" defaultValue="&quot;HeadDim&quot;" alwaysStopAt="true"/>
+    <variable name="NAME" expression="" defaultValue="&quot;tensor&quot;" alwaysStopAt="true"/>
+    <variable name="SIZE0" expression="" defaultValue="&quot;2&quot;" alwaysStopAt="true"/>
+    <variable name="SIZE1" expression="" defaultValue="&quot;12&quot;" alwaysStopAt="true"/>
+    <variable name="SIZE2" expression="" defaultValue="&quot;128&quot;" alwaysStopAt="true"/>
+    <variable name="SIZE3" expression="" defaultValue="&quot;64&quot;" alwaysStopAt="true"/>
+    <context>
+      <option name="JAVA_STATEMENT" value="true"/>
+    </context>
+  </template>
+
+  <!-- ==================== Operations ==================== -->
+
+  <template name="matmul"
+            value="// $ANAME$[$M$, $K$] @ $BNAME$[$K$, $N$] = $RESULT$[$M$, $N$]&#10;TypedTensor&lt;DimMatrix&lt;$M$, $N$&gt;, F32, Cpu&gt; $RESULT$ = DimOps.matmul($ANAME$, $BNAME$);"
+            description="Matrix multiplication with shape comment"
+            toReformat="true"
+            toShortenFQNames="true">
+    <variable name="ANAME" expression="" defaultValue="&quot;a&quot;" alwaysStopAt="true"/>
+    <variable name="BNAME" expression="" defaultValue="&quot;b&quot;" alwaysStopAt="true"/>
+    <variable name="RESULT" expression="" defaultValue="&quot;c&quot;" alwaysStopAt="true"/>
+    <variable name="M" expression="" defaultValue="&quot;M&quot;" alwaysStopAt="true"/>
+    <variable name="K" expression="" defaultValue="&quot;K&quot;" alwaysStopAt="true"/>
+    <variable name="N" expression="" defaultValue="&quot;N&quot;" alwaysStopAt="true"/>
+    <context>
+      <option name="JAVA_STATEMENT" value="true"/>
+    </context>
+  </template>
+
+  <template name="bmatmul"
+            value="// Batched: $ANAME$[$B$, $M$, $K$] @ $BNAME$[$B$, $K$, $N$] = $RESULT$[$B$, $M$, $N$]&#10;TypedTensor&lt;DimRank3&lt;$B$, $M$, $N$&gt;, F32, Cpu&gt; $RESULT$ = DimOps.batchedMatmul($ANAME$, $BNAME$);"
+            description="Batched matrix multiplication (rank-3)"
+            toReformat="true"
+            toShortenFQNames="true">
+    <variable name="ANAME" expression="" defaultValue="&quot;a&quot;" alwaysStopAt="true"/>
+    <variable name="BNAME" expression="" defaultValue="&quot;b&quot;" alwaysStopAt="true"/>
+    <variable name="RESULT" expression="" defaultValue="&quot;c&quot;" alwaysStopAt="true"/>
+    <variable name="B" expression="" defaultValue="&quot;Batch&quot;" alwaysStopAt="true"/>
+    <variable name="M" expression="" defaultValue="&quot;M&quot;" alwaysStopAt="true"/>
+    <variable name="K" expression="" defaultValue="&quot;K&quot;" alwaysStopAt="true"/>
+    <variable name="N" expression="" defaultValue="&quot;N&quot;" alwaysStopAt="true"/>
+    <context>
+      <option name="JAVA_STATEMENT" value="true"/>
+    </context>
+  </template>
+
+  <template name="bmatmul4"
+            value="// Multi-head: $ANAME$[$B$, $H$, $M$, $K$] @ $BNAME$[$B$, $H$, $K$, $N$] = $RESULT$[$B$, $H$, $M$, $N$]&#10;TypedTensor&lt;DimRank4&lt;$B$, $H$, $M$, $N$&gt;, F32, Cpu&gt; $RESULT$ = DimOps.batchedMatmulRank4($ANAME$, $BNAME$);"
+            description="Batched matrix multiplication (rank-4, multi-head attention)"
+            toReformat="true"
+            toShortenFQNames="true">
+    <variable name="ANAME" expression="" defaultValue="&quot;q&quot;" alwaysStopAt="true"/>
+    <variable name="BNAME" expression="" defaultValue="&quot;kT&quot;" alwaysStopAt="true"/>
+    <variable name="RESULT" expression="" defaultValue="&quot;scores&quot;" alwaysStopAt="true"/>
+    <variable name="B" expression="" defaultValue="&quot;Batch&quot;" alwaysStopAt="true"/>
+    <variable name="H" expression="" defaultValue="&quot;NumHeads&quot;" alwaysStopAt="true"/>
+    <variable name="M" expression="" defaultValue="&quot;SeqLen&quot;" alwaysStopAt="true"/>
+    <variable name="K" expression="" defaultValue="&quot;HeadDim&quot;" alwaysStopAt="true"/>
+    <variable name="N" expression="" defaultValue="&quot;SeqLen&quot;" alwaysStopAt="true"/>
+    <context>
+      <option name="JAVA_STATEMENT" value="true"/>
+    </context>
+  </template>
+
+  <template name="matvec"
+            value="// $MNAME$[$M$, $N$] @ $VNAME$[$N$] = $RESULT$[$M$]&#10;TypedTensor&lt;DimVector&lt;$M$&gt;, F32, Cpu&gt; $RESULT$ = DimOps.matvec($MNAME$, $VNAME$);"
+            description="Matrix-vector multiplication"
+            toReformat="true"
+            toShortenFQNames="true">
+    <variable name="MNAME" expression="" defaultValue="&quot;matrix&quot;" alwaysStopAt="true"/>
+    <variable name="VNAME" expression="" defaultValue="&quot;vector&quot;" alwaysStopAt="true"/>
+    <variable name="RESULT" expression="" defaultValue="&quot;result&quot;" alwaysStopAt="true"/>
+    <variable name="M" expression="" defaultValue="&quot;M&quot;" alwaysStopAt="true"/>
+    <variable name="N" expression="" defaultValue="&quot;N&quot;" alwaysStopAt="true"/>
+    <context>
+      <option name="JAVA_STATEMENT" value="true"/>
+    </context>
+  </template>
+
+  <template name="transpose"
+            value="// Transpose: $INPUT$[$R$, $C$] -> $RESULT$[$C$, $R$]&#10;TypedTensor&lt;DimMatrix&lt;$C$, $R$&gt;, F32, Cpu&gt; $RESULT$ = DimOps.transpose($INPUT$);"
+            description="Matrix transpose (swaps dimension types)"
+            toReformat="true"
+            toShortenFQNames="true">
+    <variable name="INPUT" expression="" defaultValue="&quot;matrix&quot;" alwaysStopAt="true"/>
+    <variable name="RESULT" expression="" defaultValue="&quot;transposed&quot;" alwaysStopAt="true"/>
+    <variable name="R" expression="" defaultValue="&quot;R&quot;" alwaysStopAt="true"/>
+    <variable name="C" expression="" defaultValue="&quot;C&quot;" alwaysStopAt="true"/>
+    <context>
+      <option name="JAVA_STATEMENT" value="true"/>
+    </context>
+  </template>
+
+  <!-- ==================== Attention Pattern ==================== -->
+
+  <template name="attention"
+            value="// Multi-head attention pattern&#10;// Q: [Batch, NumHeads, SeqLen, HeadDim]&#10;// K: [Batch, NumHeads, SeqLen, HeadDim] -> K^T: [Batch, NumHeads, HeadDim, SeqLen]&#10;// V: [Batch, NumHeads, SeqLen, HeadDim]&#10;&#10;interface Batch extends Dim {}&#10;interface NumHeads extends Dim {}&#10;interface SeqLen extends Dim {}&#10;interface HeadDim extends Dim {}&#10;&#10;// Create Q, K, V tensors&#10;var q = TypedTensor.&lt;DimRank4&lt;Batch, NumHeads, SeqLen, HeadDim&gt;, F32, Cpu&gt;zeros(&#10;        new DimRank4&lt;&gt;($BATCH_SIZE$, $NUM_HEADS$, $SEQ_LEN$, $HEAD_DIM$), F32.INSTANCE, Cpu.INSTANCE);&#10;var k = TypedTensor.&lt;DimRank4&lt;Batch, NumHeads, SeqLen, HeadDim&gt;, F32, Cpu&gt;zeros(&#10;        new DimRank4&lt;&gt;($BATCH_SIZE$, $NUM_HEADS$, $SEQ_LEN$, $HEAD_DIM$), F32.INSTANCE, Cpu.INSTANCE);&#10;var v = TypedTensor.&lt;DimRank4&lt;Batch, NumHeads, SeqLen, HeadDim&gt;, F32, Cpu&gt;zeros(&#10;        new DimRank4&lt;&gt;($BATCH_SIZE$, $NUM_HEADS$, $SEQ_LEN$, $HEAD_DIM$), F32.INSTANCE, Cpu.INSTANCE);&#10;&#10;// Transpose K for attention: [B, H, S, D] -> [B, H, D, S]&#10;// Note: You'll need to implement transposeLastTwo in DimOps or reshape manually&#10;// var kT = transposeLastTwo(k);&#10;&#10;// Attention scores: Q @ K^T -> [B, H, S, S]&#10;// TypedTensor&lt;DimRank4&lt;Batch, NumHeads, SeqLen, SeqLen&gt;, F32, Cpu&gt; scores = &#10;//         DimOps.batchedMatmulRank4(q, kT);&#10;&#10;// Apply softmax to scores (along last dimension)&#10;// var attnWeights = softmax(scores);&#10;&#10;// Attention output: weights @ V -> [B, H, S, D]&#10;// TypedTensor&lt;DimRank4&lt;Batch, NumHeads, SeqLen, HeadDim&gt;, F32, Cpu&gt; attnOutput = &#10;//         DimOps.batchedMatmulRank4(attnWeights, v);"
+            description="Multi-head attention pattern with dimension types"
+            toReformat="true"
+            toShortenFQNames="true">
+    <variable name="BATCH_SIZE" expression="" defaultValue="&quot;2&quot;" alwaysStopAt="true"/>
+    <variable name="NUM_HEADS" expression="" defaultValue="&quot;12&quot;" alwaysStopAt="true"/>
+    <variable name="SEQ_LEN" expression="" defaultValue="&quot;128&quot;" alwaysStopAt="true"/>
+    <variable name="HEAD_DIM" expression="" defaultValue="&quot;64&quot;" alwaysStopAt="true"/>
+    <context>
+      <option name="JAVA_STATEMENT" value="true"/>
+    </context>
+  </template>
+
+  <!-- ==================== MLP Pattern ==================== -->
+
+  <template name="mlp"
+            value="// MLP layer: input[Batch, Hidden] -> output[Batch, Hidden]&#10;// Through intermediate[Batch, Intermediate]&#10;&#10;interface Batch extends Dim {}&#10;interface Hidden extends Dim {}&#10;interface Intermediate extends Dim {}&#10;&#10;// Weight matrices&#10;var w1 = TypedTensor.&lt;DimMatrix&lt;Hidden, Intermediate&gt;, F32, Cpu&gt;zeros(&#10;        new DimMatrix&lt;&gt;($HIDDEN$, $INTERMEDIATE$), F32.INSTANCE, Cpu.INSTANCE);&#10;var w2 = TypedTensor.&lt;DimMatrix&lt;Intermediate, Hidden&gt;, F32, Cpu&gt;zeros(&#10;        new DimMatrix&lt;&gt;($INTERMEDIATE$, $HIDDEN$), F32.INSTANCE, Cpu.INSTANCE);&#10;&#10;// Forward pass&#10;// var hidden1 = DimOps.matmul(input, w1);  // [Batch, Hidden] @ [Hidden, Inter] = [Batch, Inter]&#10;// var activated = gelu(hidden1);           // [Batch, Inter]&#10;// var output = DimOps.matmul(activated, w2); // [Batch, Inter] @ [Inter, Hidden] = [Batch, Hidden]"
+            description="MLP layer pattern with dimension types"
+            toReformat="true"
+            toShortenFQNames="true">
+    <variable name="HIDDEN" expression="" defaultValue="&quot;768&quot;" alwaysStopAt="true"/>
+    <variable name="INTERMEDIATE" expression="" defaultValue="&quot;3072&quot;" alwaysStopAt="true"/>
+    <context>
+      <option name="JAVA_STATEMENT" value="true"/>
+    </context>
+  </template>
+
+  <!-- ==================== Imports ==================== -->
+
+  <template name="dimops-imports"
+            value="import io.surfworks.warpforge.core.tensor.typed.TypedTensor;&#10;import io.surfworks.warpforge.core.tensor.typed.device.Cpu;&#10;import io.surfworks.warpforge.core.tensor.typed.dim.Dim;&#10;import io.surfworks.warpforge.core.tensor.typed.dtype.F32;&#10;import io.surfworks.warpforge.core.tensor.typed.ops.DimOps;&#10;import io.surfworks.warpforge.core.tensor.typed.shape.DimMatrix;&#10;import io.surfworks.warpforge.core.tensor.typed.shape.DimRank3;&#10;import io.surfworks.warpforge.core.tensor.typed.shape.DimRank4;&#10;import io.surfworks.warpforge.core.tensor.typed.shape.DimVector;"
+            description="Import all DimOps-related classes"
+            toReformat="true"
+            toShortenFQNames="false">
+    <context>
+      <option name="JAVA_DECLARATION" value="true"/>
+    </context>
+  </template>
+
+</templateSet>

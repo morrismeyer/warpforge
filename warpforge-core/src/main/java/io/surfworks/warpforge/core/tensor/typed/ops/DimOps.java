@@ -18,41 +18,98 @@ import io.surfworks.warpforge.core.tensor.typed.shape.Shape;
  * compatibility at compile time. The inner dimension K in matmul is
  * checked by the Java compiler, not at runtime.
  *
- * <h2>Matmul Example</h2>
+ * <h2>Quick Reference: Shape Rules</h2>
+ * <pre>
+ * +------------------+----------------------------------+------------------+
+ * | Operation        | Input Shapes                     | Output Shape     |
+ * +------------------+----------------------------------+------------------+
+ * | matmul(A, B)     | A[M, K] @ B[K, N]                | C[M, N]          |
+ * | batchedMatmul    | A[B, M, K] @ B[B, K, N]          | C[B, M, N]       |
+ * | batchedMatmulR4  | A[B, H, M, K] @ B[B, H, K, N]    | C[B, H, M, N]    |
+ * | matvec(M, v)     | M[M, N] @ v[N]                   | y[M]             |
+ * | vecmat(v, M)     | v[M] @ M[M, N]                   | y[N]             |
+ * | transpose(A)     | A[R, C]                          | A^T[C, R]        |
+ * | add/sub/mul/div  | A[S] op B[S]                     | C[S]             |
+ * +------------------+----------------------------------+------------------+
+ * </pre>
+ *
+ * <h2>Matmul Shape Diagram</h2>
+ * <pre>
+ *      A[M, K]          B[K, N]           C[M, N]
+ *    +--------+       +--------+       +--------+
+ *    |        |       |        |       |        |
+ *  M |   A    | K   K |   B    | N = M |   C    | N
+ *    |        |       |        |       |        |
+ *    +--------+       +--------+       +--------+
+ *           \___________/
+ *           Must be same!
+ * </pre>
+ *
+ * <h2>Usage Example</h2>
  * <pre>{@code
- * interface B extends Dim {}  // Batch
- * interface H extends Dim {}  // Hidden
- * interface V extends Dim {}  // Vocab
+ * // 1. Define dimension markers for your model
+ * interface Batch extends Dim {}
+ * interface Hidden extends Dim {}
+ * interface Vocab extends Dim {}
  *
- * TypedTensor<DimMatrix<B, H>, F32, Cpu> hidden = ...;   // [batch, hidden]
- * TypedTensor<DimMatrix<H, V>, F32, Cpu> classifier = ...;   // [hidden, vocab]
+ * // 2. Create tensors with dimension types
+ * TypedTensor<DimMatrix<Batch, Hidden>, F32, Cpu> hidden = ...;     // [batch, hidden]
+ * TypedTensor<DimMatrix<Hidden, Vocab>, F32, Cpu> classifier = ...; // [hidden, vocab]
  *
- * // Compile-time safe: H matches in both
- * var logits = DimOps.matmul(hidden, classifier);  // DimMatrix<B, V>
- *
- * // COMPILE ERROR: B vs H mismatch in inner dimension
- * // DimOps.matmul(hidden, TypedTensor<DimMatrix<B, V>, ...>);
+ * // 3. Matmul - compiler checks that Hidden matches!
+ * var logits = DimOps.matmul(hidden, classifier);  // DimMatrix<Batch, Vocab>
  * }</pre>
  *
- * <h2>Attention Example</h2>
+ * <h2>Attention Pattern</h2>
  * <pre>{@code
+ * // Multi-head attention with compile-time dimension checking
  * interface Batch extends Dim {}
  * interface NumHeads extends Dim {}
  * interface SeqLen extends Dim {}
  * interface HeadDim extends Dim {}
  *
+ * // Q: [B, H, S, D], K^T: [B, H, D, S] -> scores: [B, H, S, S]
  * TypedTensor<DimRank4<Batch, NumHeads, SeqLen, HeadDim>, F32, Cpu> Q = ...;
  * TypedTensor<DimRank4<Batch, NumHeads, HeadDim, SeqLen>, F32, Cpu> K_T = ...;
  *
- * // Q @ K^T produces attention scores with HeadDim matched at compile time
- * var scores = DimOps.batchedMatmulRank4(Q, K_T);  // [Batch, NumHeads, SeqLen, SeqLen]
+ * // HeadDim must match between Q's last dim and K_T's second-to-last dim
+ * var scores = DimOps.batchedMatmulRank4(Q, K_T);
  * }</pre>
  *
- * <h2>Design Principle</h2>
- * <p>DimOps provides compile-time shape checking while delegating actual
- * computation to existing implementations. Runtime dimension checks still
- * happen as defense-in-depth, but the primary goal is catching shape
- * mismatches at compile time when consistent dimension markers are used.
+ * <h2>Troubleshooting Compile Errors</h2>
+ *
+ * <p><b>Error: "no suitable method found for matmul(...)"</b>
+ * <br>This means dimension types don't match. Check:
+ * <ul>
+ *   <li>Inner dimensions: A's column type must equal B's row type</li>
+ *   <li>Dtype: Both tensors must have same dtype (F32, F64, etc.)</li>
+ *   <li>Device: Both tensors must be on same device (Cpu, Nvidia, etc.)</li>
+ * </ul>
+ *
+ * <p><b>Example of dimension mismatch:</b>
+ * <pre>{@code
+ * DimMatrix<Batch, Hidden> @ DimMatrix<Vocab, Output>
+ *                  ^                    ^
+ *                  Hidden != Vocab  --> COMPILE ERROR
+ * }</pre>
+ *
+ * <p><b>Fix:</b> Ensure the inner dimension type is the same:
+ * <pre>{@code
+ * DimMatrix<Batch, Hidden> @ DimMatrix<Hidden, Output>  // OK!
+ *                  ^                    ^
+ *                  Hidden == Hidden  --> Compiles
+ * }</pre>
+ *
+ * <h2>IntelliJ Live Templates</h2>
+ * <p>Type these abbreviations and press Tab:
+ * <ul>
+ *   <li>{@code dimmat} - Create a DimMatrix tensor</li>
+ *   <li>{@code dimvec} - Create a DimVector tensor</li>
+ *   <li>{@code dimr3} / {@code dimr4} - Create rank-3/4 tensors</li>
+ *   <li>{@code matmul} - Matrix multiplication with shape comment</li>
+ *   <li>{@code attention} - Full attention pattern template</li>
+ *   <li>{@code dimops-imports} - Import all DimOps classes</li>
+ * </ul>
  *
  * @see io.surfworks.warpforge.core.tensor.typed.dim.Dim
  * @see io.surfworks.warpforge.core.tensor.typed.dim.Semantic
@@ -69,9 +126,34 @@ public final class DimOps {
     /**
      * Matrix multiplication with compile-time dimension checking.
      *
-     * <p>For A[M, K] and B[K, N], produces C[M, N].
-     * The K dimension MUST be the same type parameter in both inputs,
-     * ensuring inner dimension compatibility at compile time.
+     * <h3>Shape Transformation</h3>
+     * <pre>
+     *   A[M, K]  @  B[K, N]  =  C[M, N]
+     *        ↑________↑
+     *        Must match!
+     * </pre>
+     *
+     * <h3>Example</h3>
+     * <pre>{@code
+     * interface Batch extends Dim {}
+     * interface Hidden extends Dim {}
+     * interface Vocab extends Dim {}
+     *
+     * var input = TypedTensor.<DimMatrix<Batch, Hidden>, F32, Cpu>zeros(...);
+     * var weights = TypedTensor.<DimMatrix<Hidden, Vocab>, F32, Cpu>zeros(...);
+     *
+     * // Compiles: Hidden matches Hidden
+     * var output = DimOps.matmul(input, weights);  // DimMatrix<Batch, Vocab>
+     * }</pre>
+     *
+     * <h3>Common Errors</h3>
+     * <p><b>"no suitable method found"</b> - Check these three things:
+     * <ol>
+     *   <li><b>Inner dimension mismatch:</b> A's column type ≠ B's row type
+     *       <br>{@code DimMatrix<M, K>} requires {@code DimMatrix<K, N>}, not {@code DimMatrix<P, N>}</li>
+     *   <li><b>Dtype mismatch:</b> Mixing F32 and F64 tensors</li>
+     *   <li><b>Device mismatch:</b> Mixing Cpu and Nvidia tensors</li>
+     * </ol>
      *
      * @param a left matrix with shape [M, K]
      * @param b right matrix with shape [K, N]
@@ -117,8 +199,26 @@ public final class DimOps {
     /**
      * Batched matrix multiplication for Rank3 tensors.
      *
-     * <p>For A[B, M, K] and B[B, K, N], produces C[B, M, N].
-     * Both batch dimension (B) and inner dimension (K) must match.
+     * <h3>Shape Transformation</h3>
+     * <pre>
+     *   A[B, M, K]  @  B[B, K, N]  =  C[B, M, N]
+     *     ↑              ↑              ↑
+     *     └──────────────┴── Batch must match
+     *           ↑_________↑
+     *           Inner must match
+     * </pre>
+     *
+     * <h3>Example</h3>
+     * <pre>{@code
+     * interface Batch extends Dim {}
+     * interface SeqLen extends Dim {}
+     * interface Hidden extends Dim {}
+     *
+     * var a = TypedTensor.<DimRank3<Batch, SeqLen, Hidden>, F32, Cpu>zeros(...);
+     * var b = TypedTensor.<DimRank3<Batch, Hidden, SeqLen>, F32, Cpu>zeros(...);
+     *
+     * var c = DimOps.batchedMatmul(a, b);  // DimRank3<Batch, SeqLen, SeqLen>
+     * }</pre>
      *
      * @param a left batch of matrices [B, M, K]
      * @param b right batch of matrices [B, K, N]
@@ -167,14 +267,45 @@ public final class DimOps {
     /**
      * Batched matrix multiplication for Rank4 tensors (multi-head attention).
      *
-     * <p>For A[B, H, M, K] and B[B, H, K, N], produces C[B, H, M, N].
-     * This is specifically designed for multi-head attention where:
+     * <h3>Shape Transformation</h3>
+     * <pre>
+     *   Q[B, H, S, D]  @  K^T[B, H, D, S]  =  scores[B, H, S, S]
+     *     ↑  ↑              ↑  ↑                  ↑  ↑
+     *     └──┴──────────────┴──┴── Batch and Heads must match
+     *              ↑_____________↑
+     *              HeadDim must match
+     * </pre>
+     *
+     * <h3>Multi-Head Attention Pattern</h3>
+     * <pre>{@code
+     * interface Batch extends Dim {}
+     * interface NumHeads extends Dim {}
+     * interface SeqLen extends Dim {}
+     * interface HeadDim extends Dim {}
+     *
+     * // Q: [batch, heads, seq_len, head_dim]
+     * var Q = TypedTensor.<DimRank4<Batch, NumHeads, SeqLen, HeadDim>, F32, Cpu>zeros(...);
+     *
+     * // K^T: [batch, heads, head_dim, seq_len] (transposed for matmul)
+     * var K_T = TypedTensor.<DimRank4<Batch, NumHeads, HeadDim, SeqLen>, F32, Cpu>zeros(...);
+     *
+     * // V: [batch, heads, seq_len, head_dim]
+     * var V = TypedTensor.<DimRank4<Batch, NumHeads, SeqLen, HeadDim>, F32, Cpu>zeros(...);
+     *
+     * // Attention scores: Q @ K^T -> [batch, heads, seq_len, seq_len]
+     * var scores = DimOps.batchedMatmulRank4(Q, K_T);
+     *
+     * // After softmax: scores @ V -> [batch, heads, seq_len, head_dim]
+     * // var output = DimOps.batchedMatmulRank4(softmax(scores), V);
+     * }</pre>
+     *
+     * <h3>Dimension Semantics</h3>
      * <ul>
-     *   <li>B is batch size
-     *   <li>H is number of attention heads
-     *   <li>M is sequence length (query)
-     *   <li>K is head dimension
-     *   <li>N is sequence length (key/value)
+     *   <li><b>B</b> - Batch size (number of sequences)</li>
+     *   <li><b>H</b> - Number of attention heads</li>
+     *   <li><b>M</b> - Query sequence length</li>
+     *   <li><b>K</b> - Head dimension (hidden_dim / num_heads)</li>
+     *   <li><b>N</b> - Key/Value sequence length</li>
      * </ul>
      *
      * @param a left tensor [B, H, M, K] - typically Q after reshape
@@ -230,8 +361,24 @@ public final class DimOps {
     /**
      * Matrix-vector multiplication: y = A @ x.
      *
-     * <p>For A[M, N] and x[N], produces y[M].
-     * The N dimension must match between matrix columns and vector length.
+     * <h3>Shape Transformation</h3>
+     * <pre>
+     *   A[M, N]  @  x[N]  =  y[M]
+     *       ↑________↑
+     *       Must match!
+     * </pre>
+     *
+     * <h3>Example: Linear Layer Forward</h3>
+     * <pre>{@code
+     * interface Features extends Dim {}
+     * interface Output extends Dim {}
+     *
+     * var weights = TypedTensor.<DimMatrix<Output, Features>, F32, Cpu>zeros(...);
+     * var input = TypedTensor.<DimVector<Features>, F32, Cpu>zeros(...);
+     *
+     * // Features dimension must match
+     * var output = DimOps.matvec(weights, input);  // DimVector<Output>
+     * }</pre>
      *
      * @param matrix the matrix [M, N]
      * @param vector the vector [N]
@@ -274,8 +421,23 @@ public final class DimOps {
     /**
      * Vector-matrix multiplication: y = x @ A.
      *
-     * <p>For x[M] and A[M, N], produces y[N].
-     * The M dimension must match between vector length and matrix rows.
+     * <h3>Shape Transformation</h3>
+     * <pre>
+     *   x[M]  @  A[M, N]  =  y[N]
+     *     ↑______↑
+     *     Must match!
+     * </pre>
+     *
+     * <h3>Example</h3>
+     * <pre>{@code
+     * interface Hidden extends Dim {}
+     * interface Output extends Dim {}
+     *
+     * var hidden = TypedTensor.<DimVector<Hidden>, F32, Cpu>zeros(...);
+     * var weights = TypedTensor.<DimMatrix<Hidden, Output>, F32, Cpu>zeros(...);
+     *
+     * var output = DimOps.vecmat(hidden, weights);  // DimVector<Output>
+     * }</pre>
      *
      * @param vector the row vector [M]
      * @param matrix the matrix [M, N]
@@ -320,8 +482,34 @@ public final class DimOps {
     /**
      * Transposes a matrix, swapping dimension types.
      *
-     * <p>For A[R, C], produces A^T[C, R].
-     * The dimension types are swapped to maintain type safety.
+     * <h3>Shape Transformation</h3>
+     * <pre>
+     *   A[R, C]  -->  A^T[C, R]
+     *
+     *   Before:          After:
+     *   +------+         +---+
+     *   |      | C       |   |
+     * R |  A   |    -->  | A | R
+     *   |      |       C |   |
+     *   +------+         +---+
+     * </pre>
+     *
+     * <h3>Example: Preparing K for Attention</h3>
+     * <pre>{@code
+     * interface SeqLen extends Dim {}
+     * interface HeadDim extends Dim {}
+     *
+     * // K: [SeqLen, HeadDim]
+     * var K = TypedTensor.<DimMatrix<SeqLen, HeadDim>, F32, Cpu>zeros(...);
+     *
+     * // K^T: [HeadDim, SeqLen] - ready for Q @ K^T
+     * var K_T = DimOps.transpose(K);  // DimMatrix<HeadDim, SeqLen>
+     * }</pre>
+     *
+     * <h3>Type Safety</h3>
+     * <p>Note that transpose swaps the dimension types. If you have
+     * {@code DimMatrix<M, N>}, transpose gives you {@code DimMatrix<N, M>}.
+     * This is intentional - it maintains type safety through the operation.
      *
      * @param a the input matrix
      * @param <R> row dimension type

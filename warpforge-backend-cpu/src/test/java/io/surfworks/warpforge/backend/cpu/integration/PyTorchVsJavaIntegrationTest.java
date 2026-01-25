@@ -84,8 +84,8 @@ class PyTorchVsJavaIntegrationTest {
             StableHloAst.Module module = StableHloParser.parse(fixture.mlir());
             assertNotNull(module, "Failed to parse MLIR for fixture: " + fixtureName);
 
-            // Execute through Java CPU backend
-            List<Tensor> javaOutputs = interpreter.execute(module, fixture.inputs());
+            // Execute through Java CPU backend (allInputs includes weights)
+            List<Tensor> javaOutputs = interpreter.execute(module, fixture.allInputs());
 
             // Compare with PyTorch outputs
             List<Tensor> expectedOutputs = fixture.expectedOutputs();
@@ -178,7 +178,7 @@ class PyTorchVsJavaIntegrationTest {
             try (EndToEndTestFixture fixture = EndToEndTestFixture.load(fixtureDir)) {
                 StableHloAst.Module module = StableHloParser.parse(fixture.mlir());
 
-                List<Tensor> javaOutputs = interpreter.execute(module, fixture.inputs());
+                List<Tensor> javaOutputs = interpreter.execute(module, fixture.allInputs());
                 List<Tensor> expectedOutputs = fixture.expectedOutputs();
 
                 assertEquals(expectedOutputs.size(), javaOutputs.size());
@@ -211,7 +211,7 @@ class PyTorchVsJavaIntegrationTest {
 
                 try (EndToEndTestFixture f = EndToEndTestFixture.load(fixtureDir)) {
                     StableHloAst.Module module = StableHloParser.parse(f.mlir());
-                    List<Tensor> outputs = interpreter.execute(module, f.inputs());
+                    List<Tensor> outputs = interpreter.execute(module, f.allInputs());
 
                     for (int i = 0; i < outputs.size(); i++) {
                         try (Tensor actual = outputs.get(i)) {
@@ -232,7 +232,7 @@ class PyTorchVsJavaIntegrationTest {
 
                 try (EndToEndTestFixture f = EndToEndTestFixture.load(fixtureDir)) {
                     StableHloAst.Module module = StableHloParser.parse(f.mlir());
-                    List<Tensor> outputs = interpreter.execute(module, f.inputs());
+                    List<Tensor> outputs = interpreter.execute(module, f.allInputs());
 
                     // For simple elementwise ops, expect very high accuracy
                     ToleranceConfig strict = ToleranceConfig.forOp("elementwise");
@@ -256,9 +256,19 @@ class PyTorchVsJavaIntegrationTest {
     private static ToleranceConfig getToleranceForFixture(String fixtureName) {
         return switch (fixtureName) {
             // Transcendental functions need looser tolerance
-            case "exp", "tanh", "sigmoid", "relu" -> ToleranceConfig.forOp("transcendental");
+            case "exp", "tanh", "sigmoid", "relu", "silu" -> ToleranceConfig.forOp("transcendental");
+            // GELU uses tanh approximation - needs looser tolerance
+            case "gelu", "gelu_tanh" -> ToleranceConfig.forOp("gelu");
             // Linear operations should be exact
             case "add", "subtract", "multiply", "negate", "abs" -> ToleranceConfig.forOp("elementwise");
+            // Linear layers have accumulated matmul errors
+            case "linear", "linear_no_bias" -> ToleranceConfig.forOp("dot_general");
+            // Normalization operations
+            case "layer_norm", "layer_norm_3d" -> ToleranceConfig.forOp("layer_norm");
+            case "softmax", "softmax_3d" -> ToleranceConfig.forOp("softmax");
+            // Composite transformer patterns (multiple ops, accumulated errors)
+            case "ffn_block", "pre_norm_residual", "attention" ->
+                new ToleranceConfig(1e-3, 1e-2);  // Very loose for multi-op patterns
             // Default tolerance
             default -> ToleranceConfig.forDtype(io.surfworks.warpforge.core.tensor.ScalarType.F32);
         };

@@ -11,6 +11,8 @@ import io.surfworks.warpforge.core.tensor.typed.dtype.DTypeTag;
 import io.surfworks.warpforge.core.tensor.typed.dtype.F32;
 import io.surfworks.warpforge.core.tensor.typed.dtype.F64;
 import io.surfworks.warpforge.core.tensor.typed.shape.Matrix;
+import io.surfworks.warpforge.core.tensor.typed.shape.Rank3;
+import io.surfworks.warpforge.core.tensor.typed.shape.Rank4;
 import io.surfworks.warpforge.core.tensor.typed.shape.Vector;
 
 /**

@@ -615,6 +615,77 @@ Production Phase (Java/WarpForge):
 - Pain points: Research code doesn't deploy
 - Value proposition: SnakeGrinder bridge, same model runs everywhere
 
+## Asymmetric Advantage #7: Continuous GPU Performance Tracking
+
+### The Problem with ML Performance
+
+Most ML frameworks have poor visibility into performance:
+
+```
+Typical PyTorch performance workflow:
+1. "The model seems slow"
+2. Add torch.cuda.synchronize() + time.time() everywhere
+3. Run nvprof or Nsight, wade through 10,000 kernel calls
+4. Find bottleneck, fix it
+5. Remove timing code, commit
+6. Three weeks later: "Why is it slow again?"
+7. Repeat from step 2
+```
+
+There's no continuous tracking. No historical comparison. No automated regression detection. Performance work is reactive and ad-hoc.
+
+### WarpForge's JFR-GPU Integration
+
+WarpForge integrates JFR with GPU profiling (CUPTI/roctracer) to provide:
+
+1. **Every nightly/weekly run captures full GPU performance data**
+   - Per-kernel execution times
+   - Memory transfer throughput
+   - TFLOPS achieved vs theoretical
+   - All stored with commit SHA
+
+2. **Automatic regression detection**
+   - Baseline comparison on every PR
+   - "This commit made GEMM 12% slower" with full context
+
+3. **Babylon optimization validation**
+   - When Babylon code transforms are merged, GPU-side JFR shows actual impact
+   - Not "we think this is faster" but "kernel fusion reduced latency by 27%"
+
+### The ptest Benchmark Suite
+
+```
+ptest/
+├── benchmarks/
+│   ├── kernel/           # Individual ops (matmul, conv, softmax)
+│   ├── fusion/           # Fused patterns (attention, FFN blocks)
+│   └── endtoend/         # Full model inference
+├── baselines/            # Historical performance baselines
+├── analysis/             # Regression detection tools
+└── reports/              # Generated comparison reports
+```
+
+### Why This Matters for Babylon
+
+Babylon's code reflection enables transformations like:
+- Kernel fusion (combine elementwise ops)
+- Memory layout optimization
+- Operation reordering for better cache utilization
+
+These optimizations **manifest on the GPU, not the JVM**. Without GPU-side JFR, you can't measure whether Babylon actually helped. With it, every optimization has quantified impact.
+
+### Competitive Moat
+
+PyTorch has no equivalent:
+- `torch.profiler` exists but isn't integrated into CI
+- No standardized baseline comparison
+- No automatic regression detection
+- Performance work remains manual and reactive
+
+WarpForge can claim: "Every commit is performance-tested. Every optimization is measured. Every regression is caught."
+
+See `JFR-GPU.md` for implementation details.
+
 ## Conclusion
 
 WarpForge's competitive strategy should not focus on raw performance comparisons with PyTorch. Instead, it should emphasize:
@@ -624,5 +695,6 @@ WarpForge's competitive strategy should not focus on raw performance comparisons
 3. **Production readiness**: Enterprise monitoring, security, and integration
 4. **Architectural superiority**: Structured concurrency enables patterns impossible in Python
 5. **Future-proofing**: Babylon code reflection enables AI-assisted optimization
+6. **Performance accountability**: Every commit tested, every optimization measured, every regression caught
 
-The pitch is not "WarpForge is faster than PyTorch." The pitch is "WarpForge turns your PyTorch research into production-grade, deployable, maintainable, observable ML infrastructure."
+The pitch is not "WarpForge is faster than PyTorch." The pitch is "WarpForge turns your PyTorch research into production-grade, deployable, maintainable, observable ML infrastructure—with continuous performance validation that ensures it stays fast."

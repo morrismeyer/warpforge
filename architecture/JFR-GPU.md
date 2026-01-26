@@ -343,6 +343,181 @@ warpforge-backend-amd/
 | Implementation effort      | Done     | ~200 LOC   | ~1000 LOC         |
 |----------------------------|----------|------------|-------------------|
 
+## Nightly/Weekly CI Performance Tracking
+
+### Why GPU-Side JFR Matters for Babylon
+
+JFR on the JVM side tracks Java execution, but **Babylon optimizations manifest on the GPU**. When Babylon transforms code (kernel fusion, memory layout optimization, operation reordering), the impact is measured in GPU kernel timing, not JVM metrics.
+
+Without GPU-side JFR:
+- Babylon optimization merged → JVM metrics unchanged → "Did it help?"
+- Performance regression → No data on which kernel got slower
+
+With GPU-side JFR:
+- Every nightly run captures per-kernel timing with full context
+- Babylon optimization merged → Compare kernel durations → Quantified impact
+- Regression detected → JFR shows exactly which kernel, which shape, which backend
+
+### CI Integration Architecture
+
+```
++------------------------------------------------------------------+
+|                    Nightly Performance CI                         |
++------------------------------------------------------------------+
+|                                                                  |
+|  1. Build WarpForge with JFR instrumentation enabled             |
+|  2. Run ptest benchmarks on both GPU nodes (NVIDIA + AMD)        |
+|  3. Collect JFR recordings with GPU events                       |
+|  4. Upload artifacts tagged with commit SHA                      |
+|  5. Compare against baseline, flag regressions                   |
+|                                                                  |
++------------------------------------------------------------------+
+         |                                    |
+         v                                    v
++-------------------+              +-------------------+
+| NVIDIA Node       |              | AMD Node          |
+| - GpuKernelEvent  |              | - GpuKernelEvent  |
+| - CUPTI traces    |              | - roctracer data  |
+| - TFLOPS metrics  |              | - TFLOPS metrics  |
++-------------------+              +-------------------+
+         |                                    |
+         +----------------+-------------------+
+                          |
+                          v
+              +------------------------+
+              | Artifact Storage       |
+              | performance-artifacts/ |
+              |   {commit-sha}/        |
+              |     jfr/               |
+              |     baselines/         |
+              +------------------------+
+```
+
+### ptest Directory Structure
+
+The `ptest` directory contains performance tests with JFR integration:
+
+```
+ptest/
+├── benchmarks/
+│   ├── kernel/                    # Individual kernel performance
+│   │   ├── GemmBenchmark.java     # Matrix multiply variants
+│   │   ├── ConvBenchmark.java     # Convolution kernels
+│   │   ├── SoftmaxBenchmark.java  # Softmax implementations
+│   │   └── LayerNormBenchmark.java
+│   ├── fusion/                    # Fused operation patterns
+│   │   ├── GeluFusionBenchmark.java
+│   │   ├── AttentionFusionBenchmark.java
+│   │   └── ResidualNormBenchmark.java
+│   └── endtoend/                  # Full model inference
+│       ├── BertInferenceBenchmark.java
+│       ├── LlamaInferenceBenchmark.java
+│       └── VisionTransformerBenchmark.java
+├── baselines/
+│   ├── nvidia/
+│   │   ├── gemm-baseline.json     # Per-kernel baseline metrics
+│   │   ├── conv-baseline.json
+│   │   └── endtoend-baseline.json
+│   └── amd/
+│       ├── gemm-baseline.json
+│       └── ...
+├── analysis/
+│   ├── JfrDiffTool.java           # Compare two JFR recordings
+│   ├── RegressionDetector.java    # Flag performance regressions
+│   └── ReportGenerator.java       # Generate comparison reports
+├── jfr-configs/
+│   ├── ptest-profile.jfc          # JFR settings for benchmarks
+│   └── ptest-gpu-detailed.jfc     # High-detail GPU profiling
+└── reports/
+    └── .gitignore                 # Generated reports excluded
+```
+
+### Benchmark Execution with JFR
+
+```java
+@BenchmarkMode(Mode.AverageTime)
+@OutputTimeUnit(TimeUnit.MICROSECONDS)
+@State(Scope.Benchmark)
+@Fork(value = 1, jvmArgs = {
+    "-XX:StartFlightRecording=filename=gemm.jfr,settings=ptest-profile.jfc"
+})
+public class GemmBenchmark {
+
+    @Param({"1024", "2048", "4096"})
+    private int size;
+
+    private CudaBackend backend;
+    private Tensor a, b;
+
+    @Setup
+    public void setup() {
+        backend = new CudaBackend(0);
+        a = Tensor.randn(size, size, ScalarType.F32, backend);
+        b = Tensor.randn(size, size, ScalarType.F32, backend);
+    }
+
+    @Benchmark
+    public Tensor gemm() {
+        // GpuKernelEvent automatically emitted
+        return backend.matmul(a, b);
+    }
+}
+```
+
+### Baseline Comparison
+
+```java
+public class RegressionDetector {
+
+    private static final double REGRESSION_THRESHOLD = 0.05; // 5%
+
+    public RegressionReport compare(Path currentJfr, Path baselineJfr) {
+        var current = loadGpuKernelEvents(currentJfr);
+        var baseline = loadGpuKernelEvents(baselineJfr);
+
+        var regressions = new ArrayList<Regression>();
+
+        for (var entry : current.entrySet()) {
+            String kernel = entry.getKey();
+            double currentTime = entry.getValue().avgGpuTimeMicros();
+            double baselineTime = baseline.get(kernel).avgGpuTimeMicros();
+
+            double delta = (currentTime - baselineTime) / baselineTime;
+
+            if (delta > REGRESSION_THRESHOLD) {
+                regressions.add(new Regression(
+                    kernel,
+                    baselineTime,
+                    currentTime,
+                    delta
+                ));
+            }
+        }
+
+        return new RegressionReport(regressions);
+    }
+}
+```
+
+### Tracking Babylon Optimization Impact
+
+When a Babylon optimization is merged:
+
+1. **Before merge**: Baseline JFR shows kernel X takes 1.5ms
+2. **PR merged**: Babylon fusion combines kernel X + Y
+3. **Nightly run**: JFR shows fused kernel XY takes 1.1ms
+4. **Report**: "Babylon fusion reduced attention compute by 27%"
+
+This creates an auditable history:
+```
+performance-artifacts/
+├── abc123/          # Before optimization
+│   └── jfr/nvidia/attention.jfr  -> attention_scores: 1.5ms
+├── def456/          # After optimization
+│   └── jfr/nvidia/attention.jfr  -> attention_fused: 1.1ms
+└── comparison-abc123-def456.html  # Generated diff report
+```
+
 ## Implementation Phases
 
 ### Phase 1: GPU Events + JFR ✅ (Complete)

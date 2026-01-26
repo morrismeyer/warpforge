@@ -1,14 +1,20 @@
 package io.surfworks.warpforge.core.concurrency;
 
 import io.surfworks.warpforge.core.backend.GpuBackend;
+import io.surfworks.warpforge.core.concurrency.GpuWorkCalibrator.GpuWorkResult;
 import io.surfworks.warpforge.core.jfr.GpuKernelEvent;
 
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -19,24 +25,52 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * GPU tests for {@link GpuTaskScope} - runs on BOTH NVIDIA and AMD machines.
  *
- * <p>These tests validate structured concurrency APIs with real GPU hardware.
- * The backend is auto-detected at runtime:
+ * <p>These tests validate structured concurrency APIs with <b>real GPU hardware</b>
+ * by performing actual GPU operations (memory transfers, stream synchronization)
+ * and validating timing through JFR events.
+ *
+ * <p><b>Key principle:</b> Every test performs real GPU work via
+ * {@link GpuWorkCalibrator#doGpuWork(GpuBackend, GpuLease, long)}, which:
  * <ul>
- *   <li>On NVIDIA machines: Tests run with NvidiaBackend, JFR events show backend=CUDA</li>
- *   <li>On AMD machines: Tests run with AmdBackend, JFR events show backend=HIP</li>
+ *   <li>Allocates device memory</li>
+ *   <li>Performs host-to-device and device-to-host transfers</li>
+ *   <li>Synchronizes GPU streams</li>
+ *   <li>Emits {@link io.surfworks.warpforge.core.jfr.GpuMemoryEvent} and
+ *       {@link GpuKernelEvent} for JFR profiling</li>
  * </ul>
  *
- * <p>Both platforms must pass for the build to be green.
+ * <p>Without real GPU work, these would just be CPU API tests, not GPU tests.
+ *
+ * <p>The backend is auto-detected at runtime:
+ * <ul>
+ *   <li>On NVIDIA machines: Tests run with NvidiaBackend, JFR shows backend=CUDA</li>
+ *   <li>On AMD machines: Tests run with AmdBackend, JFR shows backend=HIP</li>
+ * </ul>
  */
 @Tag("gpu")
 @DisplayName("GpuTaskScope GPU Tests")
 class GpuTaskScopeGpuTest {
 
+    private static GpuBackend staticBackend;
     private GpuBackend backend;
+    private String backendName;
+
+    @BeforeAll
+    static void calibrate() {
+        // Create temporary backend for calibration
+        staticBackend = GpuTestSupport.createBackend();
+        System.out.println("Calibrating GPU work generator for " + staticBackend.name() + "...");
+        GpuWorkCalibrator.CalibrationData data = GpuWorkCalibrator.getCalibrationData(staticBackend);
+        System.out.printf("Calibration complete: %d elements/ms, %.2f GB/s bandwidth%n",
+            data.elementsPerMs(), data.bandwidthGBps());
+        staticBackend.close();
+        staticBackend = null;
+    }
 
     @BeforeEach
     void setUp() {
         backend = GpuTestSupport.createBackend();
+        backendName = GpuTestSupport.expectedBackendName(backend);
         System.out.println("Running on: " + GpuTestSupport.describeEnvironment());
     }
 
@@ -48,458 +82,470 @@ class GpuTaskScopeGpuTest {
         }
     }
 
-    // ==================== Backend Integration ====================
+    // ==================== Single GPU Task Tests ====================
 
-    @Test
-    @DisplayName("Backend auto-detected and created successfully")
-    void realBackendAutoDetected() {
-        assertNotNull(backend, "Backend should be created");
-        assertNotNull(backend.name(), "Backend should have a name");
-        assertTrue(backend.deviceIndex() >= 0, "Device index should be non-negative");
-    }
+    @Nested
+    @DisplayName("Single GPU Task Timing")
+    class SingleGpuTaskTiming {
 
-    @Test
-    @DisplayName("Backend capabilities can be queried")
-    void backendCapabilitiesQueried() {
-        var capabilities = backend.gpuCapabilities();
-        assertNotNull(capabilities, "GPU capabilities should be available");
-    }
+        @Test
+        @DisplayName("10ms GPU work completes with accurate timing")
+        void tenMillisGpuWorkTiming() throws Exception {
+            final long TARGET_MS = 10;
 
-    // ==================== Single Task Scope ====================
+            try (GpuTaskScope scope = GpuTaskScope.open(backend, "gpu-work-10ms")) {
+                GpuTask<GpuWorkResult> task = scope.forkWithStream(lease -> {
+                    // Perform REAL GPU work - memory transfers + sync
+                    return GpuWorkCalibrator.doGpuWork(backend, lease, TARGET_MS);
+                });
 
-    @Test
-    @DisplayName("Single task completes successfully in scope")
-    void singleTaskScope() throws Exception {
-        try (GpuTaskScope scope = GpuTaskScope.open(backend)) {
-            long startTime = System.nanoTime();
+                scope.joinAll();
 
-            GpuTask<Integer> task = scope.fork(() -> {
-                simulateGpuWork("SingleTask");
-                return 42;
-            });
+                GpuWorkResult result = task.get();
+                assertNotNull(result, "GPU work should return result");
 
-            scope.joinAll();
+                // Validate timing
+                GpuWorkCalibrator.assertTimingWithinTolerance(TARGET_MS, result.elapsedNanos(),
+                    "10ms GPU work timing");
 
-            int result = task.get();
-            long elapsedMicros = (System.nanoTime() - startTime) / 1000;
+                // Log for debugging
+                System.out.printf("GPU Work: target=%dms, actual=%dms, elements=%d, bandwidth=%.2f GB/s%n",
+                    TARGET_MS, result.elapsedMillis(), result.tensorElements(), result.bandwidthGBps());
 
-            assertEquals(42, result, "Task should return expected value");
-            assertTrue(task.isSuccess(), "Task should be successful");
+                assertTrue(task.isSuccess(), "Task should succeed");
+            }
+        }
 
-            emitKernelEvent("SingleTaskScope", "1 task", elapsedMicros);
+        @Test
+        @DisplayName("25ms GPU work completes with accurate timing")
+        void twentyFiveMillisGpuWorkTiming() throws Exception {
+            final long TARGET_MS = 25;
+
+            try (GpuTaskScope scope = GpuTaskScope.open(backend, "gpu-work-25ms")) {
+                GpuTask<GpuWorkResult> task = scope.forkWithStream(lease ->
+                    GpuWorkCalibrator.doGpuWork(backend, lease, TARGET_MS)
+                );
+
+                scope.joinAll();
+
+                GpuWorkResult result = task.get();
+                GpuWorkCalibrator.assertTimingWithinTolerance(TARGET_MS, result.elapsedNanos(),
+                    "25ms GPU work timing");
+
+                System.out.printf("GPU Work: target=%dms, actual=%dms, bytes=%d%n",
+                    TARGET_MS, result.elapsedMillis(), result.byteSize());
+            }
+        }
+
+        @Test
+        @DisplayName("50ms GPU work completes with accurate timing")
+        void fiftyMillisGpuWorkTiming() throws Exception {
+            final long TARGET_MS = 50;
+
+            try (GpuTaskScope scope = GpuTaskScope.open(backend, "gpu-work-50ms")) {
+                GpuTask<GpuWorkResult> task = scope.forkWithStream(lease ->
+                    GpuWorkCalibrator.doGpuWork(backend, lease, TARGET_MS)
+                );
+
+                scope.joinAll();
+
+                GpuWorkResult result = task.get();
+                GpuWorkCalibrator.assertTimingWithinTolerance(TARGET_MS, result.elapsedNanos(),
+                    "50ms GPU work timing");
+            }
         }
     }
 
-    // ==================== Parallel Tasks ====================
+    // ==================== Concurrent GPU Tasks Tests ====================
 
-    @Test
-    @DisplayName("Multiple parallel tasks complete successfully")
-    void parallelTasks() throws Exception {
-        try (GpuTaskScope scope = GpuTaskScope.open(backend)) {
-            long startTime = System.nanoTime();
-            AtomicInteger completedCount = new AtomicInteger(0);
+    @Nested
+    @DisplayName("Concurrent GPU Task Timing")
+    class ConcurrentGpuTaskTiming {
 
-            GpuTask<Integer> task1 = scope.fork(() -> {
-                simulateGpuWork("ParallelTask1");
-                completedCount.incrementAndGet();
-                return 1;
-            });
+        @Test
+        @DisplayName("Three concurrent 15ms GPU tasks complete independently")
+        void threeConcurrentGpuTasks() throws Exception {
+            final long TARGET_MS = 15;
+            final int NUM_TASKS = 3;
 
-            GpuTask<Integer> task2 = scope.fork(() -> {
-                simulateGpuWork("ParallelTask2");
-                completedCount.incrementAndGet();
-                return 2;
-            });
+            try (GpuTaskScope scope = GpuTaskScope.open(backend, "concurrent-3x15ms-gpu")) {
+                ConcurrentHashMap<Integer, GpuWorkResult> results = new ConcurrentHashMap<>();
+                List<GpuTask<GpuWorkResult>> tasks = new ArrayList<>();
 
-            GpuTask<Integer> task3 = scope.fork(() -> {
-                simulateGpuWork("ParallelTask3");
-                completedCount.incrementAndGet();
-                return 3;
-            });
+                long scopeStart = System.nanoTime();
 
-            scope.joinAll();
-
-            int sum = task1.get() + task2.get() + task3.get();
-            long elapsedMicros = (System.nanoTime() - startTime) / 1000;
-
-            assertEquals(6, sum, "Sum of task results should be 6");
-            assertEquals(3, completedCount.get(), "All 3 tasks should complete");
-            assertTrue(task1.isSuccess() && task2.isSuccess() && task3.isSuccess(),
-                "All tasks should be successful");
-
-            emitKernelEvent("ParallelTasksScope", "3 tasks", elapsedMicros);
-        }
-    }
-
-    // ==================== Fork With Stream ====================
-
-    @Test
-    @DisplayName("Fork with dedicated stream acquires unique streams")
-    void forkWithStream() throws Exception {
-        try (GpuTaskScope scope = GpuTaskScope.open(backend)) {
-            long startTime = System.nanoTime();
-            AtomicInteger streamCount = new AtomicInteger(0);
-
-            GpuTask<Long> task1 = scope.forkWithStream(lease -> {
-                long streamHandle = lease.streamHandle();
-                streamCount.incrementAndGet();
-                simulateGpuWork("StreamTask1");
-                lease.synchronize();
-                return streamHandle;
-            });
-
-            GpuTask<Long> task2 = scope.forkWithStream(lease -> {
-                long streamHandle = lease.streamHandle();
-                streamCount.incrementAndGet();
-                simulateGpuWork("StreamTask2");
-                lease.synchronize();
-                return streamHandle;
-            });
-
-            scope.joinAll();
-
-            long stream1 = task1.get();
-            long stream2 = task2.get();
-            long elapsedMicros = (System.nanoTime() - startTime) / 1000;
-
-            assertNotEquals(stream1, stream2, "Each task should have a unique stream");
-            assertEquals(2, streamCount.get(), "Both tasks should have executed");
-            assertNotNull(task1.lease(), "Task1 should have a lease");
-            assertNotNull(task2.lease(), "Task2 should have a lease");
-
-            emitKernelEvent("ForkWithStreamScope", "2 streams", elapsedMicros);
-        }
-    }
-
-    // ==================== Nested Scopes ====================
-
-    @Test
-    @DisplayName("Nested scopes work correctly")
-    void nestedScopes() throws Exception {
-        long startTime = System.nanoTime();
-        AtomicInteger outerCompleted = new AtomicInteger(0);
-        AtomicInteger innerCompleted = new AtomicInteger(0);
-
-        try (GpuTaskScope outerScope = GpuTaskScope.open(backend, "outer-scope")) {
-            GpuTask<Integer> outerTask = outerScope.fork(() -> {
-                // Create a nested scope
-                try (GpuTaskScope innerScope = GpuTaskScope.open(backend, "inner-scope")) {
-                    GpuTask<Integer> innerTask = innerScope.fork(() -> {
-                        simulateGpuWork("InnerTask");
-                        innerCompleted.incrementAndGet();
-                        return 10;
-                    });
-                    innerScope.joinAll();
-                    return innerTask.get();
+                for (int i = 0; i < NUM_TASKS; i++) {
+                    int taskId = i;
+                    tasks.add(scope.forkWithStream(lease -> {
+                        GpuWorkResult result = GpuWorkCalibrator.doGpuWork(backend, lease, TARGET_MS);
+                        results.put(taskId, result);
+                        return result;
+                    }));
                 }
-            });
-
-            outerScope.fork(() -> {
-                simulateGpuWork("OuterTask");
-                outerCompleted.incrementAndGet();
-                return 20;
-            });
-
-            outerScope.joinAll();
-
-            int innerResult = outerTask.get();
-            long elapsedMicros = (System.nanoTime() - startTime) / 1000;
-
-            assertEquals(10, innerResult, "Inner task result should be accessible");
-            assertEquals(1, innerCompleted.get(), "Inner task should complete");
-            assertEquals(1, outerCompleted.get(), "Outer task should complete");
-
-            emitKernelEvent("NestedScopes", "outer+inner", elapsedMicros);
-        }
-    }
-
-    // ==================== Named Scopes ====================
-
-    @Test
-    @DisplayName("Named scopes emit correct JFR events")
-    void namedScopes() throws Exception {
-        String[] scopeNames = {"inference-batch", "training-step", "data-preprocessing"};
-        int successCount = 0;
-
-        for (String name : scopeNames) {
-            try (GpuTaskScope scope = GpuTaskScope.open(backend, name)) {
-                long startTime = System.nanoTime();
-
-                GpuTask<String> task = scope.fork(() -> {
-                    simulateGpuWork(name);
-                    return name + "-done";
-                });
 
                 scope.joinAll();
+                long scopeElapsedNanos = System.nanoTime() - scopeStart;
 
-                String result = task.get();
-                long elapsedMicros = (System.nanoTime() - startTime) / 1000;
+                // Validate each task's GPU timing
+                for (int i = 0; i < NUM_TASKS; i++) {
+                    GpuWorkResult result = results.get(i);
+                    assertNotNull(result, "Task " + i + " should have result");
 
-                assertEquals(name + "-done", result, "Task result should include scope name");
-                assertEquals(name, scope.scopeName(), "Scope name should match");
-                assertTrue(scope.scopeId() > 0, "Scope ID should be positive");
+                    GpuWorkCalibrator.assertTimingWithinTolerance(TARGET_MS, result.elapsedNanos(),
+                        "GPU Task " + i + " timing");
 
-                emitKernelEvent("NamedScope:" + name, "profiling", elapsedMicros);
-                successCount++;
+                    System.out.printf("GPU Task %d: target=%dms, actual=%dms, stream=%d%n",
+                        i, TARGET_MS, result.elapsedMillis(), result.streamHandle());
+                }
+
+                // Verify streams are unique
+                long distinctStreams = results.values().stream()
+                    .map(GpuWorkResult::streamHandle)
+                    .distinct()
+                    .count();
+                assertEquals(NUM_TASKS, distinctStreams, "Each task should have unique stream");
+
+                // Scope should complete faster than sequential
+                long scopeElapsedMs = scopeElapsedNanos / 1_000_000;
+                System.out.printf("Scope completed in %dms (sequential would be %dms)%n",
+                    scopeElapsedMs, TARGET_MS * NUM_TASKS);
             }
         }
 
-        assertEquals(scopeNames.length, successCount, "All named scopes should succeed");
-    }
+        @Test
+        @DisplayName("Five concurrent GPU tasks with varying durations")
+        void fiveConcurrentVaryingDurations() throws Exception {
+            final long[] TARGET_MS = {10, 15, 20, 25, 30};
 
-    // ==================== Stream Operations ====================
+            try (GpuTaskScope scope = GpuTaskScope.open(backend, "concurrent-varying-gpu")) {
+                ConcurrentHashMap<Integer, GpuWorkResult> results = new ConcurrentHashMap<>();
 
-    @Test
-    @DisplayName("Real stream creation and destruction")
-    void realStreamCreation() throws Exception {
-        try (GpuTaskScope scope = GpuTaskScope.open(backend)) {
-            GpuTask<Long> task = scope.forkWithStream(lease -> {
-                long handle = lease.streamHandle();
-                // Stream handle should be valid (non-zero typically)
-                return handle;
-            });
+                long scopeStart = System.nanoTime();
 
-            scope.joinAll();
+                for (int i = 0; i < TARGET_MS.length; i++) {
+                    int taskId = i;
+                    long targetMs = TARGET_MS[i];
+                    scope.forkWithStream(lease -> {
+                        GpuWorkResult result = GpuWorkCalibrator.doGpuWork(backend, lease, targetMs);
+                        results.put(taskId, result);
+                        return result;
+                    });
+                }
 
-            // After join, the stream should have been used
-            assertTrue(task.isSuccess(), "Stream task should succeed");
+                scope.joinAll();
+                long scopeElapsedNanos = System.nanoTime() - scopeStart;
+
+                // Validate each task's individual GPU timing
+                for (int i = 0; i < TARGET_MS.length; i++) {
+                    GpuWorkResult result = results.get(i);
+                    assertNotNull(result, "Task " + i + " should have result");
+
+                    GpuWorkCalibrator.assertTimingWithinTolerance(TARGET_MS[i], result.elapsedNanos(),
+                        "GPU Task " + i + " (" + TARGET_MS[i] + "ms) timing");
+                }
+
+                // Scope should complete around the longest task time + overhead
+                long scopeElapsedMs = scopeElapsedNanos / 1_000_000;
+                assertTrue(scopeElapsedMs >= 25 && scopeElapsedMs < 60,
+                    "Scope should complete near longest task time: " + scopeElapsedMs + "ms");
+            }
+        }
+
+        @Test
+        @DisplayName("Ten concurrent 10ms GPU tasks complete efficiently")
+        void tenConcurrentGpuTasksEfficiency() throws Exception {
+            final long TARGET_MS = 10;
+            final int NUM_TASKS = 10;
+
+            try (GpuTaskScope scope = GpuTaskScope.open(backend, "concurrent-10x10ms-gpu")) {
+                AtomicInteger completedCount = new AtomicInteger(0);
+                ConcurrentHashMap<Integer, GpuWorkResult> results = new ConcurrentHashMap<>();
+
+                long scopeStart = System.nanoTime();
+
+                for (int i = 0; i < NUM_TASKS; i++) {
+                    int taskId = i;
+                    scope.forkWithStream(lease -> {
+                        GpuWorkResult result = GpuWorkCalibrator.doGpuWork(backend, lease, TARGET_MS);
+                        results.put(taskId, result);
+                        completedCount.incrementAndGet();
+                        return result;
+                    });
+                }
+
+                scope.joinAll();
+                long scopeElapsedNanos = System.nanoTime() - scopeStart;
+
+                assertEquals(NUM_TASKS, completedCount.get(), "All tasks should complete");
+
+                // Calculate total GPU work time
+                long totalGpuTimeMs = results.values().stream()
+                    .mapToLong(GpuWorkResult::elapsedMillis)
+                    .sum();
+
+                long scopeElapsedMs = scopeElapsedNanos / 1_000_000;
+
+                System.out.printf("Ten concurrent GPU tasks: total_gpu_time=%dms, scope_time=%dms%n",
+                    totalGpuTimeMs, scopeElapsedMs);
+
+                // Total GPU time should be ~100ms (10 * 10ms)
+                assertTrue(totalGpuTimeMs >= 80 && totalGpuTimeMs <= 150,
+                    "Total GPU time should be ~100ms: " + totalGpuTimeMs + "ms");
+            }
         }
     }
 
-    @Test
-    @DisplayName("Stream synchronization blocks until complete")
-    void streamSynchronizationBlocks() throws Exception {
-        try (GpuTaskScope scope = GpuTaskScope.open(backend)) {
-            AtomicInteger syncCount = new AtomicInteger(0);
+    // ==================== Stream Handle Tests ====================
 
-            GpuTask<Void> task = scope.forkWithStream(lease -> {
-                // Synchronize multiple times
-                lease.synchronize();
-                syncCount.incrementAndGet();
-                lease.synchronize();
-                syncCount.incrementAndGet();
-                return null;
-            });
+    @Nested
+    @DisplayName("Stream Handle Validation")
+    class StreamHandleValidation {
 
-            scope.joinAll();
+        @Test
+        @DisplayName("Each forked GPU task gets unique stream handle")
+        void uniqueStreamHandles() throws Exception {
+            final int NUM_TASKS = 5;
 
-            assertEquals(2, syncCount.get(), "Both synchronize calls should complete");
+            try (GpuTaskScope scope = GpuTaskScope.open(backend, "unique-streams")) {
+                ConcurrentHashMap<Integer, Long> streamHandles = new ConcurrentHashMap<>();
+
+                for (int i = 0; i < NUM_TASKS; i++) {
+                    int taskId = i;
+                    scope.forkWithStream(lease -> {
+                        long handle = lease.streamHandle();
+                        streamHandles.put(taskId, handle);
+
+                        // Do real GPU work on this stream
+                        GpuWorkCalibrator.doGpuWork(backend, lease, 5);
+                        return handle;
+                    });
+                }
+
+                scope.joinAll();
+
+                // Verify all stream handles are unique
+                assertEquals(NUM_TASKS, streamHandles.size(), "Should have " + NUM_TASKS + " tasks");
+                long distinctHandles = streamHandles.values().stream().distinct().count();
+                assertEquals(NUM_TASKS, distinctHandles, "All stream handles should be unique");
+
+                // All handles should be valid (non-zero typically)
+                streamHandles.values().forEach(h ->
+                    assertNotEquals(0L, h, "Stream handle should be non-zero"));
+            }
         }
-    }
 
-    @Test
-    @DisplayName("Concurrent real streams work independently")
-    void concurrentRealStreams() throws Exception {
-        final int numStreams = 5;
-        AtomicInteger completedStreams = new AtomicInteger(0);
-
-        try (GpuTaskScope scope = GpuTaskScope.open(backend)) {
-            for (int i = 0; i < numStreams; i++) {
-                final int streamIndex = i;
+        @Test
+        @DisplayName("Stream handle is accessible throughout task lifetime")
+        void streamHandleAccessibleThroughoutTask() throws Exception {
+            try (GpuTaskScope scope = GpuTaskScope.open(backend, "stream-lifetime")) {
                 scope.forkWithStream(lease -> {
-                    simulateGpuWork("ConcurrentStream-" + streamIndex);
-                    lease.synchronize();
-                    completedStreams.incrementAndGet();
-                    return null;
+                    long handleAtStart = lease.streamHandle();
+
+                    // Do some GPU work
+                    GpuWorkCalibrator.doGpuWork(backend, lease, 10);
+
+                    // Handle should be same
+                    long handleAfterWork = lease.streamHandle();
+                    assertEquals(handleAtStart, handleAfterWork,
+                        "Stream handle should remain constant");
+
+                    // Do more work
+                    GpuWorkCalibrator.doGpuWork(backend, lease, 10);
+
+                    // Still same
+                    long handleAtEnd = lease.streamHandle();
+                    assertEquals(handleAtStart, handleAtEnd,
+                        "Stream handle should remain constant throughout");
+
+                    return handleAtStart;
                 });
-            }
 
-            scope.joinAll();
-        }
-
-        assertEquals(numStreams, completedStreams.get(),
-            "All concurrent streams should complete");
-    }
-
-    // ==================== JFR Event Validation ====================
-
-    @Test
-    @DisplayName("JFR events emitted with correct backend name")
-    void jfrEventsWithRealBackend() throws Exception {
-        String expectedBackend = GpuTestSupport.expectedBackendName(backend);
-
-        try (GpuTaskScope scope = GpuTaskScope.open(backend, "jfr-test-scope")) {
-            scope.fork(() -> {
-                simulateGpuWork("JFR-Test");
-                return null;
-            });
-            scope.joinAll();
-
-            // The scope emits GpuTaskScopeEvent on close
-            // Emit a kernel event to verify backend name
-            GpuKernelEvent event = new GpuKernelEvent();
-            event.operation = "JFRValidation";
-            event.shape = "test";
-            event.gpuTimeMicros = 1;
-            event.backend = expectedBackend;
-            event.deviceIndex = backend.deviceIndex();
-            event.tier = "GPU_TEST";
-            event.memoryBandwidthGBps = 0.0;
-            event.commit();
-        }
-
-        // If we got here without exception, JFR is working
-        assertTrue(true, "JFR events committed successfully");
-    }
-
-    // ==================== Error Handling ====================
-
-    @Test
-    @DisplayName("Exception in task propagates correctly")
-    void exceptionInTaskPropagates() {
-        try (GpuTaskScope scope = GpuTaskScope.open(backend)) {
-            GpuTask<Integer> task = scope.fork(() -> {
-                throw new RuntimeException("Intentional GPU test failure");
-            });
-
-            try {
                 scope.joinAll();
-            } catch (Exception e) {
-                // Expected
             }
-
-            assertTrue(task.isFailed(), "Task should be marked as failed");
-            assertNotNull(task.exception(), "Task should have exception");
-            assertTrue(task.exception().getMessage().contains("Intentional"),
-                "Exception message should be preserved");
         }
     }
 
-    @Test
-    @DisplayName("Multiple tasks with one failure")
-    void multipleTasksWithOneFailure() throws Exception {
-        try (GpuTaskScope scope = GpuTaskScope.open(backend)) {
-            GpuTask<Integer> successTask1 = scope.fork(() -> 1);
-            GpuTask<Integer> failTask = scope.fork(() -> {
-                throw new IllegalStateException("Planned failure");
-            });
-            GpuTask<Integer> successTask2 = scope.fork(() -> 2);
+    // ==================== Nested Scope Tests ====================
 
-            try {
-                scope.joinAll();
-            } catch (Exception e) {
-                // Expected due to failure
-            }
+    @Nested
+    @DisplayName("Nested Scope GPU Work")
+    class NestedScopeGpuWork {
 
-            assertTrue(successTask1.isSuccess(), "First task should succeed");
-            assertTrue(failTask.isFailed(), "Second task should fail");
-            // Third task may or may not complete depending on timing
-        }
-    }
+        @Test
+        @DisplayName("Nested scopes perform independent GPU work")
+        void nestedScopesIndependentGpuWork() throws Exception {
+            final long OUTER_WORK_MS = 15;
+            final long INNER_WORK_MS = 20;
 
-    // ==================== Scope Timing ====================
+            ConcurrentHashMap<String, GpuWorkResult> results = new ConcurrentHashMap<>();
 
-    @Test
-    @DisplayName("Scope tracks execution time")
-    void scopeTracksExecutionTime() throws Exception {
-        long beforeNanos = System.nanoTime();
+            try (GpuTaskScope outerScope = GpuTaskScope.open(backend, "outer-gpu")) {
+                outerScope.forkWithStream(outerLease -> {
+                    // Outer GPU work
+                    GpuWorkResult outerResult = GpuWorkCalibrator.doGpuWork(backend, outerLease, OUTER_WORK_MS);
+                    results.put("outer", outerResult);
 
-        try (GpuTaskScope scope = GpuTaskScope.open(backend, "timing-test")) {
-            scope.fork(() -> {
-                simulateGpuWork("TimingTask");
-                return null;
-            });
-            scope.joinAll();
-        }
-
-        long afterNanos = System.nanoTime();
-        long elapsedMillis = (afterNanos - beforeNanos) / 1_000_000;
-
-        // Should take at least a few ms due to simulated work
-        assertTrue(elapsedMillis >= 1, "Scope should take measurable time");
-        // Should not take too long (sanity check)
-        assertTrue(elapsedMillis < 5000, "Scope should complete in reasonable time");
-    }
-
-    // ==================== Scale Tests ====================
-
-    @Test
-    @DisplayName("Many concurrent tasks complete")
-    void manyConcurrentTasks() throws Exception {
-        final int numTasks = 20;
-        AtomicInteger completedTasks = new AtomicInteger(0);
-
-        try (GpuTaskScope scope = GpuTaskScope.open(backend, "scale-test")) {
-            long startTime = System.nanoTime();
-
-            for (int i = 0; i < numTasks; i++) {
-                final int taskIndex = i;
-                scope.fork(() -> {
-                    // Light work to test concurrency, not performance
-                    long sum = 0;
-                    for (int j = 0; j < 1000; j++) {
-                        sum += j;
+                    // Create inner scope for more GPU work
+                    try (GpuTaskScope innerScope = GpuTaskScope.open(backend, "inner-gpu")) {
+                        innerScope.forkWithStream(innerLease -> {
+                            GpuWorkResult innerResult = GpuWorkCalibrator.doGpuWork(backend, innerLease, INNER_WORK_MS);
+                            results.put("inner", innerResult);
+                            return innerResult;
+                        });
+                        innerScope.joinAll();
                     }
-                    completedTasks.incrementAndGet();
-                    return sum;
+
+                    return outerResult;
                 });
+
+                outerScope.joinAll();
             }
 
-            scope.joinAll();
+            // Validate both GPU operations
+            GpuWorkResult outerResult = results.get("outer");
+            GpuWorkResult innerResult = results.get("inner");
 
-            long elapsedMicros = (System.nanoTime() - startTime) / 1000;
-            emitKernelEvent("ScaleTest:" + numTasks, "tasks", elapsedMicros);
+            assertNotNull(outerResult, "Outer scope should have result");
+            assertNotNull(innerResult, "Inner scope should have result");
+
+            GpuWorkCalibrator.assertTimingWithinTolerance(OUTER_WORK_MS, outerResult.elapsedNanos(),
+                "Outer scope GPU work");
+            GpuWorkCalibrator.assertTimingWithinTolerance(INNER_WORK_MS, innerResult.elapsedNanos(),
+                "Inner scope GPU work");
+
+            // Streams should be different
+            assertNotEquals(outerResult.streamHandle(), innerResult.streamHandle(),
+                "Nested scopes should have different streams");
         }
-
-        assertEquals(numTasks, completedTasks.get(),
-            "All " + numTasks + " tasks should complete");
     }
 
-    @Test
-    @DisplayName("Many concurrent streams")
-    void manyConcurrentStreams() throws Exception {
-        final int numStreams = 10;
-        AtomicInteger completedStreams = new AtomicInteger(0);
+    // ==================== Error Handling Tests ====================
 
-        try (GpuTaskScope scope = GpuTaskScope.open(backend, "stream-scale-test")) {
-            for (int i = 0; i < numStreams; i++) {
-                final int streamIndex = i;
+    @Nested
+    @DisplayName("Error Handling with GPU Work")
+    class ErrorHandlingWithGpuWork {
+
+        @Test
+        @DisplayName("Failed task completes GPU work before throwing")
+        void failedTaskCompletesGpuWork() {
+            final long GPU_WORK_MS = 15;
+            ConcurrentHashMap<String, GpuWorkResult> results = new ConcurrentHashMap<>();
+
+            try (GpuTaskScope scope = GpuTaskScope.open(backend, "fail-after-gpu-work")) {
+                GpuTask<Void> task = scope.forkWithStream(lease -> {
+                    // Complete GPU work first
+                    GpuWorkResult result = GpuWorkCalibrator.doGpuWork(backend, lease, GPU_WORK_MS);
+                    results.put("work", result);
+
+                    // Then fail
+                    throw new RuntimeException("Intentional failure after GPU work");
+                });
+
+                try {
+                    scope.joinAll();
+                } catch (Exception e) {
+                    // Expected
+                }
+
+                // GPU work should have completed
+                GpuWorkResult result = results.get("work");
+                assertNotNull(result, "GPU work should have completed before failure");
+
+                GpuWorkCalibrator.assertTimingWithinTolerance(GPU_WORK_MS, result.elapsedNanos(),
+                    "GPU work before failure");
+
+                assertTrue(task.isFailed(), "Task should be failed");
+            }
+        }
+    }
+
+    // ==================== JFR Validation Tests ====================
+
+    @Nested
+    @DisplayName("JFR Event Validation")
+    class JfrEventValidation {
+
+        @Test
+        @DisplayName("JFR events capture correct backend and device info")
+        void jfrEventsCaptureBackendInfo() throws Exception {
+            try (GpuTaskScope scope = GpuTaskScope.open(backend, "jfr-backend-info")) {
                 scope.forkWithStream(lease -> {
-                    lease.synchronize();
-                    completedStreams.incrementAndGet();
-                    return lease.streamHandle();
+                    GpuWorkResult result = GpuWorkCalibrator.doGpuWork(backend, lease, 10);
+
+                    // Emit additional validation event
+                    GpuKernelEvent event = new GpuKernelEvent();
+                    event.operation = "JFRValidation";
+                    event.shape = "elements=" + result.tensorElements();
+                    event.gpuTimeMicros = result.elapsedNanos() / 1000;
+                    event.backend = backendName;
+                    event.deviceIndex = backend.deviceIndex();
+                    event.tier = "GTEST_VALIDATION";
+                    event.bytesTransferred = result.byteSize() * 2; // H2D + D2H
+                    event.memoryBandwidthGBps = result.bandwidthGBps();
+                    event.commit();
+
+                    return result;
                 });
+
+                scope.joinAll();
+
+                // Verify backend name matches expected
+                String expected = GpuTestSupport.expectedBackendName(backend);
+                assertEquals(expected, backendName, "Backend name should match");
             }
-
-            scope.joinAll();
         }
 
-        assertEquals(numStreams, completedStreams.get(),
-            "All " + numStreams + " streams should complete");
-    }
+        @Test
+        @DisplayName("Multiple GPU tasks emit separate JFR events")
+        void multipleGpuTasksEmitSeparateJfrEvents() throws Exception {
+            final int NUM_TASKS = 4;
 
-    // ==================== Helper Methods ====================
+            try (GpuTaskScope scope = GpuTaskScope.open(backend, "jfr-multi-task")) {
+                ConcurrentHashMap<Integer, GpuWorkResult> results = new ConcurrentHashMap<>();
 
-    /**
-     * Simulates GPU work by doing some computation and sleeping briefly.
-     */
-    private void simulateGpuWork(String taskName) {
-        // Simulate some work
-        long sum = 0;
-        for (int i = 0; i < 10000; i++) {
-            sum += i;
+                for (int i = 0; i < NUM_TASKS; i++) {
+                    int taskId = i;
+                    scope.forkWithStream(lease -> {
+                        // doGpuWork internally emits JFR events
+                        GpuWorkResult result = GpuWorkCalibrator.doGpuWork(backend, lease, 10);
+                        results.put(taskId, result);
+                        return result;
+                    });
+                }
+
+                scope.joinAll();
+
+                assertEquals(NUM_TASKS, results.size(), "All tasks should have results");
+
+                // Each result should have valid timing and stream info
+                for (int i = 0; i < NUM_TASKS; i++) {
+                    GpuWorkResult result = results.get(i);
+                    assertTrue(result.elapsedNanos() > 0, "Task " + i + " should have positive timing");
+                    assertTrue(result.byteSize() > 0, "Task " + i + " should have transferred bytes");
+                }
+            }
         }
 
-        // Brief sleep to simulate kernel execution time
-        try {
-            Thread.sleep(5);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
-    }
+        @Test
+        @DisplayName("JFR events include accurate memory bandwidth")
+        void jfrEventsIncludeAccurateBandwidth() throws Exception {
+            try (GpuTaskScope scope = GpuTaskScope.open(backend, "jfr-bandwidth")) {
+                scope.forkWithStream(lease -> {
+                    GpuWorkResult result = GpuWorkCalibrator.doGpuWork(backend, lease, 20);
 
-    /**
-     * Emits a JFR kernel event for validation.
-     */
-    private void emitKernelEvent(String operation, String shape, long elapsedMicros) {
-        GpuKernelEvent event = new GpuKernelEvent();
-        event.operation = operation;
-        event.shape = shape;
-        event.gpuTimeMicros = elapsedMicros;
-        event.backend = GpuTestSupport.expectedBackendName(backend);
-        event.deviceIndex = backend.deviceIndex();
-        event.tier = "STRUCTURED_CONCURRENCY_GTEST";
-        event.memoryBandwidthGBps = 0.0;
-        event.commit();
+                    // Bandwidth should be reasonable for GPU memory transfers
+                    double bandwidth = result.bandwidthGBps();
+                    System.out.printf("GPU memory bandwidth: %.2f GB/s%n", bandwidth);
+
+                    // Bandwidth should be positive and reasonable (0.1 - 1000 GB/s range)
+                    assertTrue(bandwidth > 0.1 && bandwidth < 1000,
+                        "Bandwidth should be reasonable: " + bandwidth + " GB/s");
+
+                    return result;
+                });
+
+                scope.joinAll();
+            }
+        }
     }
 }

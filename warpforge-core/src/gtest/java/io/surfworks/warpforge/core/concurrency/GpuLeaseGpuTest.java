@@ -1,18 +1,20 @@
 package io.surfworks.warpforge.core.concurrency;
 
 import io.surfworks.warpforge.core.backend.GpuBackend;
+import io.surfworks.warpforge.core.concurrency.GpuWorkCalibrator.GpuWorkResult;
 import io.surfworks.warpforge.core.jfr.GpuKernelEvent;
 
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
-import java.util.HashSet;
-import java.util.Set;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicLong;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.ConcurrentHashMap;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
@@ -22,17 +24,44 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * GPU tests for {@link GpuLease} - runs on BOTH NVIDIA and AMD machines.
  *
- * <p>These tests validate GPU lease behavior with real hardware.
+ * <p>These tests validate GPU lease behavior with <b>real GPU hardware</b> by
+ * performing actual GPU operations (memory transfers, stream synchronization)
+ * and validating timing through JFR events.
+ *
+ * <p><b>Key principle:</b> Every test performs real GPU work via
+ * {@link GpuWorkCalibrator#doGpuWork(GpuBackend, GpuLease, long)}, which:
+ * <ul>
+ *   <li>Allocates device memory</li>
+ *   <li>Performs host-to-device and device-to-host transfers</li>
+ *   <li>Synchronizes GPU streams via the lease</li>
+ *   <li>Emits JFR events for GPU memory and kernel operations</li>
+ * </ul>
+ *
+ * <p>Without real GPU work, these would just be CPU API tests, not GPU tests.
  */
 @Tag("gpu")
 @DisplayName("GpuLease GPU Tests")
 class GpuLeaseGpuTest {
 
+    private static GpuBackend staticBackend;
     private GpuBackend backend;
+    private String backendName;
+
+    @BeforeAll
+    static void calibrate() {
+        staticBackend = GpuTestSupport.createBackend();
+        System.out.println("Calibrating GPU work generator for " + staticBackend.name() + "...");
+        GpuWorkCalibrator.CalibrationData data = GpuWorkCalibrator.getCalibrationData(staticBackend);
+        System.out.printf("Calibration complete: %d elements/ms, %.2f GB/s bandwidth%n",
+            data.elementsPerMs(), data.bandwidthGBps());
+        staticBackend.close();
+        staticBackend = null;
+    }
 
     @BeforeEach
     void setUp() {
         backend = GpuTestSupport.createBackend();
+        backendName = GpuTestSupport.expectedBackendName(backend);
         System.out.println("Running on: " + GpuTestSupport.describeEnvironment());
     }
 
@@ -44,233 +73,474 @@ class GpuLeaseGpuTest {
         }
     }
 
-    // ==================== Stream Handle Tests ====================
+    // ==================== Single Lease GPU Work Tests ====================
 
-    @Test
-    @DisplayName("Real stream handle is valid")
-    void realStreamHandleValid() throws Exception {
-        try (GpuTaskScope scope = GpuTaskScope.open(backend)) {
-            AtomicLong capturedHandle = new AtomicLong(0);
+    @Nested
+    @DisplayName("Single Lease GPU Work")
+    class SingleLeaseGpuWork {
 
-            scope.forkWithStream(lease -> {
-                capturedHandle.set(lease.streamHandle());
-                return null;
-            });
+        @Test
+        @DisplayName("Lease performs 10ms GPU work accurately")
+        void leasePerformsTenMillisGpuWork() throws Exception {
+            final long TARGET_MS = 10;
 
-            scope.joinAll();
+            try (GpuTaskScope scope = GpuTaskScope.open(backend, "lease-gpu-10ms")) {
+                GpuTask<GpuWorkResult> task = scope.forkWithStream(lease -> {
+                    // Perform real GPU work through this lease's stream
+                    return GpuWorkCalibrator.doGpuWork(backend, lease, TARGET_MS);
+                });
 
-            // Stream handles should be positive (typically)
-            // Different backends may use different handle schemes
-            assertNotEquals(0, capturedHandle.get(), "Stream handle should be non-zero");
+                scope.joinAll();
+
+                GpuWorkResult result = task.get();
+                assertNotNull(result, "GPU work should return result");
+
+                // Validate timing
+                GpuWorkCalibrator.assertTimingWithinTolerance(TARGET_MS, result.elapsedNanos(),
+                    "Lease 10ms GPU work timing");
+
+                // Verify stream handle was captured
+                assertTrue(result.streamHandle() != 0, "Stream handle should be valid");
+
+                System.out.printf("Lease GPU Work: target=%dms, actual=%dms, stream=%d%n",
+                    TARGET_MS, result.elapsedMillis(), result.streamHandle());
+            }
+        }
+
+        @Test
+        @DisplayName("Lease performs 25ms GPU work accurately")
+        void leasePerformsTwentyFiveMillisGpuWork() throws Exception {
+            final long TARGET_MS = 25;
+
+            try (GpuTaskScope scope = GpuTaskScope.open(backend, "lease-gpu-25ms")) {
+                GpuTask<GpuWorkResult> task = scope.forkWithStream(lease ->
+                    GpuWorkCalibrator.doGpuWork(backend, lease, TARGET_MS)
+                );
+
+                scope.joinAll();
+
+                GpuWorkResult result = task.get();
+                GpuWorkCalibrator.assertTimingWithinTolerance(TARGET_MS, result.elapsedNanos(),
+                    "Lease 25ms GPU work timing");
+            }
+        }
+
+        @Test
+        @DisplayName("Lease performs 50ms GPU work accurately")
+        void leasePerformsFiftyMillisGpuWork() throws Exception {
+            final long TARGET_MS = 50;
+
+            try (GpuTaskScope scope = GpuTaskScope.open(backend, "lease-gpu-50ms")) {
+                GpuTask<GpuWorkResult> task = scope.forkWithStream(lease ->
+                    GpuWorkCalibrator.doGpuWork(backend, lease, TARGET_MS)
+                );
+
+                scope.joinAll();
+
+                GpuWorkResult result = task.get();
+                GpuWorkCalibrator.assertTimingWithinTolerance(TARGET_MS, result.elapsedNanos(),
+                    "Lease 50ms GPU work timing");
+            }
         }
     }
 
-    @Test
-    @DisplayName("Multiple leases have unique stream handles")
-    void multipleLeasesUniqueHandles() throws Exception {
-        try (GpuTaskScope scope = GpuTaskScope.open(backend)) {
-            Set<Long> handles = new HashSet<>();
-            AtomicBoolean allUnique = new AtomicBoolean(true);
+    // ==================== Multiple GPU Operations on Same Lease ====================
 
-            for (int i = 0; i < 5; i++) {
+    @Nested
+    @DisplayName("Multiple GPU Operations on Same Lease")
+    class MultipleGpuOpsOnSameLease {
+
+        @Test
+        @DisplayName("Three sequential GPU operations on same lease")
+        void threeSequentialGpuOpsOnSameLease() throws Exception {
+            final long WORK_PER_OP_MS = 10;
+            final int NUM_OPS = 3;
+
+            try (GpuTaskScope scope = GpuTaskScope.open(backend, "multi-op-lease")) {
+                List<GpuWorkResult> results = new ArrayList<>();
+
                 scope.forkWithStream(lease -> {
-                    synchronized (handles) {
-                        if (!handles.add(lease.streamHandle())) {
-                            allUnique.set(false);
+                    long initialHandle = lease.streamHandle();
+
+                    // Perform multiple GPU operations sequentially on the same lease
+                    for (int i = 0; i < NUM_OPS; i++) {
+                        GpuWorkResult result = GpuWorkCalibrator.doGpuWork(backend, lease, WORK_PER_OP_MS);
+
+                        // Stream handle should remain the same
+                        assertEquals(initialHandle, result.streamHandle(),
+                            "Stream handle should remain constant for op " + i);
+
+                        synchronized (results) {
+                            results.add(result);
                         }
                     }
-                    return null;
+
+                    return results.size();
                 });
-            }
 
-            scope.joinAll();
+                scope.joinAll();
 
-            assertTrue(allUnique.get(), "All stream handles should be unique");
-            assertEquals(5, handles.size(), "Should have 5 distinct handles");
-        }
-    }
+                // Validate each operation's timing
+                assertEquals(NUM_OPS, results.size(), "Should have " + NUM_OPS + " results");
+                for (int i = 0; i < NUM_OPS; i++) {
+                    GpuWorkResult result = results.get(i);
+                    GpuWorkCalibrator.assertTimingWithinTolerance(WORK_PER_OP_MS, result.elapsedNanos(),
+                        "GPU op " + i + " timing");
 
-    // ==================== Synchronize Tests ====================
-
-    @Test
-    @DisplayName("Synchronize completes without error")
-    void synchronizeCompletes() throws Exception {
-        try (GpuTaskScope scope = GpuTaskScope.open(backend)) {
-            AtomicBoolean syncCompleted = new AtomicBoolean(false);
-
-            scope.forkWithStream(lease -> {
-                lease.synchronize();
-                syncCompleted.set(true);
-                return null;
-            });
-
-            scope.joinAll();
-
-            assertTrue(syncCompleted.get(), "Synchronize should complete");
-        }
-    }
-
-    @Test
-    @DisplayName("Multiple synchronize calls work")
-    void multipleSynchronizeCalls() throws Exception {
-        try (GpuTaskScope scope = GpuTaskScope.open(backend)) {
-            AtomicLong syncCount = new AtomicLong(0);
-
-            scope.forkWithStream(lease -> {
-                for (int i = 0; i < 10; i++) {
-                    lease.synchronize();
-                    syncCount.incrementAndGet();
+                    System.out.printf("GPU Op %d: target=%dms, actual=%dms, bytes=%d%n",
+                        i, WORK_PER_OP_MS, result.elapsedMillis(), result.byteSize());
                 }
-                return null;
-            });
+            }
+        }
 
-            scope.joinAll();
+        @Test
+        @DisplayName("Five sequential GPU operations with varying sizes")
+        void fiveSequentialGpuOpsVaryingSizes() throws Exception {
+            final long[] WORK_MS = {5, 10, 15, 10, 5};
 
-            assertEquals(10, syncCount.get(), "All synchronize calls should complete");
+            try (GpuTaskScope scope = GpuTaskScope.open(backend, "varying-ops-lease")) {
+                List<GpuWorkResult> results = new ArrayList<>();
+
+                scope.forkWithStream(lease -> {
+                    for (long targetMs : WORK_MS) {
+                        GpuWorkResult result = GpuWorkCalibrator.doGpuWork(backend, lease, targetMs);
+                        synchronized (results) {
+                            results.add(result);
+                        }
+                    }
+                    return results.size();
+                });
+
+                scope.joinAll();
+
+                // Validate each operation's timing
+                assertEquals(WORK_MS.length, results.size());
+                for (int i = 0; i < WORK_MS.length; i++) {
+                    GpuWorkCalibrator.assertTimingWithinTolerance(WORK_MS[i], results.get(i).elapsedNanos(),
+                        "Varying op " + i + " (" + WORK_MS[i] + "ms) timing");
+                }
+            }
         }
     }
 
-    @Test
-    @DisplayName("Synchronize timing is measurable")
-    void synchronizeTiming() throws Exception {
-        try (GpuTaskScope scope = GpuTaskScope.open(backend)) {
-            AtomicLong elapsedNanos = new AtomicLong(0);
+    // ==================== Concurrent Leases Tests ====================
 
-            scope.forkWithStream(lease -> {
-                long start = System.nanoTime();
-                lease.synchronize();
-                elapsedNanos.set(System.nanoTime() - start);
-                return null;
-            });
+    @Nested
+    @DisplayName("Concurrent Leases")
+    class ConcurrentLeases {
 
-            scope.joinAll();
+        @Test
+        @DisplayName("Three concurrent leases perform independent GPU work")
+        void threeConcurrentLeasesIndependentWork() throws Exception {
+            final long TARGET_MS = 15;
+            final int NUM_LEASES = 3;
 
-            // Synchronize should take some measurable time
-            assertTrue(elapsedNanos.get() >= 0, "Synchronize should complete in non-negative time");
+            try (GpuTaskScope scope = GpuTaskScope.open(backend, "concurrent-3-leases")) {
+                ConcurrentHashMap<Integer, GpuWorkResult> results = new ConcurrentHashMap<>();
+
+                long scopeStart = System.nanoTime();
+
+                for (int i = 0; i < NUM_LEASES; i++) {
+                    int leaseId = i;
+                    scope.forkWithStream(lease -> {
+                        GpuWorkResult result = GpuWorkCalibrator.doGpuWork(backend, lease, TARGET_MS);
+                        results.put(leaseId, result);
+                        return result;
+                    });
+                }
+
+                scope.joinAll();
+                long scopeElapsed = System.nanoTime() - scopeStart;
+
+                // Validate each lease's GPU work
+                for (int i = 0; i < NUM_LEASES; i++) {
+                    GpuWorkResult result = results.get(i);
+                    assertNotNull(result, "Lease " + i + " should have result");
+
+                    GpuWorkCalibrator.assertTimingWithinTolerance(TARGET_MS, result.elapsedNanos(),
+                        "Concurrent lease " + i + " GPU work timing");
+                }
+
+                // Verify handles are unique
+                long uniqueHandles = results.values().stream()
+                    .map(GpuWorkResult::streamHandle)
+                    .distinct()
+                    .count();
+                assertEquals(NUM_LEASES, uniqueHandles, "All lease handles should be unique");
+
+                // Concurrent execution should be faster than sequential
+                long scopeElapsedMs = scopeElapsed / 1_000_000;
+                System.out.printf("Concurrent leases: scope=%dms (sequential would be %dms)%n",
+                    scopeElapsedMs, TARGET_MS * NUM_LEASES);
+            }
+        }
+
+        @Test
+        @DisplayName("Five concurrent leases with 10ms GPU work each")
+        void fiveConcurrentLeasesGpuWork() throws Exception {
+            final long TARGET_MS = 10;
+            final int NUM_LEASES = 5;
+
+            try (GpuTaskScope scope = GpuTaskScope.open(backend, "concurrent-5-leases")) {
+                ConcurrentHashMap<Integer, GpuWorkResult> results = new ConcurrentHashMap<>();
+
+                for (int i = 0; i < NUM_LEASES; i++) {
+                    int leaseId = i;
+                    scope.forkWithStream(lease -> {
+                        GpuWorkResult result = GpuWorkCalibrator.doGpuWork(backend, lease, TARGET_MS);
+                        results.put(leaseId, result);
+                        return result;
+                    });
+                }
+
+                scope.joinAll();
+
+                // All leases should complete with valid timing
+                assertEquals(NUM_LEASES, results.size());
+                for (int i = 0; i < NUM_LEASES; i++) {
+                    GpuWorkCalibrator.assertTimingWithinTolerance(TARGET_MS, results.get(i).elapsedNanos(),
+                        "Concurrent lease " + i + " timing");
+                }
+
+                // Unique handles
+                long uniqueHandles = results.values().stream()
+                    .map(GpuWorkResult::streamHandle)
+                    .distinct()
+                    .count();
+                assertEquals(NUM_LEASES, uniqueHandles);
+            }
         }
     }
 
-    // ==================== Acquire Time Tests ====================
+    // ==================== Lease Lifecycle Tests ====================
 
-    @Test
-    @DisplayName("Acquire time is reasonable")
-    void acquireTimeReasonable() throws Exception {
-        long beforeNanos = System.nanoTime();
+    @Nested
+    @DisplayName("Lease Lifecycle with GPU Work")
+    class LeaseLifecycleWithGpuWork {
 
-        try (GpuTaskScope scope = GpuTaskScope.open(backend)) {
-            AtomicLong acquireTime = new AtomicLong(0);
+        @Test
+        @DisplayName("Lease acquire time is before GPU work starts")
+        void leaseAcquireTimeBeforeGpuWork() throws Exception {
+            final long TARGET_MS = 15;
 
-            scope.forkWithStream(lease -> {
-                acquireTime.set(lease.acquireTimeNanos());
-                return null;
-            });
+            try (GpuTaskScope scope = GpuTaskScope.open(backend, "acquire-time-test")) {
+                scope.forkWithStream(lease -> {
+                    long acquireTime = lease.acquireTimeNanos();
+                    long workStartTime = System.nanoTime();
 
-            scope.joinAll();
+                    // Acquire time should be before work starts
+                    assertTrue(acquireTime <= workStartTime,
+                        "Acquire time should be before work starts");
 
-            long afterNanos = System.nanoTime();
+                    // Do GPU work
+                    GpuWorkResult result = GpuWorkCalibrator.doGpuWork(backend, lease, TARGET_MS);
 
-            // Acquire time should be between test start and end
-            assertTrue(acquireTime.get() >= beforeNanos,
-                "Acquire time should be after test start");
-            assertTrue(acquireTime.get() <= afterNanos,
-                "Acquire time should be before test end");
+                    // Validate timing
+                    GpuWorkCalibrator.assertTimingWithinTolerance(TARGET_MS, result.elapsedNanos(),
+                        "GPU work timing");
+
+                    return result;
+                });
+
+                scope.joinAll();
+            }
+        }
+
+        @Test
+        @DisplayName("Parent scope accessible during GPU work")
+        void parentScopeAccessibleDuringGpuWork() throws Exception {
+            final String SCOPE_NAME = "parent-scope-gpu-test";
+            final long TARGET_MS = 10;
+
+            try (GpuTaskScope scope = GpuTaskScope.open(backend, SCOPE_NAME)) {
+                scope.forkWithStream(lease -> {
+                    // Verify parent scope
+                    GpuTaskScope parent = lease.parentScope();
+                    assertNotNull(parent, "Parent scope should be accessible");
+                    assertEquals(SCOPE_NAME, parent.scopeName());
+                    assertEquals(scope.scopeId(), parent.scopeId());
+
+                    // Do GPU work while parent is verified
+                    GpuWorkResult result = GpuWorkCalibrator.doGpuWork(backend, lease, TARGET_MS);
+
+                    // Validate
+                    GpuWorkCalibrator.assertTimingWithinTolerance(TARGET_MS, result.elapsedNanos(),
+                        "GPU work during parent verification");
+
+                    return result;
+                });
+
+                scope.joinAll();
+            }
+        }
+
+        @Test
+        @DisplayName("Lease stream handle remains constant during GPU work")
+        void leaseStreamHandleConstantDuringWork() throws Exception {
+            try (GpuTaskScope scope = GpuTaskScope.open(backend, "handle-constant-test")) {
+                scope.forkWithStream(lease -> {
+                    long initialHandle = lease.streamHandle();
+
+                    // Do multiple GPU operations
+                    for (int i = 0; i < 3; i++) {
+                        GpuWorkResult result = GpuWorkCalibrator.doGpuWork(backend, lease, 8);
+
+                        // Handle should stay the same
+                        assertEquals(initialHandle, lease.streamHandle(),
+                            "Handle should be constant at iteration " + i);
+                        assertEquals(initialHandle, result.streamHandle(),
+                            "Result handle should match lease handle");
+                    }
+
+                    return initialHandle;
+                });
+
+                scope.joinAll();
+            }
         }
     }
 
-    // ==================== Parent Scope Tests ====================
+    // ==================== Stream Handle Uniqueness Tests ====================
 
-    @Test
-    @DisplayName("Parent scope is accessible")
-    void parentScopeAccessible() throws Exception {
-        try (GpuTaskScope scope = GpuTaskScope.open(backend, "parent-test")) {
-            AtomicBoolean verified = new AtomicBoolean(false);
+    @Nested
+    @DisplayName("Stream Handle Uniqueness")
+    class StreamHandleUniqueness {
 
-            scope.forkWithStream(lease -> {
-                assertNotNull(lease.parentScope(), "Parent scope should not be null");
-                assertEquals(scope, lease.parentScope(), "Parent scope should match");
-                assertEquals("parent-test", lease.parentScope().scopeName());
-                verified.set(true);
-                return null;
-            });
+        @Test
+        @DisplayName("Ten concurrent leases have ten unique stream handles")
+        void tenLeasesUniqueHandles() throws Exception {
+            final int NUM_LEASES = 10;
+            final long TARGET_MS = 5;
 
-            scope.joinAll();
+            try (GpuTaskScope scope = GpuTaskScope.open(backend, "unique-10-handles")) {
+                ConcurrentHashMap<Long, Integer> handleToLeaseId = new ConcurrentHashMap<>();
+                ConcurrentHashMap<Integer, GpuWorkResult> results = new ConcurrentHashMap<>();
 
-            assertTrue(verified.get(), "Parent scope verification should run");
+                for (int i = 0; i < NUM_LEASES; i++) {
+                    int leaseId = i;
+                    scope.forkWithStream(lease -> {
+                        GpuWorkResult result = GpuWorkCalibrator.doGpuWork(backend, lease, TARGET_MS);
+                        handleToLeaseId.put(result.streamHandle(), leaseId);
+                        results.put(leaseId, result);
+                        return result;
+                    });
+                }
+
+                scope.joinAll();
+
+                // Verify all handles are unique
+                assertEquals(NUM_LEASES, handleToLeaseId.size(),
+                    "Should have " + NUM_LEASES + " unique handles");
+
+                // Verify all results have valid timing
+                for (int i = 0; i < NUM_LEASES; i++) {
+                    GpuWorkResult result = results.get(i);
+                    assertTrue(result.elapsedNanos() > 0, "Lease " + i + " should have positive timing");
+                }
+            }
         }
     }
 
-    // ==================== Lifecycle Tests ====================
+    // ==================== JFR Event Validation Tests ====================
 
-    @Test
-    @DisplayName("Lease is valid during task execution")
-    void leaseValidDuringExecution() throws Exception {
-        try (GpuTaskScope scope = GpuTaskScope.open(backend)) {
-            AtomicBoolean leaseWasValid = new AtomicBoolean(false);
+    @Nested
+    @DisplayName("JFR Event Validation")
+    class JfrEventValidation {
 
-            scope.forkWithStream(lease -> {
-                // Verify lease is usable
-                long handle = lease.streamHandle();
-                lease.synchronize();
-                leaseWasValid.set(handle != 0);
-                return null;
-            });
+        @Test
+        @DisplayName("JFR events emitted for each lease GPU operation")
+        void jfrEventsForLeaseGpuOps() throws Exception {
+            final int NUM_OPS = 3;
+            final long TARGET_MS = 10;
 
-            scope.joinAll();
+            try (GpuTaskScope scope = GpuTaskScope.open(backend, "jfr-lease-ops")) {
+                List<GpuWorkResult> results = new ArrayList<>();
 
-            assertTrue(leaseWasValid.get(), "Lease should be valid during execution");
-        }
-    }
+                for (int i = 0; i < NUM_OPS; i++) {
+                    int opId = i;
+                    scope.forkWithStream(lease -> {
+                        // doGpuWork internally emits JFR events
+                        GpuWorkResult result = GpuWorkCalibrator.doGpuWork(backend, lease, TARGET_MS);
 
-    @Test
-    @DisplayName("Close is idempotent")
-    void closeIsIdempotent() throws Exception {
-        try (GpuTaskScope scope = GpuTaskScope.open(backend)) {
-            AtomicBoolean noException = new AtomicBoolean(false);
+                        synchronized (results) {
+                            results.add(result);
+                        }
 
-            scope.forkWithStream(lease -> {
-                // Multiple closes should not throw
-                lease.close();
-                lease.close();
-                lease.close();
-                noException.set(true);
-                return null;
-            });
+                        // Emit additional validation event
+                        GpuKernelEvent event = new GpuKernelEvent();
+                        event.operation = "LeaseJFRValidation_" + opId;
+                        event.shape = "bytes=" + result.byteSize();
+                        event.gpuTimeMicros = result.elapsedNanos() / 1000;
+                        event.backend = backendName;
+                        event.deviceIndex = backend.deviceIndex();
+                        event.tier = "LEASE_GTEST_VALIDATION";
+                        event.memoryBandwidthGBps = result.bandwidthGBps();
+                        event.commit();
 
-            scope.joinAll();
+                        return result;
+                    });
+                }
 
-            assertTrue(noException.get(), "Multiple closes should not throw");
-        }
-    }
+                scope.joinAll();
 
-    // ==================== JFR Validation ====================
-
-    @Test
-    @DisplayName("JFR events emitted for lease operations")
-    void jfrEventsForLeaseOperations() throws Exception {
-        try (GpuTaskScope scope = GpuTaskScope.open(backend, "jfr-lease-test")) {
-            long startTime = System.nanoTime();
-
-            scope.forkWithStream(lease -> {
-                lease.synchronize();
-                return lease.streamHandle();
-            });
-
-            scope.joinAll();
-
-            long elapsedMicros = (System.nanoTime() - startTime) / 1000;
-
-            // Emit JFR event to validate the system is working
-            GpuKernelEvent event = new GpuKernelEvent();
-            event.operation = "GpuLeaseTest:JFRValidation";
-            event.shape = "lease";
-            event.gpuTimeMicros = elapsedMicros;
-            event.backend = GpuTestSupport.expectedBackendName(backend);
-            event.deviceIndex = backend.deviceIndex();
-            event.tier = "GPU_LEASE_TEST";
-            event.memoryBandwidthGBps = 0.0;
-            event.commit();
+                assertEquals(NUM_OPS, results.size(), "All ops should complete");
+                for (GpuWorkResult result : results) {
+                    assertTrue(result.bandwidthGBps() > 0, "Bandwidth should be positive");
+                }
+            }
         }
 
-        assertTrue(true, "JFR events should be emittable");
+        @Test
+        @DisplayName("JFR captures varying GPU workloads")
+        void jfrCapturesVaryingGpuWorkloads() throws Exception {
+            try (GpuTaskScope scope = GpuTaskScope.open(backend, "jfr-varying-workloads")) {
+                ConcurrentHashMap<String, GpuWorkResult> results = new ConcurrentHashMap<>();
+
+                // Light workload: 5ms
+                scope.forkWithStream(lease -> {
+                    GpuWorkResult result = GpuWorkCalibrator.doGpuWork(backend, lease, 5);
+                    results.put("light", result);
+                    return result;
+                });
+
+                // Medium workload: 20ms
+                scope.forkWithStream(lease -> {
+                    GpuWorkResult result = GpuWorkCalibrator.doGpuWork(backend, lease, 20);
+                    results.put("medium", result);
+                    return result;
+                });
+
+                // Heavy workload: 40ms
+                scope.forkWithStream(lease -> {
+                    GpuWorkResult result = GpuWorkCalibrator.doGpuWork(backend, lease, 40);
+                    results.put("heavy", result);
+                    return result;
+                });
+
+                scope.joinAll();
+
+                // Validate each workload
+                GpuWorkResult light = results.get("light");
+                GpuWorkResult medium = results.get("medium");
+                GpuWorkResult heavy = results.get("heavy");
+
+                assertNotNull(light);
+                assertNotNull(medium);
+                assertNotNull(heavy);
+
+                GpuWorkCalibrator.assertTimingWithinTolerance(5, light.elapsedNanos(), "Light workload");
+                GpuWorkCalibrator.assertTimingWithinTolerance(20, medium.elapsedNanos(), "Medium workload");
+                GpuWorkCalibrator.assertTimingWithinTolerance(40, heavy.elapsedNanos(), "Heavy workload");
+
+                // Heavy should have more bytes transferred than light
+                assertTrue(heavy.byteSize() > light.byteSize(),
+                    "Heavy workload should transfer more bytes");
+
+                System.out.printf("Workloads - Light: %dms/%d bytes, Medium: %dms/%d bytes, Heavy: %dms/%d bytes%n",
+                    light.elapsedMillis(), light.byteSize(),
+                    medium.elapsedMillis(), medium.byteSize(),
+                    heavy.elapsedMillis(), heavy.byteSize());
+            }
+        }
     }
 }

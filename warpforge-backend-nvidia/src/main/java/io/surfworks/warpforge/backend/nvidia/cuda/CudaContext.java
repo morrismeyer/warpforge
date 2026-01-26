@@ -421,6 +421,60 @@ public final class CudaContext implements AutoCloseable {
     }
 
     /**
+     * Perform single-precision matrix multiplication with transpose flags.
+     *
+     * <p>Computes C = A * B where A and/or B may be transposed.
+     *
+     * @param dA Device pointer to matrix A
+     * @param dB Device pointer to matrix B
+     * @param dC Device pointer to result matrix C
+     * @param M Number of rows in A (or A^T if transposed) and C
+     * @param N Number of columns in B (or B^T if transposed) and C
+     * @param K Number of columns in A (or A^T) and rows in B (or B^T)
+     * @param transposeA If true, use A^T instead of A
+     * @param transposeB If true, use B^T instead of B
+     */
+    public void sgemmTranspose(long dA, long dB, long dC, int M, int N, int K,
+                                boolean transposeA, boolean transposeB) {
+        checkNotClosed();
+        long handle = getCublasHandle();
+
+        try (Arena gemmArena = Arena.ofConfined()) {
+            // For row-major data with potential transposes:
+            // We want: C[M,N] = op(A)[M,K] * op(B)[K,N]
+            //
+            // With cuBLAS (column-major), we compute: C^T = op(B)^T * op(A)^T
+            // which gives us C in row-major format.
+            //
+            // If A needs transpose: op(A) = A^T, so op(A)^T = A (no transpose in cuBLAS)
+            // If A doesn't need transpose: op(A) = A, so op(A)^T = A^T (transpose in cuBLAS)
+            //
+            // Same logic for B.
+
+            int opA = transposeA ? CublasRuntime.CUBLAS_OP_N : CublasRuntime.CUBLAS_OP_T;
+            int opB = transposeB ? CublasRuntime.CUBLAS_OP_N : CublasRuntime.CUBLAS_OP_T;
+
+            // Leading dimensions depend on original matrix shapes (before transpose)
+            // A is stored as [M,K] if not transposed, [K,M] if transposed
+            // B is stored as [K,N] if not transposed, [N,K] if transposed
+            int ldA = transposeA ? M : K;
+            int ldB = transposeB ? K : N;
+
+            CublasRuntime.sgemm(gemmArena, handle,
+                opB, opA,  // Swap order for row-major
+                N, M, K,
+                1.0f,
+                dB, ldB,
+                dA, ldA,
+                0.0f,
+                dC, N
+            );
+        } catch (Throwable t) {
+            throw new CudaRuntime.CudaException("cuBLAS sgemm with transpose failed", t);
+        }
+    }
+
+    /**
      * Perform double-precision matrix multiplication using cuBLAS.
      *
      * @see #sgemm(long, long, long, int, int, int)

@@ -100,14 +100,6 @@ class NvidiaEndToEndTest {
             return;
         }
 
-        // Skip fixtures with known issues in NVIDIA backend
-        // TODO: Fix DotGeneralKernel to handle rhs_contracting_dimensions = [1]
-        String fixtureName = fixtureDir.getFileName().toString();
-        if (fixtureName.equals("linear") || fixtureName.equals("linear_no_bias")) {
-            System.out.println("Skipping " + fixtureName + " - DotGeneralKernel doesn't handle transposed weights yet");
-            return;
-        }
-
         // Use the shared fixture loader from warpforge-core
         try (EndToEndTestFixture fixture = EndToEndTestFixture.load(fixtureDir)) {
             if (fixture.expectedOutputs().isEmpty()) {

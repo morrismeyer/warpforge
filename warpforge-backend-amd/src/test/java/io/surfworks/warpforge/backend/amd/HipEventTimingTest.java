@@ -29,7 +29,14 @@ class HipEventTimingTest {
     @BeforeEach
     void setUp() {
         assumeTrue(HipRuntime.isAvailable(), "HIP/ROCm not available");
-        ctx = HipContext.create(0);
+        try {
+            ctx = HipContext.create(0);
+        } catch (HipRuntime.HipException e) {
+            // HIP library is available but initialization failed
+            // (e.g., no devices, driver not initialized)
+            org.junit.jupiter.api.Assumptions.assumeTrue(false,
+                "HIP available but initialization failed: " + e.getMessage());
+        }
     }
 
     @AfterEach

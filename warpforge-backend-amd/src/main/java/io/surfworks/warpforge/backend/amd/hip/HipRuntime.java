@@ -233,11 +233,11 @@ public final class HipRuntime {
 
     /**
      * Initialize HIP. Must be called before any other HIP functions.
-     * @return hipSuccess (0) on success
      */
-    public static int init() throws Throwable {
+    public static void init() throws Throwable {
         ensureAvailable();
-        return (int) hipInit.invokeExact(0);
+        int result = (int) hipInit.invokeExact(0);
+        checkError(result, "hipInit");
     }
 
     // ==================== Device Management ====================

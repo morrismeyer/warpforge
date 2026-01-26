@@ -539,17 +539,19 @@ public final class CudaKernels {
      * Uses: tanh(x) = (e^(2x) - 1) / (e^(2x) + 1)
      */
     public static String generateTanhF32(int salt) {
+        // For large |x|, e^(2x) overflows to inf, causing inf/inf = NaN
+        // Clamp input to [-10, 10] to avoid overflow (tanh(10) ≈ 0.99999997)
+        // 10.0 = 0x41200000, -10.0 = 0xC1200000
         String ptxOps = """
+                    // Clamp input to avoid overflow
+                    max.f32         %f2, %f1, 0fC1200000;  // max(x, -10)
+                    min.f32         %f2, %f2, 0f41200000;  // clamp(x, -10, 10)
                     // tanh(x) = (e^(2x) - 1) / (e^(2x) + 1)
-                    // First compute 2x
-                    add.f32         %f2, %f1, %f1;
-                    // Compute e^(2x) using 2^(2x * log2(e))
-                    mul.f32         %f2, %f2, 0f3FB8AA3B;  // log2(e)
-                    ex2.approx.f32  %f2, %f2;
-                    // Now %f2 = e^(2x), compute (e^(2x) - 1) and (e^(2x) + 1)
-                    add.f32         %f3, %f2, 0f3F800000;  // e^(2x) + 1 (1.0f)
-                    add.f32         %f2, %f2, 0fBF800000;  // e^(2x) - 1 (-1.0f, so adding it)
-                    // Divide: (e^(2x) - 1) / (e^(2x) + 1)
+                    add.f32         %f2, %f2, %f2;         // 2x
+                    mul.f32         %f2, %f2, 0f3FB8AA3B;  // 2x * log2(e)
+                    ex2.approx.f32  %f2, %f2;              // e^(2x)
+                    add.f32         %f3, %f2, 0f3F800000;  // e^(2x) + 1
+                    add.f32         %f2, %f2, 0fBF800000;  // e^(2x) - 1
                     div.approx.f32  %f2, %f2, %f3;""";
         return generateUnaryElementwiseF32("tanh", ptxOps, "tanh(x)", salt, 4);
     }
@@ -895,46 +897,40 @@ public final class CudaKernels {
      */
     public static String generateAtan2F32(int salt) {
         // atan2(y, x) implementation using atan approximation
-        // For the approximation, we use: atan(z) ≈ z * (1 - 0.28125*z^2) for |z| <= 1
-        // For |z| > 1, use: atan(z) = sign(z) * π/2 - atan(1/z)
+        // Algorithm:
+        // 1. Compute base angle in [0, π/2] using atan(min/max) to keep ratio <= 1
+        // 2. Adjust for quadrant:
+        //    Q1 (x>=0, y>=0): result = base
+        //    Q2 (x<0, y>=0): result = π - base
+        //    Q3 (x<0, y<0): result = -(π - base) = base - π
+        //    Q4 (x>=0, y<0): result = -base
         //
-        // Then adjust for quadrants:
-        // x > 0: atan(y/x)
-        // x < 0, y >= 0: atan(y/x) + π
-        // x < 0, y < 0: atan(y/x) - π
-        // x = 0, y > 0: π/2
-        // x = 0, y < 0: -π/2
-        // x = 0, y = 0: 0
-        //
-        // This is complex in PTX. Using a simplified approach with div and atan approximation.
         // π/2 = 1.5707963 = 0x3FC90FDB
         // π = 3.1415927 = 0x40490FDB
-        // -0.28125 = 0xBE900000
 
         String ptxOps = """
-lg2.approx.f32  %f4, %f2;              // temp for checking if x is positive
+            // Compute base angle in [0, π/2]
             abs.f32         %f5, %f1;              // |y|
             abs.f32         %f6, %f2;              // |x|
-            // Compute |y|/|x| or |x|/|y| depending on which is larger
             setp.gt.f32     %p2, %f5, %f6;         // p2 = |y| > |x|
             @%p2 div.approx.f32 %f3, %f6, %f5;     // if |y| > |x|: z = |x|/|y|
             @!%p2 div.approx.f32 %f3, %f5, %f6;    // else: z = |y|/|x|
-            // Compute atan(z) ≈ z - z^3/3 (simplified)
+            // atan(z) ≈ z * (1 - z^2/3)
             mul.f32         %f4, %f3, %f3;         // z^2
             mul.f32         %f4, %f4, 0fBE2AAAAB;  // -z^2/3 (approx -0.333)
             add.f32         %f4, %f4, 0f3F800000;  // 1 - z^2/3
-            mul.f32         %f3, %f3, %f4;         // z * (1 - z^2/3) ≈ atan(z)
-            // If |y| > |x|, result = π/2 - atan(z)
+            mul.f32         %f3, %f3, %f4;         // z * (1 - z^2/3) = atan(z)
+            // If |y| > |x|, base = π/2 - atan(z)
             @%p2 sub.f32    %f3, 0f3FC90FDB, %f3;  // π/2 - atan(z)
-            // Apply signs based on quadrant
-            // If x < 0, add/sub π
+            // Quadrant adjustment (single predicate per instruction)
             setp.lt.f32     %p3, %f2, 0f00000000;  // p3 = x < 0
-            setp.ge.f32     %p4, %f1, 0f00000000;  // p4 = y >= 0
-            @%p3 @%p4 add.f32 %f3, %f3, 0f40490FDB; // if x<0 and y>=0: add π
-            @%p3 @!%p4 sub.f32 %f3, %f3, 0f40490FDB; // if x<0 and y<0: sub π
-            // Apply sign of y
-            copysign.f32    %f3, %f3, %f1;""";
-        return generateBinaryElementwiseF32("atan2", ptxOps, "atan2(y,x)", salt, 7, 5);
+            setp.lt.f32     %p4, %f1, 0f00000000;  // p4 = y < 0
+            // If x < 0: result = π - base (for Q2/Q3)
+            @%p3 sub.f32    %f7, 0f40490FDB, %f3;  // f7 = π - base
+            @%p3 mov.f32    %f3, %f7;              // f3 = π - base
+            // If y < 0: negate result (for Q3/Q4)
+            @%p4 neg.f32    %f3, %f3;""";
+        return generateBinaryElementwiseF32("atan2", ptxOps, "atan2(y,x)", salt, 8, 5);
     }
 
     // ==================== Comparison and Selection Operations ====================

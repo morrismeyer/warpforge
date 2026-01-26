@@ -143,6 +143,32 @@ public final class HipContext implements AutoCloseable {
     // ==================== Kernel Management ====================
 
     /**
+     * Compile HIP C++ source code and load it as a module.
+     *
+     * <p>This method uses HIPRTC to compile the source at runtime, then loads
+     * the resulting binary via hipModuleLoadData. Results are cached by name.
+     *
+     * @param name Unique name for caching (used as program name in HIPRTC)
+     * @param source HIP C++ source code
+     * @param options Compiler options (e.g., "-O3")
+     * @return Module handle
+     */
+    public long compileAndLoadModule(String name, String source, String... options) {
+        checkNotClosed();
+        return moduleCache.computeIfAbsent(name, k -> {
+            HiprtcRuntime.ensureAvailable();
+            try {
+                byte[] hsaco = HiprtcRuntime.compile(source, name, options);
+                return HipRuntime.loadModuleData(arena, hsaco);
+            } catch (HiprtcRuntime.HiprtcException e) {
+                throw new HipRuntime.HipException("Failed to compile and load module: " + name, e);
+            } catch (Throwable t) {
+                throw new HipRuntime.HipException("Failed to load compiled module: " + name, t);
+            }
+        });
+    }
+
+    /**
      * Load a module from compiled binary and cache it by name.
      * @param name Unique name for caching
      * @param moduleData Compiled HSACO binary

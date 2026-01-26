@@ -13,6 +13,15 @@ java {
     }
 }
 
+// Enable preview features for StructuredTaskScope (JEP 505)
+tasks.withType(JavaCompile).configureEach {
+    options.compilerArgs.addAll(['--enable-preview'])
+}
+
+tasks.withType(JavaExec).configureEach {
+    jvmArgs('--enable-preview')
+}
+
 dependencies {
     implementation project(':warpforge-core')
     implementation project(':warpforge-backend-cpu')
@@ -30,6 +39,7 @@ application {
 
 tasks.named('test') {
     useJUnitPlatform()
+    jvmArgs('--enable-preview', '--enable-native-access=ALL-UNNAMED')
     testLogging {
         events "passed", "skipped", "failed"
         showStandardStreams = true
@@ -94,4 +104,53 @@ tasks.register('validateJfrRecordings', JavaExec) {
     dependsOn 'validateJfrNvidia', 'validateJfrAmd'
 
     args = ['build/jfr-nvidia.jfr', 'build/jfr-amd.jfr']
+}
+
+// ==================== Structured Concurrency JFR Validation ====================
+
+// Task to run structured concurrency validation on NVIDIA
+tasks.register('validateStructuredConcurrencyNvidia', JavaExec) {
+    group = 'verification'
+    description = 'Validate structured concurrency with JFR on NVIDIA hardware'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'io.surfworks.warpforge.ptest.JfrStructuredConcurrencyValidation'
+    args = ['--backend', 'nvidia']
+
+    jvmArgs = [
+        '-XX:StartFlightRecording=filename=build/jfr-structured-nvidia.jfr,dumponexit=true,settings=profile',
+        '--enable-native-access=ALL-UNNAMED',
+        '--enable-preview'
+    ]
+}
+
+// Task to run structured concurrency validation on AMD
+tasks.register('validateStructuredConcurrencyAmd', JavaExec) {
+    group = 'verification'
+    description = 'Validate structured concurrency with JFR on AMD hardware'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'io.surfworks.warpforge.ptest.JfrStructuredConcurrencyValidation'
+    args = ['--backend', 'amd']
+
+    jvmArgs = [
+        '-XX:StartFlightRecording=filename=build/jfr-structured-amd.jfr,dumponexit=true,settings=profile',
+        '--enable-native-access=ALL-UNNAMED',
+        '--enable-preview'
+    ]
+}
+
+// Task to validate structured concurrency JFR recordings
+tasks.register('checkJfrStructuredConcurrencyNvidia', JavaExec) {
+    group = 'verification'
+    description = 'Validate NVIDIA structured concurrency JFR recording contains expected events'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'io.surfworks.warpforge.ptest.JfrRecordingValidator'
+    args = ['build/jfr-structured-nvidia.jfr']
+}
+
+tasks.register('checkJfrStructuredConcurrencyAmd', JavaExec) {
+    group = 'verification'
+    description = 'Validate AMD structured concurrency JFR recording contains expected events'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'io.surfworks.warpforge.ptest.JfrRecordingValidator'
+    args = ['build/jfr-structured-amd.jfr']
 }

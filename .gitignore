@@ -1,6 +1,13 @@
 # Ignore Gradle project-specific cache directory
 .gradle
 
+# Large test fixtures - downloaded on demand, never committed
+# See warpforge-core/src/test/resources/fixtures/MANIFEST.json for download URLs
+**/fixtures/e2e/bert_*
+**/fixtures/e2e/gpt2_*
+**/fixtures/e2e/vit_*
+**/fixtures/large/
+
 # Ignore IntelliJ IDEA project files
 .idea
 

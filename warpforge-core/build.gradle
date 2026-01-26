@@ -158,6 +158,86 @@ tasks.register('ensureE2EFixtures') {
 // Wire up: test task checks fixtures version first
 test.dependsOn checkE2EFixturesVersion
 
+// Download large E2E fixtures from remote storage
+// These are NOT committed to the repository due to size (BERT models are 300MB+)
+tasks.register('downloadFixtures') {
+    description = 'Download large E2E fixtures (BERT, GPT-2, ViT) from remote storage'
+    group = 'verification'
+
+    def fixturesDir = file('src/test/resources/fixtures/e2e')
+    def manifestFile = file('src/test/resources/fixtures/e2e/MANIFEST.json')
+
+    doLast {
+        if (!manifestFile.exists()) {
+            throw new GradleException("MANIFEST.json not found at ${manifestFile}")
+        }
+
+        def manifest = new groovy.json.JsonSlurper().parse(manifestFile)
+        def baseUrl = manifest.base_url
+
+        manifest.fixtures.each { name, info ->
+            if (info.download == true) {
+                def fixtureDir = new File(fixturesDir, name)
+                if (fixtureDir.exists() && new File(fixtureDir, 'model.mlir').exists()) {
+                    logger.lifecycle("Fixture '${name}' already exists, skipping")
+                    return
+                }
+
+                def url = "${baseUrl}/${name}.tar.gz"
+                def tarFile = new File(fixturesDir, "${name}.tar.gz")
+
+                logger.lifecycle("Downloading fixture '${name}' (${info.size_mb} MB) from ${url}...")
+
+                // Download
+                try {
+                    ant.get(src: url, dest: tarFile, verbose: false)
+                } catch (Exception e) {
+                    logger.warn("Failed to download ${name}: ${e.message}")
+                    logger.warn("Fixture URL may not be configured yet. See MANIFEST.json for details.")
+                    return
+                }
+
+                // Extract
+                logger.lifecycle("Extracting ${name}...")
+                ant.untar(src: tarFile, dest: fixturesDir, compression: 'gzip')
+                tarFile.delete()
+
+                logger.lifecycle("Fixture '${name}' ready")
+            }
+        }
+
+        logger.lifecycle("All downloadable fixtures processed")
+    }
+}
+
+// Check if required fixtures are available before nightly tests
+tasks.register('checkNightlyFixtures') {
+    description = 'Check if nightly test fixtures (BERT) are available'
+    group = 'verification'
+
+    def fixturesDir = file('src/test/resources/fixtures/e2e')
+
+    doLast {
+        def missingFixtures = []
+        ['bert_squad_mini', 'bert_squad_small', 'bert_squad_base'].each { name ->
+            def fixtureDir = new File(fixturesDir, name)
+            if (!fixtureDir.exists() || !new File(fixtureDir, 'model.mlir').exists()) {
+                missingFixtures << name
+            }
+        }
+
+        if (!missingFixtures.isEmpty()) {
+            logger.warn("Missing nightly fixtures: ${missingFixtures.join(', ')}")
+            logger.warn("Run './gradlew :warpforge-core:downloadFixtures' to download them")
+            logger.warn("Or run './gradlew :warpforge-core:generateE2EFixtures' to generate them locally")
+        } else {
+            logger.lifecycle("All nightly fixtures available")
+        }
+    }
+}
+
+nightlyTest.dependsOn checkNightlyFixtures
+
 tasks.register('integrationTest', Test) {
     description = 'Run integration tests'
     group = 'verification'

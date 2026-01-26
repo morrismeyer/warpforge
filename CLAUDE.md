@@ -10,6 +10,42 @@ WarpForge is a multi-module Java build system integrating:
 - **SnakeGrinder** - GraalPy (Python on GraalVM) polyglot integration
 - **Hardware CI** - Distributed testing across NUC orchestrator, NVIDIA, and AMD GPU boxes
 
+## CRITICAL: No Data Files in Repository
+
+**NEVER commit data files to this git repository.** This is a hard rule with zero exceptions.
+
+Git repositories are for:
+- Source code
+- Configuration files
+- Documentation
+
+Git repositories are NOT for:
+- Test fixtures with tensor data (`.npy`, `.bin`, `.safetensors`)
+- Model weights
+- Datasets (COCO, ImageNet, SQuAD, etc.)
+- Any binary files larger than 100KB
+- Generated outputs or artifacts
+
+**Why this matters:**
+- Large files bloat the repository permanently (even after deletion, they remain in git history)
+- ML datasets can be 10GB-100GB+ which makes the repository unusable
+- Cloning becomes slow and expensive
+- CI/CD pipelines time out
+
+**Where to store data instead:**
+- Cloud storage (S3, GCS, Azure Blob) with download-on-demand
+- Gradle task that downloads fixtures from a URL
+- Git LFS for files that absolutely must be versioned (rare)
+- Local cache directories outside the repository
+
+**If you need test data:**
+1. Create a Gradle task that downloads data from a URL
+2. Store downloaded data in `build/` or a gitignored cache directory
+3. Add the download URL to a manifest file (not the data itself)
+4. Tests should skip gracefully if data isn't available
+
+This rule exists because data was accidentally committed to this repository in the past, requiring a full repository re-clone to fix. Do not repeat this mistake.
+
 ## Architecture Documentation
 
 For detailed architectural decisions and implementation roadmaps, see the `architecture/` directory:

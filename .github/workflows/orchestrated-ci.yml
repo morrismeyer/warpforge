@@ -28,12 +28,40 @@ jobs:
           if [[ -d "$NUC_REPO/.git" ]]; then
             echo "Pre-cleaning NUC repo at $NUC_REPO"
             cd "$NUC_REPO"
+
+            # Check .git size before cleanup
+            GIT_SIZE_BEFORE=$(du -sm .git | cut -f1)
+            echo ".git directory size before: ${GIT_SIZE_BEFORE} MB"
+
             git fetch origin
             git reset --hard "origin/${GITHUB_REF_NAME:-main}"
+
             # Remove ALL untracked/ignored files except venvs, gradle caches, and GraalPy tools
             git clean -fdx -e '.pytorch-venv' -e '.gradle' -e 'snakegrinder-dist/tools'
+
+            # If .git is bloated (>50MB), clean up stale objects from force pushes
+            if [[ "$GIT_SIZE_BEFORE" -gt 50 ]]; then
+              echo "WARNING: .git directory is ${GIT_SIZE_BEFORE} MB (>50MB threshold)"
+              echo "Running git gc to clean up stale objects from history rewrites..."
+              git reflog expire --expire=now --all
+              git gc --prune=now --aggressive
+              GIT_SIZE_AFTER=$(du -sm .git | cut -f1)
+              echo ".git directory size after gc: ${GIT_SIZE_AFTER} MB"
+              echo "Reclaimed: $((GIT_SIZE_BEFORE - GIT_SIZE_AFTER)) MB"
+            fi
+
             echo "Pre-clean complete. Git status:"
             git status
+
+            # Final .git size check
+            GIT_SIZE_FINAL=$(du -sm .git | cut -f1)
+            echo "Final .git size: ${GIT_SIZE_FINAL} MB"
+            if [[ "$GIT_SIZE_FINAL" -gt 100 ]]; then
+              echo "ERROR: .git directory is still ${GIT_SIZE_FINAL} MB after cleanup!"
+              echo "This may indicate large files were accidentally committed."
+              echo "Consider running: git filter-repo to clean history"
+              exit 1
+            fi
           else
             echo "NUC repo not found at $NUC_REPO, will be cloned by orchestrate script"
           fi

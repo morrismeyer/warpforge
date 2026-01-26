@@ -50,8 +50,12 @@ import static org.junit.jupiter.api.Assertions.fail;
 @DisplayName("PyTorch vs WarpForge E2E Tests")
 class PyTorchWarpForgeEndToEndTest {
 
+    /**
+     * Fixtures are generated to build/ directory - NEVER committed to repo.
+     * Run ./gradlew :warpforge-core:generateE2EFixtures to create them.
+     */
     private static final Path FIXTURES_DIR = Paths.get(
-        "src/test/resources/fixtures/e2e"
+        "build/generated-fixtures/e2e"
     );
 
     /**

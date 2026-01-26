@@ -48,8 +48,12 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 @DisplayName("NVIDIA Backend End-to-End Tests")
 class NvidiaEndToEndTest {
 
+    /**
+     * Fixtures are generated to build/ directory - NEVER committed to repo.
+     * Run ./gradlew :warpforge-core:generateE2EFixtures to create them.
+     */
     private static final Path FIXTURES_DIR = Paths.get(
-        "../warpforge-core/src/test/resources/fixtures/e2e"
+        "../warpforge-core/build/generated-fixtures/e2e"
     );
 
     /**

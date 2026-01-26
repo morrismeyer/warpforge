@@ -45,9 +45,15 @@ class E2EFixtureGenerator {
     private static final Path SNAKEGRINDER_BINARY = PROJECT_ROOT.resolve(
         "snakegrinder-dist/build/dist/bin/snakegrinder"
     );
+
+    /**
+     * ALL fixtures go here - build/ is always gitignored, so data can NEVER
+     * be accidentally committed to the repository.
+     */
     private static final Path FIXTURES_OUTPUT_DIR = PROJECT_ROOT.resolve(
-        "warpforge-core/src/test/resources/fixtures/e2e"
+        "warpforge-core/build/generated-fixtures/e2e"
     );
+
     private static final long DEFAULT_SEED = 42;
     private static final int TIMEOUT_SECONDS = 120;
 

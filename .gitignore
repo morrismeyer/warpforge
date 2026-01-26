@@ -1,12 +1,16 @@
 # Ignore Gradle project-specific cache directory
 .gradle
 
-# Large test fixtures - downloaded on demand, never committed
-# See warpforge-core/src/test/resources/fixtures/MANIFEST.json for download URLs
-**/fixtures/e2e/bert_*
-**/fixtures/e2e/gpt2_*
-**/fixtures/e2e/vit_*
-**/fixtures/large/
+# E2E test fixtures - NEVER commit data files
+# Fixtures are generated to build/generated-fixtures/ (always gitignored)
+# This pattern catches any accidental fixture data in src/
+**/fixtures/e2e/*/
+**/fixtures/e2e/*.npy
+**/fixtures/e2e/*.bin
+**/fixtures/e2e/*.safetensors
+**/fixtures/e2e/*.mlir
+**/fixtures/e2e/VERSION
+!**/fixtures/e2e/README.md
 
 # Ignore IntelliJ IDEA project files
 .idea

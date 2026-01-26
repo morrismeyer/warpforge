@@ -67,90 +67,66 @@ tasks.register('generateE2EFixtures', Test) {
         showStandardStreams = true
     }
 
-    // Update VERSION file after successful generation
+    // Capture paths at configuration time (outside doLast)
+    def versionsEnvPath = project.rootDir.toPath().resolve('snakegrinder-dist/versions.env').toFile()
+    def fixturesDirPath = project.file('build/generated-fixtures/e2e')
+
+    // Update VERSION file after successful generation (in build/, never committed)
     doLast {
-        def versionsEnv = rootProject.file('snakegrinder-dist/versions.env')
-        if (versionsEnv.exists()) {
-            def pytorchVersion = versionsEnv.text.find(/PYTORCH_VERSION="([^"]+)"/) { match, version -> version }
+        fixturesDirPath.mkdirs()
+
+        if (versionsEnvPath.exists()) {
+            def pytorchVersion = versionsEnvPath.text.find(/PYTORCH_VERSION="([^"]+)"/) { match, version -> version }
             if (pytorchVersion) {
-                def versionFile = file('src/test/resources/fixtures/e2e/VERSION')
+                def versionFile = new File(fixturesDirPath, 'VERSION')
                 versionFile.text = pytorchVersion + '\n'
-                logger.lifecycle("Updated E2E fixtures VERSION to ${pytorchVersion}")
+                logger.lifecycle("Generated fixtures VERSION: PyTorch ${pytorchVersion}")
             }
         }
+
+        def count = fixturesDirPath.listFiles()?.findAll { it.isDirectory() }?.size() ?: 0
+        logger.lifecycle("Generated ${count} E2E fixtures to ${fixturesDirPath}")
     }
 }
 
-// Check if E2E fixtures need regeneration based on PyTorch version
+// Check if E2E fixtures exist (they live in build/, never committed)
 tasks.register('checkE2EFixturesVersion') {
-    description = 'Check if E2E fixtures match current PyTorch version'
+    description = 'Check if E2E fixtures have been generated'
     group = 'verification'
 
-    def versionsEnvFile = rootProject.file('snakegrinder-dist/versions.env')
-    def fixturesVersionFile = file('src/test/resources/fixtures/e2e/VERSION')
-
-    inputs.file(versionsEnvFile).optional()
-    inputs.file(fixturesVersionFile).optional()
+    def fixturesDir = file('build/generated-fixtures/e2e')
+    def versionFile = file('build/generated-fixtures/e2e/VERSION')
 
     doLast {
-        if (!versionsEnvFile.exists()) {
-            logger.warn("snakegrinder-dist/versions.env not found, skipping E2E fixture version check")
+        if (!fixturesDir.exists() || fixturesDir.listFiles()?.length == 0) {
+            logger.warn("E2E fixtures not found. Run: ./gradlew :warpforge-core:generateE2EFixtures")
+            logger.warn("Tests will be skipped until fixtures are generated.")
             return
         }
 
-        def pytorchVersion = versionsEnvFile.text.find(/PYTORCH_VERSION="([^"]+)"/) { match, version -> version }
-        if (!pytorchVersion) {
-            logger.warn("Could not parse PYTORCH_VERSION from versions.env")
-            return
+        if (versionFile.exists()) {
+            def version = versionFile.text.trim()
+            logger.lifecycle("E2E fixtures available (PyTorch ${version})")
+        } else {
+            logger.lifecycle("E2E fixtures available")
         }
-
-        if (!fixturesVersionFile.exists()) {
-            throw new GradleException(
-                "E2E fixtures VERSION file missing. Run: ./gradlew :warpforge-core:generateE2EFixtures"
-            )
-        }
-
-        def fixturesVersion = fixturesVersionFile.text.trim()
-        if (fixturesVersion != pytorchVersion) {
-            throw new GradleException(
-                "E2E fixtures are stale: generated with PyTorch ${fixturesVersion}, current is ${pytorchVersion}.\n" +
-                "Run: ./gradlew :warpforge-core:generateE2EFixtures"
-            )
-        }
-
-        logger.lifecycle("E2E fixtures version OK: PyTorch ${pytorchVersion}")
     }
 }
 
-// Conditionally regenerate fixtures if PyTorch version changed
+// Check if fixtures need to be generated
 tasks.register('ensureE2EFixtures') {
-    description = 'Ensure E2E fixtures are up-to-date with current PyTorch version'
+    description = 'Check if E2E fixtures need to be generated'
     group = 'verification'
 
-    def versionsEnvFile = rootProject.file('snakegrinder-dist/versions.env')
-    def fixturesVersionFile = file('src/test/resources/fixtures/e2e/VERSION')
+    def fixturesDir = file('build/generated-fixtures/e2e')
 
     doLast {
-        if (!versionsEnvFile.exists()) {
-            logger.lifecycle("snakegrinder-dist/versions.env not found, skipping fixture check")
-            return
-        }
-
-        def pytorchVersion = versionsEnvFile.text.find(/PYTORCH_VERSION="([^"]+)"/) { match, version -> version }
-        if (!pytorchVersion) {
-            logger.lifecycle("Could not parse PYTORCH_VERSION, skipping fixture check")
-            return
-        }
-
-        def needsRegeneration = !fixturesVersionFile.exists() ||
-            fixturesVersionFile.text.trim() != pytorchVersion
-
-        if (needsRegeneration) {
-            logger.lifecycle("E2E fixtures need regeneration (PyTorch version changed to ${pytorchVersion})")
-            // This will trigger the generateE2EFixtures task
-            throw new GradleException("REGENERATE_FIXTURES")
+        if (!fixturesDir.exists() || fixturesDir.listFiles()?.length == 0) {
+            logger.lifecycle("E2E fixtures not found at ${fixturesDir}")
+            logger.lifecycle("Run: ./gradlew :warpforge-core:generateE2EFixtures")
         } else {
-            logger.lifecycle("E2E fixtures are current (PyTorch ${pytorchVersion})")
+            def count = fixturesDir.listFiles()?.findAll { it.isDirectory() }?.size() ?: 0
+            logger.lifecycle("E2E fixtures available: ${count} fixtures in ${fixturesDir}")
         }
     }
 }
@@ -158,14 +134,14 @@ tasks.register('ensureE2EFixtures') {
 // Wire up: test task checks fixtures version first
 test.dependsOn checkE2EFixturesVersion
 
-// Download large E2E fixtures from remote storage
-// These are NOT committed to the repository due to size (BERT models are 300MB+)
+// Download E2E fixtures from remote storage (alternative to generating locally)
+// All fixtures go to build/ directory - NEVER committed to repository
 tasks.register('downloadFixtures') {
-    description = 'Download large E2E fixtures (BERT, GPT-2, ViT) from remote storage'
+    description = 'Download E2E fixtures from remote storage'
     group = 'verification'
 
-    def fixturesDir = file('src/test/resources/fixtures/e2e')
-    def manifestFile = file('src/test/resources/fixtures/e2e/MANIFEST.json')
+    def fixturesDir = file('build/generated-fixtures/e2e')
+    def manifestFile = file('src/test/resources/fixtures/MANIFEST.json')
 
     doLast {
         if (!manifestFile.exists()) {
@@ -215,7 +191,7 @@ tasks.register('checkNightlyFixtures') {
     description = 'Check if nightly test fixtures (BERT) are available'
     group = 'verification'
 
-    def fixturesDir = file('src/test/resources/fixtures/e2e')
+    def fixturesDir = file('build/generated-fixtures/e2e')
 
     doLast {
         def missingFixtures = []

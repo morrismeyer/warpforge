@@ -262,6 +262,46 @@ public final class HipContext implements AutoCloseable {
         }
     }
 
+    /**
+     * Launch a kernel with a float parameter followed by int parameters.
+     */
+    public void launchKernelWithFloatAndIntParams(long function, int[] gridDim, int[] blockDim, int sharedMem,
+                                                   long[] devicePtrs, float floatParam, int... intParams) {
+        checkNotClosed();
+        try (Arena launchArena = Arena.ofConfined()) {
+            int totalParams = devicePtrs.length + 1 + intParams.length;
+            MemorySegment paramsArray = launchArena.allocate(ValueLayout.ADDRESS, totalParams);
+
+            int idx = 0;
+            for (long ptr : devicePtrs) {
+                MemorySegment paramPtr = launchArena.allocate(ValueLayout.JAVA_LONG);
+                paramPtr.set(ValueLayout.JAVA_LONG, 0, ptr);
+                paramsArray.setAtIndex(ValueLayout.ADDRESS, idx++, paramPtr);
+            }
+            // Float parameter
+            MemorySegment floatParamPtr = launchArena.allocate(ValueLayout.JAVA_FLOAT);
+            floatParamPtr.set(ValueLayout.JAVA_FLOAT, 0, floatParam);
+            paramsArray.setAtIndex(ValueLayout.ADDRESS, idx++, floatParamPtr);
+
+            for (int val : intParams) {
+                MemorySegment paramPtr = launchArena.allocate(ValueLayout.JAVA_INT);
+                paramPtr.set(ValueLayout.JAVA_INT, 0, val);
+                paramsArray.setAtIndex(ValueLayout.ADDRESS, idx++, paramPtr);
+            }
+
+            HipRuntime.launchKernel(
+                function,
+                gridDim[0], gridDim.length > 1 ? gridDim[1] : 1, gridDim.length > 2 ? gridDim[2] : 1,
+                blockDim[0], blockDim.length > 1 ? blockDim[1] : 1, blockDim.length > 2 ? blockDim[2] : 1,
+                sharedMem,
+                0,
+                paramsArray
+            );
+        } catch (Throwable t) {
+            throw new HipRuntime.HipException("Failed to launch kernel", t);
+        }
+    }
+
     // ==================== rocBLAS Operations ====================
 
     /**

@@ -1904,6 +1904,1543 @@ public final class HipKernels {
         return src.toString();
     }
 
+    // ==================== Iota Operations ====================
+
+    /**
+     * Generate HIP C++ source for 1D iota (sequence generation).
+     */
+    public static String generateIota1DF32(int salt) {
+        StringBuilder src = new StringBuilder();
+
+        src.append("""
+            //
+            // iota_1d_f32: Generate sequence [0, 1, 2, ..., n-1]
+            // Salt level: %d
+            //
+            #include <hip/hip_runtime.h>
+
+            """.formatted(salt));
+
+        if (salt >= SALT_TIMING) {
+            src.append("""
+            __device__ __forceinline__ unsigned long long get_timer() {
+                return clock64();
+            }
+
+            """);
+        }
+
+        src.append("""
+            extern "C" __global__ void iota_1d_f32(
+                float* __restrict__ output,
+                int n
+            """);
+
+        if (salt >= SALT_TIMING) {
+            src.append("    , unsigned long long* timing\n");
+        }
+
+        src.append(") {\n");
+
+        src.append("""
+                int i = blockIdx.x * blockDim.x + threadIdx.x;
+                if (i >= n) return;
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            src.append("""
+                unsigned long long t0 = get_timer();
+
+            """);
+        }
+
+        src.append("""
+                output[i] = (float)i;
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            src.append("""
+                unsigned long long t1 = get_timer();
+                atomicAdd(timing, t1 - t0);
+
+            """);
+        }
+
+        src.append("}\n");
+
+        return src.toString();
+    }
+
+    /**
+     * Generate HIP C++ source for 2D iota along dimension 0 (row indices).
+     */
+    public static String generateIota2DDim0F32(int salt) {
+        StringBuilder src = new StringBuilder();
+
+        src.append("""
+            //
+            // iota_2d_dim0_f32: Generate 2D array with row indices
+            // Salt level: %d
+            //
+            #include <hip/hip_runtime.h>
+
+            """.formatted(salt));
+
+        if (salt >= SALT_TIMING) {
+            src.append("""
+            __device__ __forceinline__ unsigned long long get_timer() {
+                return clock64();
+            }
+
+            """);
+        }
+
+        src.append("""
+            extern "C" __global__ void iota_2d_dim0_f32(
+                float* __restrict__ output,
+                int rows,
+                int cols
+            """);
+
+        if (salt >= SALT_TIMING) {
+            src.append("    , unsigned long long* timing\n");
+        }
+
+        src.append(") {\n");
+
+        src.append("""
+                int row = blockIdx.y * blockDim.y + threadIdx.y;
+                int col = blockIdx.x * blockDim.x + threadIdx.x;
+                if (row >= rows || col >= cols) return;
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            src.append("""
+                unsigned long long t0 = get_timer();
+
+            """);
+        }
+
+        src.append("""
+                output[row * cols + col] = (float)row;
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            src.append("""
+                unsigned long long t1 = get_timer();
+                atomicAdd(timing, t1 - t0);
+
+            """);
+        }
+
+        src.append("}\n");
+
+        return src.toString();
+    }
+
+    /**
+     * Generate HIP C++ source for 2D iota along dimension 1 (column indices).
+     */
+    public static String generateIota2DDim1F32(int salt) {
+        StringBuilder src = new StringBuilder();
+
+        src.append("""
+            //
+            // iota_2d_dim1_f32: Generate 2D array with column indices
+            // Salt level: %d
+            //
+            #include <hip/hip_runtime.h>
+
+            """.formatted(salt));
+
+        if (salt >= SALT_TIMING) {
+            src.append("""
+            __device__ __forceinline__ unsigned long long get_timer() {
+                return clock64();
+            }
+
+            """);
+        }
+
+        src.append("""
+            extern "C" __global__ void iota_2d_dim1_f32(
+                float* __restrict__ output,
+                int rows,
+                int cols
+            """);
+
+        if (salt >= SALT_TIMING) {
+            src.append("    , unsigned long long* timing\n");
+        }
+
+        src.append(") {\n");
+
+        src.append("""
+                int row = blockIdx.y * blockDim.y + threadIdx.y;
+                int col = blockIdx.x * blockDim.x + threadIdx.x;
+                if (row >= rows || col >= cols) return;
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            src.append("""
+                unsigned long long t0 = get_timer();
+
+            """);
+        }
+
+        src.append("""
+                output[row * cols + col] = (float)col;
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            src.append("""
+                unsigned long long t1 = get_timer();
+                atomicAdd(timing, t1 - t0);
+
+            """);
+        }
+
+        src.append("}\n");
+
+        return src.toString();
+    }
+
+    // ==================== Pad Operations ====================
+
+    /**
+     * Generate HIP C++ source for 1D padding.
+     */
+    public static String generatePad1DF32(int salt) {
+        StringBuilder src = new StringBuilder();
+
+        src.append("""
+            //
+            // pad_1d_f32: Pad 1D array with specified value
+            // Salt level: %d
+            //
+            #include <hip/hip_runtime.h>
+
+            """.formatted(salt));
+
+        if (salt >= SALT_TIMING) {
+            src.append("""
+            __device__ __forceinline__ unsigned long long get_timer() {
+                return clock64();
+            }
+
+            """);
+        }
+
+        src.append("""
+            extern "C" __global__ void pad_1d_f32(
+                const float* __restrict__ input,
+                float* __restrict__ output,
+                float pad_value,
+                int input_size,
+                int low_pad,
+                int output_size
+            """);
+
+        if (salt >= SALT_TIMING) {
+            src.append("    , unsigned long long* timing\n");
+        }
+
+        src.append(") {\n");
+
+        src.append("""
+                int i = blockIdx.x * blockDim.x + threadIdx.x;
+                if (i >= output_size) return;
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            src.append("""
+                unsigned long long t0 = get_timer();
+
+            """);
+        }
+
+        src.append("""
+                int input_idx = i - low_pad;
+                if (input_idx >= 0 && input_idx < input_size) {
+                    output[i] = input[input_idx];
+                } else {
+                    output[i] = pad_value;
+                }
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            src.append("""
+                unsigned long long t1 = get_timer();
+                atomicAdd(timing, t1 - t0);
+
+            """);
+        }
+
+        src.append("}\n");
+
+        return src.toString();
+    }
+
+    /**
+     * Generate HIP C++ source for 2D padding.
+     */
+    public static String generatePad2DF32(int salt) {
+        StringBuilder src = new StringBuilder();
+
+        src.append("""
+            //
+            // pad_2d_f32: Pad 2D array with specified value
+            // Salt level: %d
+            //
+            #include <hip/hip_runtime.h>
+
+            """.formatted(salt));
+
+        if (salt >= SALT_TIMING) {
+            src.append("""
+            __device__ __forceinline__ unsigned long long get_timer() {
+                return clock64();
+            }
+
+            """);
+        }
+
+        src.append("""
+            extern "C" __global__ void pad_2d_f32(
+                const float* __restrict__ input,
+                float* __restrict__ output,
+                float pad_value,
+                int in_rows,
+                int in_cols,
+                int low_pad_rows,
+                int low_pad_cols,
+                int out_rows,
+                int out_cols
+            """);
+
+        if (salt >= SALT_TIMING) {
+            src.append("    , unsigned long long* timing\n");
+        }
+
+        src.append(") {\n");
+
+        src.append("""
+                int out_row = blockIdx.y * blockDim.y + threadIdx.y;
+                int out_col = blockIdx.x * blockDim.x + threadIdx.x;
+                if (out_row >= out_rows || out_col >= out_cols) return;
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            src.append("""
+                unsigned long long t0 = get_timer();
+
+            """);
+        }
+
+        src.append("""
+                int in_row = out_row - low_pad_rows;
+                int in_col = out_col - low_pad_cols;
+                int out_idx = out_row * out_cols + out_col;
+
+                if (in_row >= 0 && in_row < in_rows && in_col >= 0 && in_col < in_cols) {
+                    output[out_idx] = input[in_row * in_cols + in_col];
+                } else {
+                    output[out_idx] = pad_value;
+                }
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            src.append("""
+                unsigned long long t1 = get_timer();
+                atomicAdd(timing, t1 - t0);
+
+            """);
+        }
+
+        src.append("}\n");
+
+        return src.toString();
+    }
+
+    // ==================== Reverse Operations ====================
+
+    /**
+     * Generate HIP C++ source for 1D reverse.
+     */
+    public static String generateReverse1DF32(int salt) {
+        StringBuilder src = new StringBuilder();
+
+        src.append("""
+            //
+            // reverse_1d_f32: Reverse 1D array
+            // Salt level: %d
+            //
+            #include <hip/hip_runtime.h>
+
+            """.formatted(salt));
+
+        if (salt >= SALT_TIMING) {
+            src.append("""
+            __device__ __forceinline__ unsigned long long get_timer() {
+                return clock64();
+            }
+
+            """);
+        }
+
+        src.append("""
+            extern "C" __global__ void reverse_1d_f32(
+                const float* __restrict__ input,
+                float* __restrict__ output,
+                int n
+            """);
+
+        if (salt >= SALT_TIMING) {
+            src.append("    , unsigned long long* timing\n");
+        }
+
+        src.append(") {\n");
+
+        src.append("""
+                int i = blockIdx.x * blockDim.x + threadIdx.x;
+                if (i >= n) return;
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            src.append("""
+                unsigned long long t0 = get_timer();
+
+            """);
+        }
+
+        src.append("""
+                output[i] = input[n - 1 - i];
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            src.append("""
+                unsigned long long t1 = get_timer();
+                atomicAdd(timing, t1 - t0);
+
+            """);
+        }
+
+        src.append("}\n");
+
+        return src.toString();
+    }
+
+    /**
+     * Generate HIP C++ source for 2D reverse along dimension 0 (rows).
+     */
+    public static String generateReverse2DDim0F32(int salt) {
+        StringBuilder src = new StringBuilder();
+
+        src.append("""
+            //
+            // reverse_2d_dim0_f32: Reverse 2D array along dimension 0
+            // Salt level: %d
+            //
+            #include <hip/hip_runtime.h>
+
+            """.formatted(salt));
+
+        if (salt >= SALT_TIMING) {
+            src.append("""
+            __device__ __forceinline__ unsigned long long get_timer() {
+                return clock64();
+            }
+
+            """);
+        }
+
+        src.append("""
+            extern "C" __global__ void reverse_2d_dim0_f32(
+                const float* __restrict__ input,
+                float* __restrict__ output,
+                int rows,
+                int cols
+            """);
+
+        if (salt >= SALT_TIMING) {
+            src.append("    , unsigned long long* timing\n");
+        }
+
+        src.append(") {\n");
+
+        src.append("""
+                int row = blockIdx.y * blockDim.y + threadIdx.y;
+                int col = blockIdx.x * blockDim.x + threadIdx.x;
+                if (row >= rows || col >= cols) return;
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            src.append("""
+                unsigned long long t0 = get_timer();
+
+            """);
+        }
+
+        src.append("""
+                int src_row = rows - 1 - row;
+                output[row * cols + col] = input[src_row * cols + col];
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            src.append("""
+                unsigned long long t1 = get_timer();
+                atomicAdd(timing, t1 - t0);
+
+            """);
+        }
+
+        src.append("}\n");
+
+        return src.toString();
+    }
+
+    /**
+     * Generate HIP C++ source for 2D reverse along dimension 1 (columns).
+     */
+    public static String generateReverse2DDim1F32(int salt) {
+        StringBuilder src = new StringBuilder();
+
+        src.append("""
+            //
+            // reverse_2d_dim1_f32: Reverse 2D array along dimension 1
+            // Salt level: %d
+            //
+            #include <hip/hip_runtime.h>
+
+            """.formatted(salt));
+
+        if (salt >= SALT_TIMING) {
+            src.append("""
+            __device__ __forceinline__ unsigned long long get_timer() {
+                return clock64();
+            }
+
+            """);
+        }
+
+        src.append("""
+            extern "C" __global__ void reverse_2d_dim1_f32(
+                const float* __restrict__ input,
+                float* __restrict__ output,
+                int rows,
+                int cols
+            """);
+
+        if (salt >= SALT_TIMING) {
+            src.append("    , unsigned long long* timing\n");
+        }
+
+        src.append(") {\n");
+
+        src.append("""
+                int row = blockIdx.y * blockDim.y + threadIdx.y;
+                int col = blockIdx.x * blockDim.x + threadIdx.x;
+                if (row >= rows || col >= cols) return;
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            src.append("""
+                unsigned long long t0 = get_timer();
+
+            """);
+        }
+
+        src.append("""
+                int src_col = cols - 1 - col;
+                output[row * cols + col] = input[row * cols + src_col];
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            src.append("""
+                unsigned long long t1 = get_timer();
+                atomicAdd(timing, t1 - t0);
+
+            """);
+        }
+
+        src.append("}\n");
+
+        return src.toString();
+    }
+
+    // ==================== Concatenate Operations ====================
+
+    /**
+     * Generate HIP C++ source for concatenating two 1D arrays.
+     */
+    public static String generateConcatenate2F32(int salt) {
+        StringBuilder src = new StringBuilder();
+
+        src.append("""
+            //
+            // concatenate_2_f32: Concatenate two float32 arrays
+            // Salt level: %d
+            //
+            #include <hip/hip_runtime.h>
+
+            """.formatted(salt));
+
+        if (salt >= SALT_TIMING) {
+            src.append("""
+            __device__ __forceinline__ unsigned long long get_timer() {
+                return clock64();
+            }
+
+            """);
+        }
+
+        src.append("""
+            extern "C" __global__ void concatenate_2_f32(
+                const float* __restrict__ input_a,
+                const float* __restrict__ input_b,
+                float* __restrict__ output,
+                int size_a,
+                int size_b
+            """);
+
+        if (salt >= SALT_TIMING) {
+            src.append("    , unsigned long long* timing\n");
+        }
+
+        src.append(") {\n");
+
+        src.append("""
+                int total = size_a + size_b;
+                int i = blockIdx.x * blockDim.x + threadIdx.x;
+                if (i >= total) return;
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            src.append("""
+                unsigned long long t0 = get_timer();
+
+            """);
+        }
+
+        src.append("""
+                if (i < size_a) {
+                    output[i] = input_a[i];
+                } else {
+                    output[i] = input_b[i - size_a];
+                }
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            src.append("""
+                unsigned long long t1 = get_timer();
+                atomicAdd(timing, t1 - t0);
+
+            """);
+        }
+
+        src.append("}\n");
+
+        return src.toString();
+    }
+
+    // ==================== Slice Operations ====================
+
+    /**
+     * Generate HIP C++ source for 1D slice.
+     */
+    public static String generateSlice1DF32(int salt) {
+        StringBuilder src = new StringBuilder();
+
+        src.append("""
+            //
+            // slice_1d_f32: Extract slice from 1D array
+            // Salt level: %d
+            //
+            #include <hip/hip_runtime.h>
+
+            """.formatted(salt));
+
+        if (salt >= SALT_TIMING) {
+            src.append("""
+            __device__ __forceinline__ unsigned long long get_timer() {
+                return clock64();
+            }
+
+            """);
+        }
+
+        src.append("""
+            extern "C" __global__ void slice_1d_f32(
+                const float* __restrict__ input,
+                float* __restrict__ output,
+                int start,
+                int stride,
+                int output_size
+            """);
+
+        if (salt >= SALT_TIMING) {
+            src.append("    , unsigned long long* timing\n");
+        }
+
+        src.append(") {\n");
+
+        src.append("""
+                int i = blockIdx.x * blockDim.x + threadIdx.x;
+                if (i >= output_size) return;
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            src.append("""
+                unsigned long long t0 = get_timer();
+
+            """);
+        }
+
+        src.append("""
+                output[i] = input[start + i * stride];
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            src.append("""
+                unsigned long long t1 = get_timer();
+                atomicAdd(timing, t1 - t0);
+
+            """);
+        }
+
+        src.append("}\n");
+
+        return src.toString();
+    }
+
+    /**
+     * Generate HIP C++ source for 2D slice.
+     */
+    public static String generateSlice2DF32(int salt) {
+        StringBuilder src = new StringBuilder();
+
+        src.append("""
+            //
+            // slice_2d_f32: Extract slice from 2D array
+            // Salt level: %d
+            //
+            #include <hip/hip_runtime.h>
+
+            """.formatted(salt));
+
+        if (salt >= SALT_TIMING) {
+            src.append("""
+            __device__ __forceinline__ unsigned long long get_timer() {
+                return clock64();
+            }
+
+            """);
+        }
+
+        src.append("""
+            extern "C" __global__ void slice_2d_f32(
+                const float* __restrict__ input,
+                float* __restrict__ output,
+                int in_cols,
+                int start_row,
+                int start_col,
+                int stride_row,
+                int stride_col,
+                int out_rows,
+                int out_cols
+            """);
+
+        if (salt >= SALT_TIMING) {
+            src.append("    , unsigned long long* timing\n");
+        }
+
+        src.append(") {\n");
+
+        src.append("""
+                int out_row = blockIdx.y * blockDim.y + threadIdx.y;
+                int out_col = blockIdx.x * blockDim.x + threadIdx.x;
+                if (out_row >= out_rows || out_col >= out_cols) return;
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            src.append("""
+                unsigned long long t0 = get_timer();
+
+            """);
+        }
+
+        src.append("""
+                int in_row = start_row + out_row * stride_row;
+                int in_col = start_col + out_col * stride_col;
+                output[out_row * out_cols + out_col] = input[in_row * in_cols + in_col];
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            src.append("""
+                unsigned long long t1 = get_timer();
+                atomicAdd(timing, t1 - t0);
+
+            """);
+        }
+
+        src.append("}\n");
+
+        return src.toString();
+    }
+
+    // ==================== Complex Operations (Gather, Scatter, Pool, Conv, BatchNorm) ====================
+
+    /**
+     * Generate HIP C++ source for 1D gather.
+     */
+    public static String generateGather1DF32(int salt) {
+        StringBuilder src = new StringBuilder();
+
+        src.append("""
+            //
+            // gather_1d_f32: Gather elements using indices
+            // Salt level: %d
+            //
+            #include <hip/hip_runtime.h>
+
+            """.formatted(salt));
+
+        if (salt >= SALT_TIMING) {
+            src.append("""
+            __device__ __forceinline__ unsigned long long get_timer() {
+                return clock64();
+            }
+
+            """);
+        }
+
+        src.append("""
+            extern "C" __global__ void gather_1d_f32(
+                const float* __restrict__ operand,
+                const int* __restrict__ indices,
+                float* __restrict__ output,
+                int n_indices
+            """);
+
+        if (salt >= SALT_TIMING) {
+            src.append("    , unsigned long long* timing\n");
+        }
+
+        src.append(") {\n");
+
+        src.append("""
+                int i = blockIdx.x * blockDim.x + threadIdx.x;
+                if (i >= n_indices) return;
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            src.append("""
+                unsigned long long t0 = get_timer();
+
+            """);
+        }
+
+        src.append("""
+                output[i] = operand[indices[i]];
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            src.append("""
+                unsigned long long t1 = get_timer();
+                atomicAdd(timing, t1 - t0);
+
+            """);
+        }
+
+        src.append("}\n");
+
+        return src.toString();
+    }
+
+    /**
+     * Generate HIP C++ source for 2D gather (embedding lookup).
+     */
+    public static String generateGather2DF32(int salt) {
+        StringBuilder src = new StringBuilder();
+
+        src.append("""
+            //
+            // gather_2d_f32: 2D gather (embedding lookup)
+            // Salt level: %d
+            //
+            #include <hip/hip_runtime.h>
+
+            """.formatted(salt));
+
+        if (salt >= SALT_TIMING) {
+            src.append("""
+            __device__ __forceinline__ unsigned long long get_timer() {
+                return clock64();
+            }
+
+            """);
+        }
+
+        src.append("""
+            extern "C" __global__ void gather_2d_f32(
+                const float* __restrict__ operand,
+                const int* __restrict__ indices,
+                float* __restrict__ output,
+                int embedding_dim,
+                int n_indices
+            """);
+
+        if (salt >= SALT_TIMING) {
+            src.append("    , unsigned long long* timing\n");
+        }
+
+        src.append(") {\n");
+
+        src.append("""
+                int out_row = blockIdx.y * blockDim.y + threadIdx.y;
+                int col = blockIdx.x * blockDim.x + threadIdx.x;
+                if (out_row >= n_indices || col >= embedding_dim) return;
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            src.append("""
+                unsigned long long t0 = get_timer();
+
+            """);
+        }
+
+        src.append("""
+                int src_row = indices[out_row];
+                output[out_row * embedding_dim + col] = operand[src_row * embedding_dim + col];
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            src.append("""
+                unsigned long long t1 = get_timer();
+                atomicAdd(timing, t1 - t0);
+
+            """);
+        }
+
+        src.append("}\n");
+
+        return src.toString();
+    }
+
+    /**
+     * Generate HIP C++ source for scatter-add.
+     */
+    public static String generateScatterAddF32(int salt) {
+        StringBuilder src = new StringBuilder();
+
+        src.append("""
+            //
+            // scatter_add_f32: Scatter-add updates to operand
+            // Salt level: %d
+            //
+            #include <hip/hip_runtime.h>
+
+            """.formatted(salt));
+
+        if (salt >= SALT_TIMING) {
+            src.append("""
+            __device__ __forceinline__ unsigned long long get_timer() {
+                return clock64();
+            }
+
+            """);
+        }
+
+        src.append("""
+            extern "C" __global__ void scatter_add_f32(
+                float* __restrict__ output,
+                const int* __restrict__ indices,
+                const float* __restrict__ updates,
+                int n_updates
+            """);
+
+        if (salt >= SALT_TIMING) {
+            src.append("    , unsigned long long* timing\n");
+        }
+
+        src.append(") {\n");
+
+        src.append("""
+                int i = blockIdx.x * blockDim.x + threadIdx.x;
+                if (i >= n_updates) return;
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            src.append("""
+                unsigned long long t0 = get_timer();
+
+            """);
+        }
+
+        src.append("""
+                atomicAdd(&output[indices[i]], updates[i]);
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            src.append("""
+                unsigned long long t1 = get_timer();
+                atomicAdd(timing, t1 - t0);
+
+            """);
+        }
+
+        src.append("}\n");
+
+        return src.toString();
+    }
+
+    /**
+     * Generate HIP C++ source for batch matrix multiply.
+     */
+    public static String generateBatchMatMulF32(int salt) {
+        StringBuilder src = new StringBuilder();
+
+        src.append("""
+            //
+            // batch_matmul_f32: Batched matrix multiplication
+            // Salt level: %d
+            //
+            #include <hip/hip_runtime.h>
+
+            #define TILE_SIZE 16
+
+            """.formatted(salt));
+
+        if (salt >= SALT_TIMING) {
+            src.append("""
+            __device__ __forceinline__ unsigned long long get_timer() {
+                return clock64();
+            }
+
+            """);
+        }
+
+        src.append("""
+            extern "C" __global__ void batch_matmul_f32(
+                const float* __restrict__ A,
+                const float* __restrict__ B,
+                float* __restrict__ C,
+                int M,
+                int N,
+                int K,
+                int batch_size
+            """);
+
+        if (salt >= SALT_TIMING) {
+            src.append("    , unsigned long long* timing\n");
+        }
+
+        src.append(") {\n");
+
+        src.append("""
+                int batch = blockIdx.z;
+                int row = blockIdx.y * blockDim.y + threadIdx.y;
+                int col = blockIdx.x * blockDim.x + threadIdx.x;
+
+                if (row >= M || col >= N || batch >= batch_size) return;
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            src.append("""
+                unsigned long long t0 = get_timer();
+
+            """);
+        }
+
+        src.append("""
+                int A_offset = batch * M * K;
+                int B_offset = batch * K * N;
+                int C_offset = batch * M * N;
+
+                float sum = 0.0f;
+                for (int k = 0; k < K; k++) {
+                    sum = fmaf(A[A_offset + row * K + k], B[B_offset + k * N + col], sum);
+                }
+                C[C_offset + row * N + col] = sum;
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            src.append("""
+                unsigned long long t1 = get_timer();
+                atomicAdd(timing, t1 - t0);
+
+            """);
+        }
+
+        src.append("}\n");
+
+        return src.toString();
+    }
+
+    /**
+     * Generate HIP C++ source for 2D max pooling.
+     */
+    public static String generateMaxPool2DF32(int salt) {
+        StringBuilder src = new StringBuilder();
+
+        src.append("""
+            //
+            // maxpool_2d_f32: 2D max pooling
+            // Salt level: %d
+            //
+            #include <hip/hip_runtime.h>
+            #include <math.h>
+
+            """.formatted(salt));
+
+        if (salt >= SALT_TIMING) {
+            src.append("""
+            __device__ __forceinline__ unsigned long long get_timer() {
+                return clock64();
+            }
+
+            """);
+        }
+
+        src.append("""
+            extern "C" __global__ void maxpool_2d_f32(
+                const float* __restrict__ input,
+                float* __restrict__ output,
+                int in_rows,
+                int in_cols,
+                int window_h,
+                int window_w,
+                int stride_h,
+                int stride_w,
+                int out_rows,
+                int out_cols
+            """);
+
+        if (salt >= SALT_TIMING) {
+            src.append("    , unsigned long long* timing\n");
+        }
+
+        src.append(") {\n");
+
+        src.append("""
+                int out_row = blockIdx.y * blockDim.y + threadIdx.y;
+                int out_col = blockIdx.x * blockDim.x + threadIdx.x;
+                if (out_row >= out_rows || out_col >= out_cols) return;
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            src.append("""
+                unsigned long long t0 = get_timer();
+
+            """);
+        }
+
+        src.append("""
+                int in_row_start = out_row * stride_h;
+                int in_col_start = out_col * stride_w;
+
+                float max_val = -INFINITY;
+                for (int wh = 0; wh < window_h; wh++) {
+                    for (int ww = 0; ww < window_w; ww++) {
+                        int in_row = in_row_start + wh;
+                        int in_col = in_col_start + ww;
+                        if (in_row < in_rows && in_col < in_cols) {
+                            max_val = fmaxf(max_val, input[in_row * in_cols + in_col]);
+                        }
+                    }
+                }
+                output[out_row * out_cols + out_col] = max_val;
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            src.append("""
+                unsigned long long t1 = get_timer();
+                atomicAdd(timing, t1 - t0);
+
+            """);
+        }
+
+        src.append("}\n");
+
+        return src.toString();
+    }
+
+    /**
+     * Generate HIP C++ source for 2D average pooling.
+     */
+    public static String generateAvgPool2DF32(int salt) {
+        StringBuilder src = new StringBuilder();
+
+        src.append("""
+            //
+            // avgpool_2d_f32: 2D average pooling
+            // Salt level: %d
+            //
+            #include <hip/hip_runtime.h>
+
+            """.formatted(salt));
+
+        if (salt >= SALT_TIMING) {
+            src.append("""
+            __device__ __forceinline__ unsigned long long get_timer() {
+                return clock64();
+            }
+
+            """);
+        }
+
+        src.append("""
+            extern "C" __global__ void avgpool_2d_f32(
+                const float* __restrict__ input,
+                float* __restrict__ output,
+                int in_rows,
+                int in_cols,
+                int window_h,
+                int window_w,
+                int stride_h,
+                int stride_w,
+                int out_rows,
+                int out_cols
+            """);
+
+        if (salt >= SALT_TIMING) {
+            src.append("    , unsigned long long* timing\n");
+        }
+
+        src.append(") {\n");
+
+        src.append("""
+                int out_row = blockIdx.y * blockDim.y + threadIdx.y;
+                int out_col = blockIdx.x * blockDim.x + threadIdx.x;
+                if (out_row >= out_rows || out_col >= out_cols) return;
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            src.append("""
+                unsigned long long t0 = get_timer();
+
+            """);
+        }
+
+        src.append("""
+                int in_row_start = out_row * stride_h;
+                int in_col_start = out_col * stride_w;
+
+                float sum = 0.0f;
+                int count = 0;
+                for (int wh = 0; wh < window_h; wh++) {
+                    for (int ww = 0; ww < window_w; ww++) {
+                        int in_row = in_row_start + wh;
+                        int in_col = in_col_start + ww;
+                        if (in_row < in_rows && in_col < in_cols) {
+                            sum += input[in_row * in_cols + in_col];
+                            count++;
+                        }
+                    }
+                }
+                output[out_row * out_cols + out_col] = sum / (float)count;
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            src.append("""
+                unsigned long long t1 = get_timer();
+                atomicAdd(timing, t1 - t0);
+
+            """);
+        }
+
+        src.append("}\n");
+
+        return src.toString();
+    }
+
+    /**
+     * Generate HIP C++ source for 2D convolution.
+     */
+    public static String generateConv2DF32(int salt) {
+        StringBuilder src = new StringBuilder();
+
+        src.append("""
+            //
+            // conv2d_f32: 2D convolution
+            // Salt level: %d
+            //
+            #include <hip/hip_runtime.h>
+
+            """.formatted(salt));
+
+        if (salt >= SALT_TIMING) {
+            src.append("""
+            __device__ __forceinline__ unsigned long long get_timer() {
+                return clock64();
+            }
+
+            """);
+        }
+
+        src.append("""
+            extern "C" __global__ void conv2d_f32(
+                const float* __restrict__ input,
+                const float* __restrict__ kernel,
+                float* __restrict__ output,
+                int in_rows,
+                int in_cols,
+                int k_rows,
+                int k_cols,
+                int stride_h,
+                int stride_w,
+                int out_rows,
+                int out_cols
+            """);
+
+        if (salt >= SALT_TIMING) {
+            src.append("    , unsigned long long* timing\n");
+        }
+
+        src.append(") {\n");
+
+        src.append("""
+                int out_row = blockIdx.y * blockDim.y + threadIdx.y;
+                int out_col = blockIdx.x * blockDim.x + threadIdx.x;
+                if (out_row >= out_rows || out_col >= out_cols) return;
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            src.append("""
+                unsigned long long t0 = get_timer();
+
+            """);
+        }
+
+        src.append("""
+                int in_row_start = out_row * stride_h;
+                int in_col_start = out_col * stride_w;
+
+                float sum = 0.0f;
+                for (int kh = 0; kh < k_rows; kh++) {
+                    for (int kw = 0; kw < k_cols; kw++) {
+                        int in_row = in_row_start + kh;
+                        int in_col = in_col_start + kw;
+                        if (in_row < in_rows && in_col < in_cols) {
+                            sum = fmaf(input[in_row * in_cols + in_col],
+                                       kernel[kh * k_cols + kw], sum);
+                        }
+                    }
+                }
+                output[out_row * out_cols + out_col] = sum;
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            src.append("""
+                unsigned long long t1 = get_timer();
+                atomicAdd(timing, t1 - t0);
+
+            """);
+        }
+
+        src.append("}\n");
+
+        return src.toString();
+    }
+
+    /**
+     * Generate HIP C++ source for batch normalization inference.
+     */
+    public static String generateBatchNormInferenceF32(int salt) {
+        StringBuilder src = new StringBuilder();
+
+        src.append("""
+            //
+            // batchnorm_inference_f32: Batch normalization inference
+            // output = scale * (input - mean) / sqrt(variance + epsilon) + offset
+            // Salt level: %d
+            //
+            #include <hip/hip_runtime.h>
+            #include <math.h>
+
+            """.formatted(salt));
+
+        if (salt >= SALT_TIMING) {
+            src.append("""
+            __device__ __forceinline__ unsigned long long get_timer() {
+                return clock64();
+            }
+
+            """);
+        }
+
+        src.append("""
+            extern "C" __global__ void batchnorm_inference_f32(
+                const float* __restrict__ input,
+                const float* __restrict__ scale,
+                const float* __restrict__ offset,
+                const float* __restrict__ mean,
+                const float* __restrict__ variance,
+                float* __restrict__ output,
+                float epsilon,
+                int n,
+                int num_features
+            """);
+
+        if (salt >= SALT_TIMING) {
+            src.append("    , unsigned long long* timing\n");
+        }
+
+        src.append(") {\n");
+
+        src.append("""
+                int i = blockIdx.x * blockDim.x + threadIdx.x;
+                if (i >= n) return;
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            src.append("""
+                unsigned long long t0 = get_timer();
+
+            """);
+        }
+
+        src.append("""
+                int feature_idx = i % num_features;
+                float x = input[i];
+                float m = mean[feature_idx];
+                float v = variance[feature_idx];
+                float s = scale[feature_idx];
+                float o = offset[feature_idx];
+
+                output[i] = s * (x - m) / sqrtf(v + epsilon) + o;
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            src.append("""
+                unsigned long long t1 = get_timer();
+                atomicAdd(timing, t1 - t0);
+
+            """);
+        }
+
+        src.append("}\n");
+
+        return src.toString();
+    }
+
+    // ==================== Integer Unary Operations ====================
+
+    /**
+     * Generate HIP C++ source for population count (count set bits).
+     */
+    public static String generatePopcntI32(int salt) {
+        return generateIntegerUnaryOp("popcnt", "__popc(x)", salt);
+    }
+
+    /**
+     * Generate HIP C++ source for count leading zeros.
+     */
+    public static String generateClzI32(int salt) {
+        return generateIntegerUnaryOp("clz", "__clz(x)", salt);
+    }
+
+    private static String generateIntegerUnaryOp(String name, String op, int salt) {
+        StringBuilder src = new StringBuilder();
+
+        src.append("""
+            //
+            // %s_i32: Element-wise %s of int32 arrays
+            // Salt level: %d
+            //
+            #include <hip/hip_runtime.h>
+
+            """.formatted(name, name, salt));
+
+        if (salt >= SALT_TIMING) {
+            src.append("""
+            __device__ __forceinline__ unsigned long long get_timer() {
+                return clock64();
+            }
+
+            """);
+        }
+
+        src.append("""
+            extern "C" __global__ void %s_i32(
+                const int* __restrict__ input,
+                int* __restrict__ output,
+                int n
+            """.formatted(name));
+
+        if (salt >= SALT_TIMING) {
+            src.append("    , unsigned long long* timing\n");
+        }
+
+        src.append(") {\n");
+
+        src.append("""
+                int i = blockIdx.x * blockDim.x + threadIdx.x;
+                if (i >= n) return;
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            src.append("""
+                unsigned long long t0 = get_timer();
+
+            """);
+        }
+
+        src.append("        int x = input[i];\n");
+        src.append("        output[i] = %s;\n\n".formatted(op));
+
+        if (salt >= SALT_TIMING) {
+            src.append("""
+                unsigned long long t1 = get_timer();
+                atomicAdd(timing, t1 - t0);
+
+            """);
+        }
+
+        src.append("}\n");
+
+        return src.toString();
+    }
+
     // ==================== Utility Methods ====================
 
     /**

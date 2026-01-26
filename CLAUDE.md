@@ -449,6 +449,23 @@ GitHub Actions workflow (`orchestrated-ci.yml`) orchestrates:
 
 Required secrets: `HOLMES_NUC_HOST`, `HOLMES_NUC_USER`, `HOLMES_NUC_SSH_KEY`
 
+### Hardware Test Distribution
+
+**CRITICAL: The NUC has NO GPU.** Test tasks must run on the correct hardware:
+
+| Test Task | Runs On | Hardware |
+|-----------|---------|----------|
+| `./gradlew test` | NUC | CPU only - no GPU |
+| `./gradlew cpuTest` | NUC | CPU only |
+| `./gradlew nvidiaTest` | NVIDIA box | RTX GPU + CUDA runtime |
+| `./gradlew amdTest` | AMD box | Radeon GPU + ROCm runtime |
+
+The NUC can compile GPU backend code and run FFM linkage tests (verifying native library bindings), but it **cannot execute GPU kernels**. Any test that actually runs CUDA/HIP kernels must be tagged appropriately and run on the corresponding GPU box.
+
+- Tests tagged `@Tag("nvidia")` → run only via `nvidiaTest` on NVIDIA box
+- Tests tagged `@Tag("amd")` → run only via `amdTest` on AMD box
+- Tests tagged `@Tag("cpu")` or untagged → run on NUC via `test` or `cpuTest`
+
 ### Full Integration Test Path (Target Architecture)
 
 The NUC orchestrates the complete ML-to-GPU pipeline:

@@ -6,6 +6,9 @@ import io.surfworks.warpforge.backend.nvidia.cuda.CudaKernels;
 import io.surfworks.warpforge.core.tensor.Tensor;
 import io.surfworks.warpforge.core.tensor.TensorSpec;
 
+import java.lang.foreign.Arena;
+import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
 import java.util.List;
 
 /**
@@ -161,18 +164,27 @@ public final class DotGeneralKernel implements CudaOpKernel {
     }
 
     private List<Tensor> execute2DMatMul(Tensor lhs, Tensor rhs, StableHloAst.DotGeneralOp dotGeneralOp) {
+        // Use PTX kernel instead of cuBLAS for portability (cuBLAS may not be available)
+        ensureBatchInitialized();
+
         // Read dimension numbers to handle different contracting dimensions
+        // Default: standard matmul lhs[M,K] @ rhs[K,N] with lhsContract=1, rhsContract=0
+        int lhsContractDim = 1;
+        int rhsContractDim = 0;
+
         StableHloAst.DotDimensionNumbers dimNums = dotGeneralOp.dimensionNumbers();
-        java.util.List<Long> lhsContractDims = dimNums.lhsContractingDimensions();
-        java.util.List<Long> rhsContractDims = dimNums.rhsContractingDimensions();
+        if (dimNums != null) {
+            java.util.List<Long> lhsContractDims = dimNums.lhsContractingDimensions();
+            java.util.List<Long> rhsContractDims = dimNums.rhsContractingDimensions();
 
-        if (lhsContractDims.size() != 1 || rhsContractDims.size() != 1) {
-            throw new UnsupportedOperationException(
-                "Only single contracting dimension supported for 2D matmul");
+            if (lhsContractDims.size() != 1 || rhsContractDims.size() != 1) {
+                throw new UnsupportedOperationException(
+                    "Only single contracting dimension supported for 2D matmul");
+            }
+
+            lhsContractDim = lhsContractDims.get(0).intValue();
+            rhsContractDim = rhsContractDims.get(0).intValue();
         }
-
-        int lhsContractDim = lhsContractDims.get(0).intValue();
-        int rhsContractDim = rhsContractDims.get(0).intValue();
 
         int[] lhsShape = lhs.shape();
         int[] rhsShape = rhs.shape();
@@ -187,22 +199,18 @@ public final class DotGeneralKernel implements CudaOpKernel {
 
         int M, K, N;
         if (transposeA) {
-            // lhs is [K, M], contracting on dim 0
             K = lhsShape[0];
             M = lhsShape[1];
         } else {
-            // lhs is [M, K], contracting on dim 1 (standard)
             M = lhsShape[0];
             K = lhsShape[1];
         }
 
         int K2;
         if (transposeB) {
-            // rhs is [N, K], contracting on dim 1
             N = rhsShape[0];
             K2 = rhsShape[1];
         } else {
-            // rhs is [K, N], contracting on dim 0 (standard)
             K2 = rhsShape[0];
             N = rhsShape[1];
         }
@@ -215,20 +223,59 @@ public final class DotGeneralKernel implements CudaOpKernel {
 
         TensorSpec outputSpec = TensorSpec.fromAst(dotGeneralOp.tensorResultType());
 
-        long byteSizeA = (long) lhsShape[0] * lhsShape[1] * 4L;
-        long byteSizeB = (long) rhsShape[0] * rhsShape[1] * 4L;
+        // Prepare data - transpose on CPU if needed to match standard [M,K] @ [K,N] layout
+        float[] lhsData = transposeA ? transpose2D(lhs.toFloatArray(), lhsShape[0], lhsShape[1]) : lhs.toFloatArray();
+        float[] rhsData = transposeB ? transpose2D(rhs.toFloatArray(), rhsShape[0], rhsShape[1]) : rhs.toFloatArray();
+
+        // Use batch matmul kernel with batch=1
+        long byteSizeA = (long) M * K * 4L;
+        long byteSizeB = (long) K * N * 4L;
         long byteSizeC = (long) M * N * 4L;
 
         long dA = context.allocate(byteSizeA);
         long dB = context.allocate(byteSizeB);
         long dC = context.allocate(byteSizeC);
+        long dTiming = 0;
 
-        try {
-            context.copyToDevice(dA, lhs.data());
-            context.copyToDevice(dB, rhs.data());
+        try (Arena arena = Arena.ofConfined()) {
+            // Convert float[] to MemorySegment for copyToDevice
+            MemorySegment lhsSeg = arena.allocate(byteSizeA);
+            MemorySegment rhsSeg = arena.allocate(byteSizeB);
+            lhsSeg.copyFrom(MemorySegment.ofArray(lhsData));
+            rhsSeg.copyFrom(MemorySegment.ofArray(rhsData));
 
-            // Use cuBLAS with transpose flags for proper handling
-            context.sgemmTranspose(dA, dB, dC, M, N, K, transposeA, transposeB);
+            context.copyToDevice(dA, lhsSeg);
+            context.copyToDevice(dB, rhsSeg);
+
+            if (salt >= CudaKernels.SALT_TIMING) {
+                dTiming = context.allocate(8);
+            }
+
+            // Use batch matmul with batch=1
+            int gridX = (N + BLOCK_SIZE - 1) / BLOCK_SIZE;
+            int gridY = (M + BLOCK_SIZE - 1) / BLOCK_SIZE;
+            int gridZ = 1;  // batch = 1
+
+            if (salt >= CudaKernels.SALT_TIMING) {
+                context.launchKernelWithMixedParams(
+                    functionBatch,
+                    new int[]{gridX, gridY, gridZ}, new int[]{BLOCK_SIZE, BLOCK_SIZE, 1},
+                    0,
+                    new long[]{dA, dB, dC},
+                    new int[]{1, M, N, K},  // batch=1
+                    new float[]{},
+                    new long[]{dTiming}
+                );
+            } else {
+                context.launchKernelWithMixedParams(
+                    functionBatch,
+                    new int[]{gridX, gridY, gridZ}, new int[]{BLOCK_SIZE, BLOCK_SIZE, 1},
+                    0,
+                    new long[]{dA, dB, dC},
+                    new int[]{1, M, N, K},  // batch=1
+                    new float[]{}
+                );
+            }
 
             context.synchronize();
 
@@ -241,7 +288,24 @@ public final class DotGeneralKernel implements CudaOpKernel {
             context.free(dA);
             context.free(dB);
             context.free(dC);
+            if (dTiming != 0) {
+                context.free(dTiming);
+            }
         }
+    }
+
+    /**
+     * Transpose a 2D matrix stored in row-major order.
+     * Input [rows, cols] -> Output [cols, rows]
+     */
+    private static float[] transpose2D(float[] data, int rows, int cols) {
+        float[] result = new float[data.length];
+        for (int r = 0; r < rows; r++) {
+            for (int c = 0; c < cols; c++) {
+                result[c * rows + r] = data[r * cols + c];
+            }
+        }
+        return result;
     }
 
     @Override

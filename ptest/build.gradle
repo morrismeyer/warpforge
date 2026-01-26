@@ -106,7 +106,14 @@ tasks.register('validateJfrRecordings', JavaExec) {
     args = ['build/jfr-nvidia.jfr', 'build/jfr-amd.jfr']
 }
 
-// ==================== Structured Concurrency JFR Validation ====================
+// ====================================================================================
+// Structured Concurrency JFR Recording Generation
+// ====================================================================================
+// NOTE: Functional GPU tests are now in warpforge-core/src/gtest/
+//       Run: ./gradlew :warpforge-core:gpuTest (runs on both NVIDIA and AMD)
+//
+// These tasks generate JFR recordings for offline analysis and validation.
+// Use these when you need to capture detailed JFR traces for profiling.
 
 // Task to run structured concurrency validation on NVIDIA
 tasks.register('validateStructuredConcurrencyNvidia', JavaExec) {

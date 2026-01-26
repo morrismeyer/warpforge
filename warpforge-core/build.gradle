@@ -176,3 +176,109 @@ tasks.register('integrationTest', Test) {
 }
 
 check.dependsOn integrationTest
+
+// ====================================================================================
+// GPU Test Source Set (gtest)
+// ====================================================================================
+// GPU tests run on BOTH NVIDIA and AMD machines with auto-detected backend.
+// These tests validate structured concurrency APIs with real GPU hardware.
+
+sourceSets {
+    gtest {
+        java {
+            srcDir 'src/gtest/java'
+        }
+        compileClasspath += sourceSets.main.output + sourceSets.test.output
+        runtimeClasspath += sourceSets.main.output + sourceSets.test.output
+    }
+}
+
+configurations {
+    gtestImplementation.extendsFrom testImplementation
+    gtestRuntimeOnly.extendsFrom testRuntimeOnly
+}
+
+dependencies {
+    gtestImplementation 'org.junit.jupiter:junit-jupiter:5.11.3'
+    gtestRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+
+    // CRITICAL: Include BOTH backends for dual-platform testing
+    // Tests auto-detect which backend is available at runtime
+    gtestRuntimeOnly project(':warpforge-backend-nvidia')
+    gtestRuntimeOnly project(':warpforge-backend-amd')
+}
+
+// GPU test task - requires real GPU hardware (runs on BOTH NVIDIA and AMD machines)
+tasks.register('gpuTest', Test) {
+    description = 'Run GPU tests (requires NVIDIA or AMD GPU)'
+    group = 'verification'
+
+    testClassesDirs = sourceSets.gtest.output.classesDirs
+    classpath = sourceSets.gtest.runtimeClasspath
+
+    useJUnitPlatform()
+    jvmArgs('--enable-preview', '--enable-native-access=ALL-UNNAMED')
+
+    testLogging {
+        events 'passed', 'skipped', 'failed'
+        showStandardStreams = true
+    }
+}
+
+// NVIDIA-specific GPU tests (tagged @Tag("nvidia"))
+tasks.register('nvidiaGpuTest', Test) {
+    description = 'Run NVIDIA-specific GPU tests'
+    group = 'verification'
+
+    testClassesDirs = sourceSets.gtest.output.classesDirs
+    classpath = sourceSets.gtest.runtimeClasspath
+
+    useJUnitPlatform {
+        includeTags 'nvidia'
+    }
+    jvmArgs('--enable-preview', '--enable-native-access=ALL-UNNAMED')
+
+    testLogging {
+        events 'passed', 'skipped', 'failed'
+        showStandardStreams = true
+    }
+}
+
+// AMD-specific GPU tests (tagged @Tag("amd"))
+tasks.register('amdGpuTest', Test) {
+    description = 'Run AMD-specific GPU tests'
+    group = 'verification'
+
+    testClassesDirs = sourceSets.gtest.output.classesDirs
+    classpath = sourceSets.gtest.runtimeClasspath
+
+    useJUnitPlatform {
+        includeTags 'amd'
+    }
+    jvmArgs('--enable-preview', '--enable-native-access=ALL-UNNAMED')
+
+    testLogging {
+        events 'passed', 'skipped', 'failed'
+        showStandardStreams = true
+    }
+}
+
+// Stress tests (tagged @Tag("stress"), long-running)
+tasks.register('stressTest', Test) {
+    description = 'Run stress tests (long running)'
+    group = 'verification'
+
+    testClassesDirs = sourceSets.gtest.output.classesDirs
+    classpath = sourceSets.gtest.runtimeClasspath
+
+    useJUnitPlatform {
+        includeTags 'stress'
+    }
+    jvmArgs('--enable-preview', '--enable-native-access=ALL-UNNAMED', '-Xmx8g')
+    timeout = java.time.Duration.ofMinutes(30)
+
+    testLogging {
+        events 'passed', 'skipped', 'failed'
+        showStandardStreams = true
+    }
+}

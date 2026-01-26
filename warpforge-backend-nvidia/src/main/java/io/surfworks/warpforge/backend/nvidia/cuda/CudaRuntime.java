@@ -59,7 +59,11 @@ public final class CudaRuntime {
 
         try {
             // Try to load libcuda.so (Linux) or cuda.dll (Windows)
-            lookup = SymbolLookup.libraryLookup("cuda", Arena.global());
+            // Note: Java FFM requires the full library name with extension
+            String libraryName = System.getProperty("os.name").toLowerCase().contains("win")
+                ? "nvcuda"  // Windows: nvcuda.dll
+                : "libcuda.so";  // Linux/macOS: libcuda.so
+            lookup = SymbolLookup.libraryLookup(libraryName, Arena.global());
             available = true;
         } catch (IllegalArgumentException e) {
             // CUDA not available

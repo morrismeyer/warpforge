@@ -671,7 +671,13 @@ class HipKernelExecutionTest {
             case "roundNearestAfz" -> HipKernels.generateRoundNearestAfzF32(HipKernels.SALT_NONE);
             default -> throw new IllegalArgumentException("Unknown unary op: " + opName);
         };
-        String functionName = opName + "_f32";
+        // Convert camelCase opName to snake_case function name for special cases
+        String functionName = switch (opName) {
+            case "roundNearestEven" -> "round_nearest_even_f32";
+            case "roundNearestAfz" -> "round_nearest_afz_f32";
+            case "isFinite" -> "is_finite_f32";
+            default -> opName + "_f32";
+        };
 
         int n = input.length;
         long byteSize = n * 4L;

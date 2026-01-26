@@ -170,6 +170,58 @@ class HipKernelExecutionTest {
         System.out.println("[PASS] Minimum execution OK");
     }
 
+    @Test
+    @Tag("amd")
+    @DisplayName("HIP: Power kernel executes correctly on AMD GPU")
+    void testPowerExecution() {
+        System.out.println("[TEST] HIP Execution: Power");
+        createContext();
+
+        float[] a = {2.0f, 3.0f, 4.0f, 2.0f};
+        float[] b = {2.0f, 2.0f, 0.5f, 10.0f};
+        float[] expected = {4.0f, 9.0f, 2.0f, 1024.0f};
+
+        float[] result = executeBinaryOp("power", a, b);
+        assertArrayEquals(expected, result, 1e-4f);
+
+        System.out.println("[PASS] Power execution OK");
+    }
+
+    @Test
+    @Tag("amd")
+    @DisplayName("HIP: Remainder kernel executes correctly on AMD GPU")
+    void testRemainderExecution() {
+        System.out.println("[TEST] HIP Execution: Remainder");
+        createContext();
+
+        float[] a = {10.0f, 7.0f, -10.0f, 5.5f};
+        float[] b = {3.0f, 2.0f, 3.0f, 2.0f};
+        float[] expected = {1.0f, 1.0f, -1.0f, 1.5f};
+
+        float[] result = executeBinaryOp("remainder", a, b);
+        assertArrayEquals(expected, result, 1e-4f);
+
+        System.out.println("[PASS] Remainder execution OK");
+    }
+
+    @Test
+    @Tag("amd")
+    @DisplayName("HIP: Atan2 kernel executes correctly on AMD GPU")
+    void testAtan2Execution() {
+        System.out.println("[TEST] HIP Execution: Atan2");
+        createContext();
+
+        // atan2(y, x) - angle in radians
+        float[] y = {0.0f, 1.0f, 1.0f, -1.0f};
+        float[] x = {1.0f, 0.0f, 1.0f, 1.0f};
+        float[] expected = {0.0f, (float)(Math.PI / 2), (float)(Math.PI / 4), (float)(-Math.PI / 4)};
+
+        float[] result = executeBinaryOp("atan2", y, x);
+        assertArrayEquals(expected, result, 1e-4f);
+
+        System.out.println("[PASS] Atan2 execution OK");
+    }
+
     // ==================== Unary Elementwise Tests ====================
 
     @Test
@@ -332,6 +384,171 @@ class HipKernelExecutionTest {
         System.out.println("[PASS] Ceil execution OK");
     }
 
+    @Test
+    @Tag("amd")
+    @DisplayName("HIP: Rsqrt kernel executes correctly on AMD GPU")
+    void testRsqrtExecution() {
+        System.out.println("[TEST] HIP Execution: Rsqrt");
+        createContext();
+
+        float[] input = {1.0f, 4.0f, 9.0f, 16.0f};
+        float[] expected = {1.0f, 0.5f, 1.0f/3.0f, 0.25f};
+
+        float[] result = executeUnaryOp("rsqrt", input);
+        assertArrayEquals(expected, result, 1e-4f);
+
+        System.out.println("[PASS] Rsqrt execution OK");
+    }
+
+    @Test
+    @Tag("amd")
+    @DisplayName("HIP: Sign kernel executes correctly on AMD GPU")
+    void testSignExecution() {
+        System.out.println("[TEST] HIP Execution: Sign");
+        createContext();
+
+        float[] input = {-5.0f, 0.0f, 3.0f, -0.001f};
+        float[] expected = {-1.0f, 0.0f, 1.0f, -1.0f};
+
+        float[] result = executeUnaryOp("sign", input);
+        assertArrayEquals(expected, result, EPSILON);
+
+        System.out.println("[PASS] Sign execution OK");
+    }
+
+    @Test
+    @Tag("amd")
+    @DisplayName("HIP: Tan kernel executes correctly on AMD GPU")
+    void testTanExecution() {
+        System.out.println("[TEST] HIP Execution: Tan");
+        createContext();
+
+        float[] input = {0.0f, (float)(Math.PI / 4), (float)(-Math.PI / 4)};
+        float[] expected = {0.0f, 1.0f, -1.0f};
+
+        float[] result = executeUnaryOp("tan", input);
+        assertArrayEquals(expected, result, 1e-4f);
+
+        System.out.println("[PASS] Tan execution OK");
+    }
+
+    @Test
+    @Tag("amd")
+    @DisplayName("HIP: Logistic (sigmoid) kernel executes correctly on AMD GPU")
+    void testLogisticExecution() {
+        System.out.println("[TEST] HIP Execution: Logistic");
+        createContext();
+
+        float[] input = {0.0f, 1.0f, -1.0f, 10.0f};
+        float[] expected = {0.5f, 1.0f / (1.0f + (float)Math.exp(-1.0)),
+                           1.0f / (1.0f + (float)Math.exp(1.0)),
+                           1.0f / (1.0f + (float)Math.exp(-10.0))};
+
+        float[] result = executeUnaryOp("logistic", input);
+        assertArrayEquals(expected, result, 1e-4f);
+
+        System.out.println("[PASS] Logistic execution OK");
+    }
+
+    @Test
+    @Tag("amd")
+    @DisplayName("HIP: Expm1 kernel executes correctly on AMD GPU")
+    void testExpm1Execution() {
+        System.out.println("[TEST] HIP Execution: Expm1");
+        createContext();
+
+        float[] input = {0.0f, 1.0f, -1.0f};
+        float[] expected = {0.0f, (float)(Math.E - 1), (float)(1.0/Math.E - 1)};
+
+        float[] result = executeUnaryOp("expm1", input);
+        assertArrayEquals(expected, result, 1e-4f);
+
+        System.out.println("[PASS] Expm1 execution OK");
+    }
+
+    @Test
+    @Tag("amd")
+    @DisplayName("HIP: Log1p kernel executes correctly on AMD GPU")
+    void testLog1pExecution() {
+        System.out.println("[TEST] HIP Execution: Log1p");
+        createContext();
+
+        float[] input = {0.0f, (float)(Math.E - 1), 1.0f};
+        float[] expected = {0.0f, 1.0f, (float)Math.log(2.0)};
+
+        float[] result = executeUnaryOp("log1p", input);
+        assertArrayEquals(expected, result, 1e-4f);
+
+        System.out.println("[PASS] Log1p execution OK");
+    }
+
+    @Test
+    @Tag("amd")
+    @DisplayName("HIP: Cbrt kernel executes correctly on AMD GPU")
+    void testCbrtExecution() {
+        System.out.println("[TEST] HIP Execution: Cbrt");
+        createContext();
+
+        float[] input = {1.0f, 8.0f, 27.0f, -8.0f};
+        float[] expected = {1.0f, 2.0f, 3.0f, -2.0f};
+
+        float[] result = executeUnaryOp("cbrt", input);
+        assertArrayEquals(expected, result, 1e-4f);
+
+        System.out.println("[PASS] Cbrt execution OK");
+    }
+
+    @Test
+    @Tag("amd")
+    @DisplayName("HIP: IsFinite kernel executes correctly on AMD GPU")
+    void testIsFiniteExecution() {
+        System.out.println("[TEST] HIP Execution: IsFinite");
+        createContext();
+
+        float[] input = {1.0f, Float.POSITIVE_INFINITY, Float.NEGATIVE_INFINITY, Float.NaN};
+        // isFinite returns 1.0 for finite, 0.0 for infinite/NaN
+        float[] expected = {1.0f, 0.0f, 0.0f, 0.0f};
+
+        float[] result = executeUnaryOp("isFinite", input);
+        assertArrayEquals(expected, result, EPSILON);
+
+        System.out.println("[PASS] IsFinite execution OK");
+    }
+
+    @Test
+    @Tag("amd")
+    @DisplayName("HIP: RoundNearestEven kernel executes correctly on AMD GPU")
+    void testRoundNearestEvenExecution() {
+        System.out.println("[TEST] HIP Execution: RoundNearestEven");
+        createContext();
+
+        // Round to nearest even (banker's rounding): 0.5 rounds to 0, 1.5 rounds to 2
+        float[] input = {0.5f, 1.5f, 2.5f, 3.5f, -0.5f, -1.5f};
+        float[] expected = {0.0f, 2.0f, 2.0f, 4.0f, 0.0f, -2.0f};
+
+        float[] result = executeUnaryOp("roundNearestEven", input);
+        assertArrayEquals(expected, result, EPSILON);
+
+        System.out.println("[PASS] RoundNearestEven execution OK");
+    }
+
+    @Test
+    @Tag("amd")
+    @DisplayName("HIP: RoundNearestAfz kernel executes correctly on AMD GPU")
+    void testRoundNearestAfzExecution() {
+        System.out.println("[TEST] HIP Execution: RoundNearestAfz");
+        createContext();
+
+        // Round nearest away from zero: 0.5 rounds to 1, -0.5 rounds to -1
+        float[] input = {0.5f, 1.5f, 2.5f, -0.5f, -1.5f};
+        float[] expected = {1.0f, 2.0f, 3.0f, -1.0f, -2.0f};
+
+        float[] result = executeUnaryOp("roundNearestAfz", input);
+        assertArrayEquals(expected, result, EPSILON);
+
+        System.out.println("[PASS] RoundNearestAfz execution OK");
+    }
+
     // ==================== Large Tensor Test ====================
 
     @Test
@@ -449,6 +666,9 @@ class HipKernelExecutionTest {
             case "expm1" -> HipKernels.generateExpm1F32(HipKernels.SALT_NONE);
             case "log1p" -> HipKernels.generateLog1pF32(HipKernels.SALT_NONE);
             case "cbrt" -> HipKernels.generateCbrtF32(HipKernels.SALT_NONE);
+            case "isFinite" -> HipKernels.generateIsFiniteF32(HipKernels.SALT_NONE);
+            case "roundNearestEven" -> HipKernels.generateRoundNearestEvenF32(HipKernels.SALT_NONE);
+            case "roundNearestAfz" -> HipKernels.generateRoundNearestAfzF32(HipKernels.SALT_NONE);
             default -> throw new IllegalArgumentException("Unknown unary op: " + opName);
         };
         String functionName = opName + "_f32";

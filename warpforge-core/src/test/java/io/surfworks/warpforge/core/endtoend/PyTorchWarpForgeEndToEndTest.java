@@ -26,6 +26,7 @@ import java.util.stream.Stream;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.fail;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 /**
  * End-to-end tests comparing PyTorch execution results with WarpForge backend execution.
@@ -144,7 +145,8 @@ class PyTorchWarpForgeEndToEndTest {
     private void runE2eTest(Path fixtureDir) throws IOException {
         // Skip if no fixtures are available
         if (fixtureDir.toString().equals("NO_FIXTURES_AVAILABLE")) {
-            System.out.println("No E2E fixtures found. Run: ./gradlew :warpforge-core:generateE2EFixtures");
+            // Use assumeTrue to properly skip with visible message in JUnit report
+            assumeTrue(false, "No EndToEnd fixtures found. Run: ./gradlew :warpforge-core:generateE2EFixtures");
             return;
         }
 

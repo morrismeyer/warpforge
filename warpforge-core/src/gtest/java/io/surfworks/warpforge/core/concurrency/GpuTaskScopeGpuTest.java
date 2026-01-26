@@ -392,7 +392,12 @@ class GpuTaskScopeGpuTest {
                             results.put("inner", innerResult);
                             return innerResult;
                         });
-                        innerScope.joinAll();
+                        try {
+                            innerScope.joinAll();
+                        } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                            throw new RuntimeException("Inner scope join interrupted", e);
+                        }
                     }
 
                     return outerResult;

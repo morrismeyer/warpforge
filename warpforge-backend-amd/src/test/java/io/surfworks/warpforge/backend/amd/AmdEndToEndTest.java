@@ -146,7 +146,8 @@ class AmdEndToEndTest {
 
     private void runAmdEndToEndTest(Path fixtureDir) throws IOException {
         if (fixtureDir.toString().equals("NO_FIXTURES_AVAILABLE")) {
-            System.out.println("No fixtures found. Run: ./gradlew :warpforge-core:generateE2EFixtures");
+            // Use assumeTrue to properly skip with visible message in JUnit report
+            assumeTrue(false, "No EndToEnd fixtures found. Run: ./gradlew :warpforge-core:generateE2EFixtures");
             return;
         }
 

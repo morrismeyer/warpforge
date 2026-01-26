@@ -35,6 +35,8 @@ BUILD_CMD="${BUILD_CMD_OVERRIDE:-./gradlew clean assemble}"
 TEST_CMD="${TEST_CMD_OVERRIDE:-./gradlew test --no-build-cache}"
 # AMD-specific GPU tests (tagged with @Tag("amd"))
 AMD_TEST_CMD="${AMD_TEST_CMD_OVERRIDE:-./gradlew amdTest}"
+# GPU tests (gtest source set) - structured concurrency tests requiring real GPU
+GPU_TEST_CMD="${GPU_TEST_CMD_OVERRIDE:-./gradlew :warpforge-core:gpuTest}"
 
 # SSH wait behavior
 # - Set SKIP_IF_UNREACHABLE=1 to continue the overall orchestrator even if the target box is offline.
@@ -73,6 +75,7 @@ log "Repo URL: ${WARP_FORGE_REPO_URL}"
 log "Build cmd: ${BUILD_CMD}"
 log "Test cmd:  ${TEST_CMD}"
 log "AMD test cmd: ${AMD_TEST_CMD}"
+log "GPU test cmd: ${GPU_TEST_CMD}"
 log "Broadcast: ${BROADCAST_IP}"
 if [[ -f "$NO_SHUTDOWN_FLAG" ]]; then
   log "Shutdown mode: DISABLED (flag file present: ${NO_SHUTDOWN_FLAG})"
@@ -168,6 +171,9 @@ ssh "$TARGET_HOST" bash -lc "
 
   echo \"[remote \$(date)] Running AMD GPU tests: ${AMD_TEST_CMD}\"
   bash -lc \"${AMD_TEST_CMD}\"
+
+  echo \"[remote \$(date)] Running GPU tests (gtest source set): ${GPU_TEST_CMD}\"
+  bash -lc \"${GPU_TEST_CMD}\"
 
   echo \"[remote \$(date)] Running JFR GPU validation...\"
   bash -lc \"./gradlew :ptest:validateJfrAmd --no-configuration-cache\"

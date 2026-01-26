@@ -6,6 +6,8 @@ import io.surfworks.warpforge.backend.amd.hip.HipRuntime;
 import io.surfworks.warpforge.backend.amd.hip.HiprtcRuntime;
 import io.surfworks.warpforge.core.tensor.Tensor;
 
+import java.lang.foreign.Arena;
+
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -504,7 +506,19 @@ class HipKernelExecutionTest {
 
         System.out.println("  Device: AMD GPU (device 0)");
         System.out.println("  HIPRTC: " + (HiprtcRuntime.isAvailable() ? "Available" : "Not available"));
-        System.out.println("  HIPRTC Version: " + HiprtcRuntime.VERSION);
+        System.out.println("  HIPRTC Code Version: " + HiprtcRuntime.VERSION);
+
+        // Test HIPRTC version API call (simple FFM test)
+        if (HiprtcRuntime.isAvailable()) {
+            try (Arena arena = Arena.ofConfined()) {
+                int[] version = HiprtcRuntime.getVersion(arena);
+                System.out.println("  HIPRTC API Version: " + version[0] + "." + version[1]);
+            } catch (Throwable t) {
+                System.out.println("  HIPRTC API Version: FAILED - " + t.getClass().getSimpleName() + ": " + t.getMessage());
+                throw new RuntimeException("HIPRTC getVersion FFM call failed", t);
+            }
+        }
+
         System.out.println("  Context: Created successfully");
         System.out.println("========================================");
 

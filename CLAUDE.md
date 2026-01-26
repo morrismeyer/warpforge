@@ -344,6 +344,32 @@ fi
 
 The build system should be self-healing: if a required dependency is missing, download or build it automatically. Tests should always run—if they can't run due to missing infrastructure, that's a build system bug to fix, not a test to skip.
 
+### Build Pass Without Tests = Not Validated
+
+**If the build and unit tests completed but the unit tests did not actually run (for any reason), the code is not validated.**
+
+A "successful" build that skips tests is worse than a failing build because:
+- It provides false confidence that the code works
+- Regressions slip through undetected
+- The problem compounds as more changes are built on unvalidated code
+
+**This counts as a failed build:**
+- Tests skipped due to missing dependencies or configuration
+- Tests skipped due to early exit in test setup
+- Zero tests executed (test task "passed" trivially)
+- Test count significantly lower than expected minimums
+
+**What to do:**
+1. If tests didn't run, investigate immediately—do not proceed with other work
+2. Check the test output for "0 tests" or "skipped" messages
+3. Fix the root cause (missing dependencies, broken setup, etc.)
+4. Re-run and verify the expected number of tests executed
+
+**Prevention:**
+- CI enforces minimum test counts per module
+- Test tasks should fail-fast if prerequisites are missing
+- Never treat "no tests found" as a passing condition
+
 ## CI/CD
 
 ### Nightly Full Build: Clone-to-Run Verification

@@ -113,21 +113,25 @@ public final class SliceKernel implements CudaOpKernel {
             int blockSize = CudaKernels.ELEMENTWISE_BLOCK_SIZE;
             int gridSize = CudaKernels.calculateGridSize(nOut, blockSize);
 
+            // PTX parameter order: (in_ptr, out_ptr, start, stride, nOut, [timing_ptr])
             if (salt >= CudaKernels.SALT_TIMING) {
-                context.launchKernelWithIntParams(
-                    function1D,
-                    new int[]{gridSize, 1, 1}, new int[]{blockSize, 1, 1},
-                    0,
-                    new long[]{dInput, dOutput, dTiming},
-                    start, stride, nOut
-                );
-            } else {
-                context.launchKernelWithIntParams(
+                context.launchKernelWithMixedParams(
                     function1D,
                     new int[]{gridSize, 1, 1}, new int[]{blockSize, 1, 1},
                     0,
                     new long[]{dInput, dOutput},
-                    start, stride, nOut
+                    new int[]{start, stride, nOut},
+                    new float[]{},
+                    new long[]{dTiming}  // timing_ptr comes after int params
+                );
+            } else {
+                context.launchKernelWithMixedParams(
+                    function1D,
+                    new int[]{gridSize, 1, 1}, new int[]{blockSize, 1, 1},
+                    0,
+                    new long[]{dInput, dOutput},
+                    new int[]{start, stride, nOut},
+                    new float[]{}
                 );
             }
 
@@ -184,21 +188,25 @@ public final class SliceKernel implements CudaOpKernel {
             int gridX = (outCols + BLOCK_SIZE_2D - 1) / BLOCK_SIZE_2D;
             int gridY = (outRows + BLOCK_SIZE_2D - 1) / BLOCK_SIZE_2D;
 
+            // PTX parameter order: (in_ptr, out_ptr, inCols, outRows, outCols, start0, start1, stride0, stride1, [timing_ptr])
             if (salt >= CudaKernels.SALT_TIMING) {
-                context.launchKernelWithIntParams(
-                    function2D,
-                    new int[]{gridX, gridY, 1}, new int[]{BLOCK_SIZE_2D, BLOCK_SIZE_2D, 1},
-                    0,
-                    new long[]{dInput, dOutput, dTiming},
-                    inCols, outRows, outCols, start0, start1, stride0, stride1
-                );
-            } else {
-                context.launchKernelWithIntParams(
+                context.launchKernelWithMixedParams(
                     function2D,
                     new int[]{gridX, gridY, 1}, new int[]{BLOCK_SIZE_2D, BLOCK_SIZE_2D, 1},
                     0,
                     new long[]{dInput, dOutput},
-                    inCols, outRows, outCols, start0, start1, stride0, stride1
+                    new int[]{inCols, outRows, outCols, start0, start1, stride0, stride1},
+                    new float[]{},
+                    new long[]{dTiming}  // timing_ptr comes after int params
+                );
+            } else {
+                context.launchKernelWithMixedParams(
+                    function2D,
+                    new int[]{gridX, gridY, 1}, new int[]{BLOCK_SIZE_2D, BLOCK_SIZE_2D, 1},
+                    0,
+                    new long[]{dInput, dOutput},
+                    new int[]{inCols, outRows, outCols, start0, start1, stride0, stride1},
+                    new float[]{}
                 );
             }
 

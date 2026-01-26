@@ -121,21 +121,25 @@ public final class DotGeneralKernel implements CudaOpKernel {
             int gridY = (M + BLOCK_SIZE - 1) / BLOCK_SIZE;
             int gridZ = batchSize;
 
+            // PTX parameter order: (a_ptr, b_ptr, c_ptr, batchSize, M, N, K, [timing_ptr])
             if (salt >= CudaKernels.SALT_TIMING) {
-                context.launchKernelWithIntParams(
-                    functionBatch,
-                    new int[]{gridX, gridY, gridZ}, new int[]{BLOCK_SIZE, BLOCK_SIZE, 1},
-                    0,
-                    new long[]{dA, dB, dC, dTiming},
-                    batchSize, M, N, K
-                );
-            } else {
-                context.launchKernelWithIntParams(
+                context.launchKernelWithMixedParams(
                     functionBatch,
                     new int[]{gridX, gridY, gridZ}, new int[]{BLOCK_SIZE, BLOCK_SIZE, 1},
                     0,
                     new long[]{dA, dB, dC},
-                    batchSize, M, N, K
+                    new int[]{batchSize, M, N, K},
+                    new float[]{},
+                    new long[]{dTiming}  // timing_ptr comes after int params
+                );
+            } else {
+                context.launchKernelWithMixedParams(
+                    functionBatch,
+                    new int[]{gridX, gridY, gridZ}, new int[]{BLOCK_SIZE, BLOCK_SIZE, 1},
+                    0,
+                    new long[]{dA, dB, dC},
+                    new int[]{batchSize, M, N, K},
+                    new float[]{}
                 );
             }
 
@@ -196,21 +200,25 @@ public final class DotGeneralKernel implements CudaOpKernel {
             int gridX = (N + BLOCK_SIZE - 1) / BLOCK_SIZE;
             int gridY = (M + BLOCK_SIZE - 1) / BLOCK_SIZE;
 
+            // PTX parameter order: (a_ptr, b_ptr, c_ptr, batchSize=1, M, N, K, [timing_ptr])
             if (salt >= CudaKernels.SALT_TIMING) {
-                context.launchKernelWithIntParams(
-                    functionBatch,
-                    new int[]{gridX, gridY, 1}, new int[]{BLOCK_SIZE, BLOCK_SIZE, 1},
-                    0,
-                    new long[]{dA, dB, dC, dTiming},
-                    1, M, N, K
-                );
-            } else {
-                context.launchKernelWithIntParams(
+                context.launchKernelWithMixedParams(
                     functionBatch,
                     new int[]{gridX, gridY, 1}, new int[]{BLOCK_SIZE, BLOCK_SIZE, 1},
                     0,
                     new long[]{dA, dB, dC},
-                    1, M, N, K
+                    new int[]{1, M, N, K},
+                    new float[]{},
+                    new long[]{dTiming}  // timing_ptr comes after int params
+                );
+            } else {
+                context.launchKernelWithMixedParams(
+                    functionBatch,
+                    new int[]{gridX, gridY, 1}, new int[]{BLOCK_SIZE, BLOCK_SIZE, 1},
+                    0,
+                    new long[]{dA, dB, dC},
+                    new int[]{1, M, N, K},
+                    new float[]{}
                 );
             }
 

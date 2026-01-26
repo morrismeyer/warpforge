@@ -100,21 +100,25 @@ public final class ConcatenateKernel implements CudaOpKernel {
             int blockSize = CudaKernels.ELEMENTWISE_BLOCK_SIZE;
             int gridSize = CudaKernels.calculateGridSize(nTotal, blockSize);
 
+            // PTX parameter order: (a_ptr, b_ptr, out_ptr, nA, nTotal, [timing_ptr])
             if (salt >= CudaKernels.SALT_TIMING) {
-                context.launchKernelWithIntParams(
-                    function,
-                    new int[]{gridSize, 1, 1}, new int[]{blockSize, 1, 1},
-                    0,
-                    new long[]{dA, dB, dOut, dTiming},
-                    nA, nTotal
-                );
-            } else {
-                context.launchKernelWithIntParams(
+                context.launchKernelWithMixedParams(
                     function,
                     new int[]{gridSize, 1, 1}, new int[]{blockSize, 1, 1},
                     0,
                     new long[]{dA, dB, dOut},
-                    nA, nTotal
+                    new int[]{nA, nTotal},
+                    new float[]{},
+                    new long[]{dTiming}  // timing_ptr comes after int params
+                );
+            } else {
+                context.launchKernelWithMixedParams(
+                    function,
+                    new int[]{gridSize, 1, 1}, new int[]{blockSize, 1, 1},
+                    0,
+                    new long[]{dA, dB, dOut},
+                    new int[]{nA, nTotal},
+                    new float[]{}
                 );
             }
 

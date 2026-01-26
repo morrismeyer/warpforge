@@ -104,21 +104,25 @@ public final class DotKernel implements CudaOpKernel {
             int gridX = (N + blockSize - 1) / blockSize;
             int gridY = (M + blockSize - 1) / blockSize;
 
+            // PTX parameter order: (a_ptr, b_ptr, c_ptr, M, N, K, [timing_ptr])
             if (salt >= CudaKernels.SALT_TIMING) {
-                context.launchKernelWithIntParams(
-                    function,
-                    new int[]{gridX, gridY, 1}, new int[]{blockSize, blockSize, 1},
-                    0,
-                    new long[]{dA, dB, dC, dTiming},
-                    M, N, K
-                );
-            } else {
-                context.launchKernelWithIntParams(
+                context.launchKernelWithMixedParams(
                     function,
                     new int[]{gridX, gridY, 1}, new int[]{blockSize, blockSize, 1},
                     0,
                     new long[]{dA, dB, dC},
-                    M, N, K
+                    new int[]{M, N, K},
+                    new float[]{},
+                    new long[]{dTiming}  // timing_ptr comes after int params
+                );
+            } else {
+                context.launchKernelWithMixedParams(
+                    function,
+                    new int[]{gridX, gridY, 1}, new int[]{blockSize, blockSize, 1},
+                    0,
+                    new long[]{dA, dB, dC},
+                    new int[]{M, N, K},
+                    new float[]{}
                 );
             }
 

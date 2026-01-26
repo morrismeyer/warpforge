@@ -114,21 +114,25 @@ public final class ConvolutionKernel implements CudaOpKernel {
             int gridX = (outWidth + BLOCK_SIZE - 1) / BLOCK_SIZE;
             int gridY = (outHeight + BLOCK_SIZE - 1) / BLOCK_SIZE;
 
+            // PTX parameter order: (in_ptr, kernel_ptr, out_ptr, inHeight, inWidth, kernelH, kernelW, outHeight, outWidth, strideH, strideW, padH, padW, [timing_ptr])
             if (salt >= CudaKernels.SALT_TIMING) {
-                context.launchKernelWithIntParams(
-                    function2D,
-                    new int[]{gridX, gridY, 1}, new int[]{BLOCK_SIZE, BLOCK_SIZE, 1},
-                    0,
-                    new long[]{dIn, dKernel, dOut, dTiming},
-                    inHeight, inWidth, kernelH, kernelW, outHeight, outWidth, strideH, strideW, padH, padW
-                );
-            } else {
-                context.launchKernelWithIntParams(
+                context.launchKernelWithMixedParams(
                     function2D,
                     new int[]{gridX, gridY, 1}, new int[]{BLOCK_SIZE, BLOCK_SIZE, 1},
                     0,
                     new long[]{dIn, dKernel, dOut},
-                    inHeight, inWidth, kernelH, kernelW, outHeight, outWidth, strideH, strideW, padH, padW
+                    new int[]{inHeight, inWidth, kernelH, kernelW, outHeight, outWidth, strideH, strideW, padH, padW},
+                    new float[]{},
+                    new long[]{dTiming}  // timing_ptr comes after int params
+                );
+            } else {
+                context.launchKernelWithMixedParams(
+                    function2D,
+                    new int[]{gridX, gridY, 1}, new int[]{BLOCK_SIZE, BLOCK_SIZE, 1},
+                    0,
+                    new long[]{dIn, dKernel, dOut},
+                    new int[]{inHeight, inWidth, kernelH, kernelW, outHeight, outWidth, strideH, strideW, padH, padW},
+                    new float[]{}
                 );
             }
 

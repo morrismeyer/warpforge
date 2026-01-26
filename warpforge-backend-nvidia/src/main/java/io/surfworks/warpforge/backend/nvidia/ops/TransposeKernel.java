@@ -98,21 +98,25 @@ public final class TransposeKernel implements CudaOpKernel {
             int gridX = (cols + BLOCK_SIZE - 1) / BLOCK_SIZE;
             int gridY = (rows + BLOCK_SIZE - 1) / BLOCK_SIZE;
 
+            // PTX parameter order: (in_ptr, out_ptr, rows, cols, [timing_ptr])
             if (salt >= CudaKernels.SALT_TIMING) {
-                context.launchKernelWithIntParams(
-                    function,
-                    new int[]{gridX, gridY, 1}, new int[]{BLOCK_SIZE, BLOCK_SIZE, 1},
-                    0,
-                    new long[]{dInput, dOutput, dTiming},
-                    rows, cols
-                );
-            } else {
-                context.launchKernelWithIntParams(
+                context.launchKernelWithMixedParams(
                     function,
                     new int[]{gridX, gridY, 1}, new int[]{BLOCK_SIZE, BLOCK_SIZE, 1},
                     0,
                     new long[]{dInput, dOutput},
-                    rows, cols
+                    new int[]{rows, cols},
+                    new float[]{},
+                    new long[]{dTiming}  // timing_ptr comes after int params
+                );
+            } else {
+                context.launchKernelWithMixedParams(
+                    function,
+                    new int[]{gridX, gridY, 1}, new int[]{BLOCK_SIZE, BLOCK_SIZE, 1},
+                    0,
+                    new long[]{dInput, dOutput},
+                    new int[]{rows, cols},
+                    new float[]{}
                 );
             }
 

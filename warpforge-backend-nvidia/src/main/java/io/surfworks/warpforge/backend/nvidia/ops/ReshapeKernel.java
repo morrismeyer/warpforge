@@ -88,21 +88,25 @@ public final class ReshapeKernel implements CudaOpKernel {
             int blockSize = CudaKernels.ELEMENTWISE_BLOCK_SIZE;
             int gridSize = CudaKernels.calculateGridSize(n, blockSize);
 
+            // PTX parameter order: (in_ptr, out_ptr, n, [timing_ptr])
             if (salt >= CudaKernels.SALT_TIMING) {
-                context.launchKernelWithIntParams(
-                    function,
-                    new int[]{gridSize, 1, 1}, new int[]{blockSize, 1, 1},
-                    0,
-                    new long[]{dInput, dOutput, dTiming},
-                    n
-                );
-            } else {
-                context.launchKernelWithIntParams(
+                context.launchKernelWithMixedParams(
                     function,
                     new int[]{gridSize, 1, 1}, new int[]{blockSize, 1, 1},
                     0,
                     new long[]{dInput, dOutput},
-                    n
+                    new int[]{n},
+                    new float[]{},
+                    new long[]{dTiming}  // timing_ptr comes after n
+                );
+            } else {
+                context.launchKernelWithMixedParams(
+                    function,
+                    new int[]{gridSize, 1, 1}, new int[]{blockSize, 1, 1},
+                    0,
+                    new long[]{dInput, dOutput},
+                    new int[]{n},
+                    new float[]{}
                 );
             }
 

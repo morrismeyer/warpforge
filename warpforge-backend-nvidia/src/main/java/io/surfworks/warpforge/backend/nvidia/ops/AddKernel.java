@@ -118,21 +118,25 @@ public final class AddKernel implements CudaOpKernel {
             int gridSize = CudaKernels.calculateGridSize(n, blockSize);
 
             // Launch kernel
+            // PTX parameter order: (a_ptr, b_ptr, out_ptr, n, [timing_ptr])
             if (salt >= CudaKernels.SALT_TIMING) {
-                context.launchKernelWithIntParams(
+                context.launchKernelWithMixedParams(
                     function,
-                    new int[]{gridSize}, new int[]{blockSize},
-                    0, // shared memory
-                    new long[]{dA, dB, dOut, dTiming},
-                    n
-                );
-            } else {
-                context.launchKernelWithIntParams(
-                    function,
-                    new int[]{gridSize}, new int[]{blockSize},
+                    new int[]{gridSize, 1, 1}, new int[]{blockSize, 1, 1},
                     0, // shared memory
                     new long[]{dA, dB, dOut},
-                    n
+                    new int[]{n},
+                    new float[]{},
+                    new long[]{dTiming}  // timing_ptr comes after n
+                );
+            } else {
+                context.launchKernelWithMixedParams(
+                    function,
+                    new int[]{gridSize, 1, 1}, new int[]{blockSize, 1, 1},
+                    0, // shared memory
+                    new long[]{dA, dB, dOut},
+                    new int[]{n},
+                    new float[]{}
                 );
             }
 

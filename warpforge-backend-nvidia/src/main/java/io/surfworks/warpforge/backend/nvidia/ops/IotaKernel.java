@@ -108,21 +108,25 @@ public final class IotaKernel implements CudaOpKernel {
             int blockSize = CudaKernels.ELEMENTWISE_BLOCK_SIZE;
             int gridSize = CudaKernels.calculateGridSize(n, blockSize);
 
+            // PTX parameter order: (out_ptr, n, [timing_ptr])
             if (salt >= CudaKernels.SALT_TIMING) {
-                context.launchKernelWithIntParams(
-                    function1D,
-                    new int[]{gridSize, 1, 1}, new int[]{blockSize, 1, 1},
-                    0,
-                    new long[]{dOutput, dTiming},
-                    n
-                );
-            } else {
-                context.launchKernelWithIntParams(
+                context.launchKernelWithMixedParams(
                     function1D,
                     new int[]{gridSize, 1, 1}, new int[]{blockSize, 1, 1},
                     0,
                     new long[]{dOutput},
-                    n
+                    new int[]{n},
+                    new float[]{},
+                    new long[]{dTiming}  // timing_ptr comes after n
+                );
+            } else {
+                context.launchKernelWithMixedParams(
+                    function1D,
+                    new int[]{gridSize, 1, 1}, new int[]{blockSize, 1, 1},
+                    0,
+                    new long[]{dOutput},
+                    new int[]{n},
+                    new float[]{}
                 );
             }
 
@@ -170,21 +174,25 @@ public final class IotaKernel implements CudaOpKernel {
                     "Iota dimension must be 0 or 1 for 2D tensors, got: " + dimension);
             }
 
+            // PTX parameter order: (out_ptr, rows, cols, [timing_ptr])
             if (salt >= CudaKernels.SALT_TIMING) {
-                context.launchKernelWithIntParams(
-                    function,
-                    new int[]{gridX, gridY, 1}, new int[]{BLOCK_SIZE_2D, BLOCK_SIZE_2D, 1},
-                    0,
-                    new long[]{dOutput, dTiming},
-                    rows, cols
-                );
-            } else {
-                context.launchKernelWithIntParams(
+                context.launchKernelWithMixedParams(
                     function,
                     new int[]{gridX, gridY, 1}, new int[]{BLOCK_SIZE_2D, BLOCK_SIZE_2D, 1},
                     0,
                     new long[]{dOutput},
-                    rows, cols
+                    new int[]{rows, cols},
+                    new float[]{},
+                    new long[]{dTiming}  // timing_ptr comes after int params
+                );
+            } else {
+                context.launchKernelWithMixedParams(
+                    function,
+                    new int[]{gridX, gridY, 1}, new int[]{BLOCK_SIZE_2D, BLOCK_SIZE_2D, 1},
+                    0,
+                    new long[]{dOutput},
+                    new int[]{rows, cols},
+                    new float[]{}
                 );
             }
 

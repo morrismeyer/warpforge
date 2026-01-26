@@ -93,21 +93,25 @@ public final class ScatterKernel implements CudaOpKernel {
             int blockSize = CudaKernels.ELEMENTWISE_BLOCK_SIZE;
             int gridSize = CudaKernels.calculateGridSize(nUpdates, blockSize);
 
+            // PTX parameter order: (output_ptr, indices_ptr, updates_ptr, nUpdates, [timing_ptr])
             if (salt >= CudaKernels.SALT_TIMING) {
-                context.launchKernelWithIntParams(
-                    functionAdd,
-                    new int[]{gridSize, 1, 1}, new int[]{blockSize, 1, 1},
-                    0,
-                    new long[]{dOutput, dIndices, dUpdates, dTiming},
-                    nUpdates
-                );
-            } else {
-                context.launchKernelWithIntParams(
+                context.launchKernelWithMixedParams(
                     functionAdd,
                     new int[]{gridSize, 1, 1}, new int[]{blockSize, 1, 1},
                     0,
                     new long[]{dOutput, dIndices, dUpdates},
-                    nUpdates
+                    new int[]{nUpdates},
+                    new float[]{},
+                    new long[]{dTiming}  // timing_ptr comes after int params
+                );
+            } else {
+                context.launchKernelWithMixedParams(
+                    functionAdd,
+                    new int[]{gridSize, 1, 1}, new int[]{blockSize, 1, 1},
+                    0,
+                    new long[]{dOutput, dIndices, dUpdates},
+                    new int[]{nUpdates},
+                    new float[]{}
                 );
             }
 

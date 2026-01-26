@@ -137,21 +137,25 @@ public final class BatchNormKernel implements CudaOpKernel {
             int blockSize = CudaKernels.ELEMENTWISE_BLOCK_SIZE;
             int gridSize = CudaKernels.calculateGridSize(totalElements, blockSize);
 
+            // PTX parameter order: (operand_ptr, scale_ptr, offset_ptr, mean_ptr, variance_ptr, output_ptr, epsilon_ptr, batchSize, numFeatures, spatialSize, [timing_ptr])
             if (salt >= CudaKernels.SALT_TIMING) {
-                context.launchKernelWithIntParams(
-                    functionInference,
-                    new int[]{gridSize, 1, 1}, new int[]{blockSize, 1, 1},
-                    0,
-                    new long[]{dOperand, dScale, dOffset, dMean, dVariance, dOutput, dEpsilon, dTiming},
-                    batchSize, numFeatures, spatialSize
-                );
-            } else {
-                context.launchKernelWithIntParams(
+                context.launchKernelWithMixedParams(
                     functionInference,
                     new int[]{gridSize, 1, 1}, new int[]{blockSize, 1, 1},
                     0,
                     new long[]{dOperand, dScale, dOffset, dMean, dVariance, dOutput, dEpsilon},
-                    batchSize, numFeatures, spatialSize
+                    new int[]{batchSize, numFeatures, spatialSize},
+                    new float[]{},
+                    new long[]{dTiming}  // timing_ptr comes after int params
+                );
+            } else {
+                context.launchKernelWithMixedParams(
+                    functionInference,
+                    new int[]{gridSize, 1, 1}, new int[]{blockSize, 1, 1},
+                    0,
+                    new long[]{dOperand, dScale, dOffset, dMean, dVariance, dOutput, dEpsilon},
+                    new int[]{batchSize, numFeatures, spatialSize},
+                    new float[]{}
                 );
             }
 

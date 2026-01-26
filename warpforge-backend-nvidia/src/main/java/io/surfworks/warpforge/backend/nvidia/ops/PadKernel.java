@@ -133,21 +133,25 @@ public final class PadKernel implements CudaOpKernel {
             int blockSize = CudaKernels.ELEMENTWISE_BLOCK_SIZE;
             int gridSize = CudaKernels.calculateGridSize(outSize, blockSize);
 
+            // PTX parameter order: (in_ptr, out_ptr, padval_ptr, inSize, outSize, lowPad, [timing_ptr])
             if (salt >= CudaKernels.SALT_TIMING) {
-                context.launchKernelWithIntParams(
-                    function1D,
-                    new int[]{gridSize, 1, 1}, new int[]{blockSize, 1, 1},
-                    0,
-                    new long[]{dInput, dOutput, dPadValue, dTiming},
-                    inSize, outSize, lowPad
-                );
-            } else {
-                context.launchKernelWithIntParams(
+                context.launchKernelWithMixedParams(
                     function1D,
                     new int[]{gridSize, 1, 1}, new int[]{blockSize, 1, 1},
                     0,
                     new long[]{dInput, dOutput, dPadValue},
-                    inSize, outSize, lowPad
+                    new int[]{inSize, outSize, lowPad},
+                    new float[]{},
+                    new long[]{dTiming}  // timing_ptr comes after int params
+                );
+            } else {
+                context.launchKernelWithMixedParams(
+                    function1D,
+                    new int[]{gridSize, 1, 1}, new int[]{blockSize, 1, 1},
+                    0,
+                    new long[]{dInput, dOutput, dPadValue},
+                    new int[]{inSize, outSize, lowPad},
+                    new float[]{}
                 );
             }
 
@@ -210,21 +214,25 @@ public final class PadKernel implements CudaOpKernel {
             int gridX = (outCols + BLOCK_SIZE_2D - 1) / BLOCK_SIZE_2D;
             int gridY = (outRows + BLOCK_SIZE_2D - 1) / BLOCK_SIZE_2D;
 
+            // PTX parameter order: (in_ptr, out_ptr, padval_ptr, inRows, inCols, outRows, outCols, lowPad0, lowPad1, [timing_ptr])
             if (salt >= CudaKernels.SALT_TIMING) {
-                context.launchKernelWithIntParams(
-                    function2D,
-                    new int[]{gridX, gridY, 1}, new int[]{BLOCK_SIZE_2D, BLOCK_SIZE_2D, 1},
-                    0,
-                    new long[]{dInput, dOutput, dPadValue, dTiming},
-                    inRows, inCols, outRows, outCols, lowPad0, lowPad1
-                );
-            } else {
-                context.launchKernelWithIntParams(
+                context.launchKernelWithMixedParams(
                     function2D,
                     new int[]{gridX, gridY, 1}, new int[]{BLOCK_SIZE_2D, BLOCK_SIZE_2D, 1},
                     0,
                     new long[]{dInput, dOutput, dPadValue},
-                    inRows, inCols, outRows, outCols, lowPad0, lowPad1
+                    new int[]{inRows, inCols, outRows, outCols, lowPad0, lowPad1},
+                    new float[]{},
+                    new long[]{dTiming}  // timing_ptr comes after int params
+                );
+            } else {
+                context.launchKernelWithMixedParams(
+                    function2D,
+                    new int[]{gridX, gridY, 1}, new int[]{BLOCK_SIZE_2D, BLOCK_SIZE_2D, 1},
+                    0,
+                    new long[]{dInput, dOutput, dPadValue},
+                    new int[]{inRows, inCols, outRows, outCols, lowPad0, lowPad1},
+                    new float[]{}
                 );
             }
 

@@ -108,21 +108,25 @@ public final class GatherKernel implements CudaOpKernel {
             int blockSize = CudaKernels.ELEMENTWISE_BLOCK_SIZE;
             int gridSize = CudaKernels.calculateGridSize(nIndices, blockSize);
 
+            // PTX parameter order: (operand_ptr, indices_ptr, output_ptr, nIndices, [timing_ptr])
             if (salt >= CudaKernels.SALT_TIMING) {
-                context.launchKernelWithIntParams(
-                    function1D,
-                    new int[]{gridSize, 1, 1}, new int[]{blockSize, 1, 1},
-                    0,
-                    new long[]{dOperand, dIndices, dOutput, dTiming},
-                    nIndices
-                );
-            } else {
-                context.launchKernelWithIntParams(
+                context.launchKernelWithMixedParams(
                     function1D,
                     new int[]{gridSize, 1, 1}, new int[]{blockSize, 1, 1},
                     0,
                     new long[]{dOperand, dIndices, dOutput},
-                    nIndices
+                    new int[]{nIndices},
+                    new float[]{},
+                    new long[]{dTiming}  // timing_ptr comes after int params
+                );
+            } else {
+                context.launchKernelWithMixedParams(
+                    function1D,
+                    new int[]{gridSize, 1, 1}, new int[]{blockSize, 1, 1},
+                    0,
+                    new long[]{dOperand, dIndices, dOutput},
+                    new int[]{nIndices},
+                    new float[]{}
                 );
             }
 
@@ -171,21 +175,25 @@ public final class GatherKernel implements CudaOpKernel {
             int gridX = (embeddingDim + BLOCK_SIZE_2D - 1) / BLOCK_SIZE_2D;
             int gridY = (nIndices + BLOCK_SIZE_2D - 1) / BLOCK_SIZE_2D;
 
+            // PTX parameter order: (operand_ptr, indices_ptr, output_ptr, nIndices, embeddingDim, [timing_ptr])
             if (salt >= CudaKernels.SALT_TIMING) {
-                context.launchKernelWithIntParams(
-                    function2D,
-                    new int[]{gridX, gridY, 1}, new int[]{BLOCK_SIZE_2D, BLOCK_SIZE_2D, 1},
-                    0,
-                    new long[]{dOperand, dIndices, dOutput, dTiming},
-                    nIndices, embeddingDim
-                );
-            } else {
-                context.launchKernelWithIntParams(
+                context.launchKernelWithMixedParams(
                     function2D,
                     new int[]{gridX, gridY, 1}, new int[]{BLOCK_SIZE_2D, BLOCK_SIZE_2D, 1},
                     0,
                     new long[]{dOperand, dIndices, dOutput},
-                    nIndices, embeddingDim
+                    new int[]{nIndices, embeddingDim},
+                    new float[]{},
+                    new long[]{dTiming}  // timing_ptr comes after int params
+                );
+            } else {
+                context.launchKernelWithMixedParams(
+                    function2D,
+                    new int[]{gridX, gridY, 1}, new int[]{BLOCK_SIZE_2D, BLOCK_SIZE_2D, 1},
+                    0,
+                    new long[]{dOperand, dIndices, dOutput},
+                    new int[]{nIndices, embeddingDim},
+                    new float[]{}
                 );
             }
 

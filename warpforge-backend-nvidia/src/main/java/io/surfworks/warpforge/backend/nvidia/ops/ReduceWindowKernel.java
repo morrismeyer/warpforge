@@ -128,21 +128,25 @@ public final class ReduceWindowKernel implements CudaOpKernel {
             int gridX = (outWidth + BLOCK_SIZE - 1) / BLOCK_SIZE;
             int gridY = (outHeight + BLOCK_SIZE - 1) / BLOCK_SIZE;
 
+            // PTX parameter order: (in_ptr, out_ptr, inHeight, inWidth, outHeight, outWidth, windowH, windowW, strideH, strideW, [timing_ptr])
             if (salt >= CudaKernels.SALT_TIMING) {
-                context.launchKernelWithIntParams(
-                    functionMax,
-                    new int[]{gridX, gridY, 1}, new int[]{BLOCK_SIZE, BLOCK_SIZE, 1},
-                    0,
-                    new long[]{dIn, dOut, dTiming},
-                    inHeight, inWidth, outHeight, outWidth, windowH, windowW, strideH, strideW
-                );
-            } else {
-                context.launchKernelWithIntParams(
+                context.launchKernelWithMixedParams(
                     functionMax,
                     new int[]{gridX, gridY, 1}, new int[]{BLOCK_SIZE, BLOCK_SIZE, 1},
                     0,
                     new long[]{dIn, dOut},
-                    inHeight, inWidth, outHeight, outWidth, windowH, windowW, strideH, strideW
+                    new int[]{inHeight, inWidth, outHeight, outWidth, windowH, windowW, strideH, strideW},
+                    new float[]{},
+                    new long[]{dTiming}  // timing_ptr comes after int params
+                );
+            } else {
+                context.launchKernelWithMixedParams(
+                    functionMax,
+                    new int[]{gridX, gridY, 1}, new int[]{BLOCK_SIZE, BLOCK_SIZE, 1},
+                    0,
+                    new long[]{dIn, dOut},
+                    new int[]{inHeight, inWidth, outHeight, outWidth, windowH, windowW, strideH, strideW},
+                    new float[]{}
                 );
             }
 
@@ -198,21 +202,25 @@ public final class ReduceWindowKernel implements CudaOpKernel {
             int gridX = (outWidth + BLOCK_SIZE - 1) / BLOCK_SIZE;
             int gridY = (outHeight + BLOCK_SIZE - 1) / BLOCK_SIZE;
 
+            // PTX parameter order: (in_ptr, out_ptr, inHeight, inWidth, outHeight, outWidth, windowH, windowW, strideH, strideW, [timing_ptr])
             if (salt >= CudaKernels.SALT_TIMING) {
-                context.launchKernelWithIntParams(
-                    functionAvg,
-                    new int[]{gridX, gridY, 1}, new int[]{BLOCK_SIZE, BLOCK_SIZE, 1},
-                    0,
-                    new long[]{dIn, dOut, dTiming},
-                    inHeight, inWidth, outHeight, outWidth, windowH, windowW, strideH, strideW
-                );
-            } else {
-                context.launchKernelWithIntParams(
+                context.launchKernelWithMixedParams(
                     functionAvg,
                     new int[]{gridX, gridY, 1}, new int[]{BLOCK_SIZE, BLOCK_SIZE, 1},
                     0,
                     new long[]{dIn, dOut},
-                    inHeight, inWidth, outHeight, outWidth, windowH, windowW, strideH, strideW
+                    new int[]{inHeight, inWidth, outHeight, outWidth, windowH, windowW, strideH, strideW},
+                    new float[]{},
+                    new long[]{dTiming}  // timing_ptr comes after int params
+                );
+            } else {
+                context.launchKernelWithMixedParams(
+                    functionAvg,
+                    new int[]{gridX, gridY, 1}, new int[]{BLOCK_SIZE, BLOCK_SIZE, 1},
+                    0,
+                    new long[]{dIn, dOut},
+                    new int[]{inHeight, inWidth, outHeight, outWidth, windowH, windowW, strideH, strideW},
+                    new float[]{}
                 );
             }
 

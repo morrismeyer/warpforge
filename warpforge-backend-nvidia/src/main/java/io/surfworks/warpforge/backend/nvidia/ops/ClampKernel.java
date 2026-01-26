@@ -89,21 +89,25 @@ public final class ClampKernel implements CudaOpKernel {
             int blockSize = CudaKernels.ELEMENTWISE_BLOCK_SIZE;
             int gridSize = CudaKernels.calculateGridSize(n, blockSize);
 
+            // PTX parameter order: (min_ptr, operand_ptr, max_ptr, out_ptr, n, [timing_ptr])
             if (salt >= CudaKernels.SALT_TIMING) {
-                context.launchKernelWithIntParams(
+                context.launchKernelWithMixedParams(
                     function,
-                    new int[]{gridSize}, new int[]{blockSize},
-                    0,
-                    new long[]{dMin, dOperand, dMax, dOut, dTiming},
-                    n
-                );
-            } else {
-                context.launchKernelWithIntParams(
-                    function,
-                    new int[]{gridSize}, new int[]{blockSize},
+                    new int[]{gridSize, 1, 1}, new int[]{blockSize, 1, 1},
                     0,
                     new long[]{dMin, dOperand, dMax, dOut},
-                    n
+                    new int[]{n},
+                    new float[]{},
+                    new long[]{dTiming}  // timing_ptr comes after n
+                );
+            } else {
+                context.launchKernelWithMixedParams(
+                    function,
+                    new int[]{gridSize, 1, 1}, new int[]{blockSize, 1, 1},
+                    0,
+                    new long[]{dMin, dOperand, dMax, dOut},
+                    new int[]{n},
+                    new float[]{}
                 );
             }
 

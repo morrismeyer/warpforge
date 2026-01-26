@@ -905,29 +905,29 @@ public final class CudaKernels {
         //    Q3 (x<0, y<0): result = -(π - base) = base - π
         //    Q4 (x>=0, y<0): result = -base
         //
-        // π/2 = 1.5707963 = 0x3FC90FDB
-        // π = 3.1415927 = 0x40490FDB
+        // pi/2 = 1.5707963 = 0x3FC90FDB
+        // pi = 3.1415927 = 0x40490FDB
 
         String ptxOps = """
-            // Compute base angle in [0, π/2]
+            // Compute base angle in [0, pi/2]
             abs.f32         %f5, %f1;              // |y|
             abs.f32         %f6, %f2;              // |x|
             setp.gt.f32     %p2, %f5, %f6;         // p2 = |y| > |x|
             @%p2 div.approx.f32 %f3, %f6, %f5;     // if |y| > |x|: z = |x|/|y|
             @!%p2 div.approx.f32 %f3, %f5, %f6;    // else: z = |y|/|x|
-            // atan(z) ≈ z * (1 - z^2/3)
+            // atan(z) ~ z * (1 - z^2/3)
             mul.f32         %f4, %f3, %f3;         // z^2
             mul.f32         %f4, %f4, 0fBE2AAAAB;  // -z^2/3 (approx -0.333)
             add.f32         %f4, %f4, 0f3F800000;  // 1 - z^2/3
             mul.f32         %f3, %f3, %f4;         // z * (1 - z^2/3) = atan(z)
-            // If |y| > |x|, base = π/2 - atan(z)
-            @%p2 sub.f32    %f3, 0f3FC90FDB, %f3;  // π/2 - atan(z)
+            // If |y| > |x|, base = pi/2 - atan(z)
+            @%p2 sub.f32    %f3, 0f3FC90FDB, %f3;  // pi/2 - atan(z)
             // Quadrant adjustment (single predicate per instruction)
             setp.lt.f32     %p3, %f2, 0f00000000;  // p3 = x < 0
             setp.lt.f32     %p4, %f1, 0f00000000;  // p4 = y < 0
-            // If x < 0: result = π - base (for Q2/Q3)
-            @%p3 sub.f32    %f7, 0f40490FDB, %f3;  // f7 = π - base
-            @%p3 mov.f32    %f3, %f7;              // f3 = π - base
+            // If x < 0: result = pi - base (for Q2/Q3)
+            @%p3 sub.f32    %f7, 0f40490FDB, %f3;  // f7 = pi - base
+            @%p3 mov.f32    %f3, %f7;              // f3 = pi - base
             // If y < 0: negate result (for Q3/Q4)
             @%p4 neg.f32    %f3, %f3;""";
         return generateBinaryElementwiseF32("atan2", ptxOps, "atan2(y,x)", salt, 8, 5);
@@ -5248,6 +5248,495 @@ public final class CudaKernels {
             """);
 
         return ptx.toString();
+    }
+
+    // ==================== Transformer Custom Call Operations ====================
+
+    private static final String PTX_HEADER_FOR_CUSTOM_OPS = """
+            .version 7.0
+            .target sm_50
+            .address_size 64
+
+            """;
+
+    /**
+     * Generate PTX for GELU activation (tanh approximation).
+     * GELU(x) = 0.5 * x * (1 + tanh(sqrt(2/pi) * (x + 0.044715 * x^3)))
+     */
+    public static String generateGeluF32(int salt) {
+        return PTX_HEADER_FOR_CUSTOM_OPS + """
+            .visible .entry gelu_f32(
+                .param .u64 in_ptr,
+                .param .u64 out_ptr,
+                .param .u32 n
+            )
+            {
+                .reg .pred %p<4>;
+                .reg .u64 %rd<8>;
+                .reg .u32 %r<8>;
+                .reg .f32 %f<16>;
+
+                mov.f32 %f10, 0f3F4C422A;
+                mov.f32 %f11, 0f3D372713;
+                mov.f32 %f12, 0f3F000000;
+
+                mov.u32 %r1, %ctaid.x;
+                mov.u32 %r2, %ntid.x;
+                mov.u32 %r3, %tid.x;
+                mad.lo.u32 %r4, %r1, %r2, %r3;
+
+                ld.param.u32 %r5, [n];
+                setp.ge.u32 %p1, %r4, %r5;
+                @%p1 bra done;
+
+                ld.param.u64 %rd1, [in_ptr];
+                ld.param.u64 %rd2, [out_ptr];
+
+                cvt.u64.u32 %rd3, %r4;
+                shl.b64 %rd4, %rd3, 2;
+                add.u64 %rd5, %rd1, %rd4;
+                add.u64 %rd6, %rd2, %rd4;
+
+                ld.global.f32 %f1, [%rd5];
+
+                mul.f32 %f2, %f1, %f1;
+                mul.f32 %f3, %f2, %f1;
+                mul.f32 %f4, %f3, %f11;
+                add.f32 %f5, %f1, %f4;
+                mul.f32 %f6, %f5, %f10;
+                mul.f32 %f7, %f6, 0f40000000;
+                mul.f32 %f7, %f7, 0f3FB8AA3B;
+                ex2.approx.f32 %f8, %f7;
+                add.f32 %f13, %f8, 0fBF800000;
+                add.f32 %f14, %f8, 0f3F800000;
+                div.approx.f32 %f15, %f13, %f14;
+                add.f32 %f9, %f15, 0f3F800000;
+                mul.f32 %f9, %f1, %f9;
+                mul.f32 %f9, %f9, %f12;
+
+                st.global.f32 [%rd6], %f9;
+
+            done:
+                ret;
+            }
+            """;
+    }
+
+    /**
+     * Generate PTX for SiLU activation (Swish).
+     * SiLU(x) = x * sigmoid(x) = x / (1 + exp(-x))
+     */
+    public static String generateSiluF32(int salt) {
+        return PTX_HEADER_FOR_CUSTOM_OPS + """
+            .visible .entry silu_f32(
+                .param .u64 in_ptr,
+                .param .u64 out_ptr,
+                .param .u32 n
+            )
+            {
+                .reg .pred %p<4>;
+                .reg .u64 %rd<8>;
+                .reg .u32 %r<8>;
+                .reg .f32 %f<8>;
+
+                mov.u32 %r1, %ctaid.x;
+                mov.u32 %r2, %ntid.x;
+                mov.u32 %r3, %tid.x;
+                mad.lo.u32 %r4, %r1, %r2, %r3;
+
+                ld.param.u32 %r5, [n];
+                setp.ge.u32 %p1, %r4, %r5;
+                @%p1 bra done;
+
+                ld.param.u64 %rd1, [in_ptr];
+                ld.param.u64 %rd2, [out_ptr];
+
+                cvt.u64.u32 %rd3, %r4;
+                shl.b64 %rd4, %rd3, 2;
+                add.u64 %rd5, %rd1, %rd4;
+                add.u64 %rd6, %rd2, %rd4;
+
+                ld.global.f32 %f1, [%rd5];
+
+                neg.f32 %f2, %f1;
+                mul.f32 %f2, %f2, 0f3FB8AA3B;
+                ex2.approx.f32 %f3, %f2;
+                add.f32 %f4, %f3, 0f3F800000;
+                div.approx.f32 %f5, %f1, %f4;
+
+                st.global.f32 [%rd6], %f5;
+
+            done:
+                ret;
+            }
+            """;
+    }
+
+    /**
+     * Generate PTX for softmax (last dimension).
+     * Softmax uses shared memory for reductions.
+     */
+    public static String generateSoftmaxF32(int salt) {
+        return PTX_HEADER_FOR_CUSTOM_OPS + """
+            .visible .entry softmax_f32(
+                .param .u64 in_ptr,
+                .param .u64 out_ptr,
+                .param .u32 rows,
+                .param .u32 cols
+            )
+            {
+                .reg .pred %p<8>;
+                .reg .u64 %rd<16>;
+                .reg .u32 %r<16>;
+                .reg .f32 %f<16>;
+                .shared .f32 sdata[256];
+
+                mov.u32 %r1, %ctaid.x;
+                ld.param.u32 %r2, [rows];
+                setp.ge.u32 %p1, %r1, %r2;
+                @%p1 bra done;
+
+                mov.u32 %r3, %tid.x;
+                mov.u32 %r4, %ntid.x;
+
+                ld.param.u64 %rd1, [in_ptr];
+                ld.param.u64 %rd2, [out_ptr];
+                ld.param.u32 %r5, [cols];
+
+                cvt.u64.u32 %rd3, %r1;
+                cvt.u64.u32 %rd4, %r5;
+                mul.lo.u64 %rd5, %rd3, %rd4;
+                shl.b64 %rd5, %rd5, 2;
+                add.u64 %rd6, %rd1, %rd5;
+                add.u64 %rd7, %rd2, %rd5;
+
+                mov.f32 %f1, 0fFF7FFFFF;
+                mov.u32 %r6, %r3;
+            max_loop:
+                setp.ge.u32 %p2, %r6, %r5;
+                @%p2 bra max_reduce;
+                cvt.u64.u32 %rd8, %r6;
+                shl.b64 %rd8, %rd8, 2;
+                add.u64 %rd9, %rd6, %rd8;
+                ld.global.f32 %f2, [%rd9];
+                max.f32 %f1, %f1, %f2;
+                add.u32 %r6, %r6, %r4;
+                bra max_loop;
+
+            max_reduce:
+                cvt.u64.u32 %rd10, %r3;
+                shl.b64 %rd10, %rd10, 2;
+                mov.u64 %rd11, sdata;
+                add.u64 %rd10, %rd11, %rd10;
+                st.shared.f32 [%rd10], %f1;
+                bar.sync 0;
+                mov.u32 %r7, 128;
+            mr_loop:
+                setp.lt.u32 %p3, %r7, 1;
+                @%p3 bra mr_done;
+                setp.ge.u32 %p4, %r3, %r7;
+                @%p4 bra mr_skip;
+                add.u32 %r8, %r3, %r7;
+                cvt.u64.u32 %rd12, %r8;
+                shl.b64 %rd12, %rd12, 2;
+                add.u64 %rd12, %rd11, %rd12;
+                ld.shared.f32 %f3, [%rd12];
+                ld.shared.f32 %f4, [%rd10];
+                max.f32 %f4, %f4, %f3;
+                st.shared.f32 [%rd10], %f4;
+            mr_skip:
+                bar.sync 0;
+                shr.u32 %r7, %r7, 1;
+                bra mr_loop;
+            mr_done:
+                ld.shared.f32 %f5, [sdata];
+                bar.sync 0;
+
+                mov.f32 %f6, 0f00000000;
+                mov.u32 %r6, %r3;
+            exp_loop:
+                setp.ge.u32 %p5, %r6, %r5;
+                @%p5 bra exp_reduce;
+                cvt.u64.u32 %rd8, %r6;
+                shl.b64 %rd8, %rd8, 2;
+                add.u64 %rd9, %rd6, %rd8;
+                ld.global.f32 %f2, [%rd9];
+                sub.f32 %f7, %f2, %f5;
+                mul.f32 %f7, %f7, 0f3FB8AA3B;
+                ex2.approx.f32 %f8, %f7;
+                add.f32 %f6, %f6, %f8;
+                add.u32 %r6, %r6, %r4;
+                bra exp_loop;
+
+            exp_reduce:
+                st.shared.f32 [%rd10], %f6;
+                bar.sync 0;
+                mov.u32 %r7, 128;
+            sr_loop:
+                setp.lt.u32 %p6, %r7, 1;
+                @%p6 bra sr_done;
+                setp.ge.u32 %p7, %r3, %r7;
+                @%p7 bra sr_skip;
+                add.u32 %r8, %r3, %r7;
+                cvt.u64.u32 %rd12, %r8;
+                shl.b64 %rd12, %rd12, 2;
+                add.u64 %rd12, %rd11, %rd12;
+                ld.shared.f32 %f3, [%rd12];
+                ld.shared.f32 %f4, [%rd10];
+                add.f32 %f4, %f4, %f3;
+                st.shared.f32 [%rd10], %f4;
+            sr_skip:
+                bar.sync 0;
+                shr.u32 %r7, %r7, 1;
+                bra sr_loop;
+            sr_done:
+                ld.shared.f32 %f9, [sdata];
+                bar.sync 0;
+
+                mov.u32 %r6, %r3;
+            norm_loop:
+                setp.ge.u32 %p5, %r6, %r5;
+                @%p5 bra done;
+                cvt.u64.u32 %rd8, %r6;
+                shl.b64 %rd8, %rd8, 2;
+                add.u64 %rd9, %rd6, %rd8;
+                add.u64 %rd13, %rd7, %rd8;
+                ld.global.f32 %f2, [%rd9];
+                sub.f32 %f7, %f2, %f5;
+                mul.f32 %f7, %f7, 0f3FB8AA3B;
+                ex2.approx.f32 %f8, %f7;
+                div.approx.f32 %f10, %f8, %f9;
+                st.global.f32 [%rd13], %f10;
+                add.u32 %r6, %r6, %r4;
+                bra norm_loop;
+
+            done:
+                ret;
+            }
+            """;
+    }
+
+    /**
+     * Generate PTX for LayerNorm (last dimension).
+     */
+    public static String generateLayerNormF32(int salt) {
+        return PTX_HEADER_FOR_CUSTOM_OPS + """
+            .visible .entry layer_norm_f32(
+                .param .u64 in_ptr,
+                .param .u64 out_ptr,
+                .param .u64 gamma_ptr,
+                .param .u64 beta_ptr,
+                .param .u32 rows,
+                .param .u32 cols,
+                .param .f32 eps
+            )
+            {
+                .reg .pred %p<8>;
+                .reg .u64 %rd<20>;
+                .reg .u32 %r<16>;
+                .reg .f32 %f<20>;
+                .shared .f32 sdata[256];
+
+                mov.u32 %r1, %ctaid.x;
+                ld.param.u32 %r2, [rows];
+                setp.ge.u32 %p1, %r1, %r2;
+                @%p1 bra done;
+
+                mov.u32 %r3, %tid.x;
+                mov.u32 %r4, %ntid.x;
+
+                ld.param.u64 %rd1, [in_ptr];
+                ld.param.u64 %rd2, [out_ptr];
+                ld.param.u64 %rd3, [gamma_ptr];
+                ld.param.u64 %rd4, [beta_ptr];
+                ld.param.u32 %r5, [cols];
+                ld.param.f32 %f15, [eps];
+
+                cvt.u64.u32 %rd5, %r1;
+                cvt.u64.u32 %rd6, %r5;
+                mul.lo.u64 %rd7, %rd5, %rd6;
+                shl.b64 %rd7, %rd7, 2;
+                add.u64 %rd8, %rd1, %rd7;
+                add.u64 %rd9, %rd2, %rd7;
+
+                mov.u64 %rd10, sdata;
+                cvt.u64.u32 %rd11, %r3;
+                shl.b64 %rd11, %rd11, 2;
+                add.u64 %rd12, %rd10, %rd11;
+
+                mov.f32 %f1, 0f00000000;
+                mov.u32 %r6, %r3;
+            mean_loop:
+                setp.ge.u32 %p2, %r6, %r5;
+                @%p2 bra mean_reduce;
+                cvt.u64.u32 %rd13, %r6;
+                shl.b64 %rd13, %rd13, 2;
+                add.u64 %rd14, %rd8, %rd13;
+                ld.global.f32 %f2, [%rd14];
+                add.f32 %f1, %f1, %f2;
+                add.u32 %r6, %r6, %r4;
+                bra mean_loop;
+
+            mean_reduce:
+                st.shared.f32 [%rd12], %f1;
+                bar.sync 0;
+                mov.u32 %r7, 128;
+            mr1_loop:
+                setp.lt.u32 %p3, %r7, 1;
+                @%p3 bra mr1_done;
+                setp.ge.u32 %p4, %r3, %r7;
+                @%p4 bra mr1_skip;
+                add.u32 %r8, %r3, %r7;
+                cvt.u64.u32 %rd15, %r8;
+                shl.b64 %rd15, %rd15, 2;
+                add.u64 %rd15, %rd10, %rd15;
+                ld.shared.f32 %f3, [%rd15];
+                ld.shared.f32 %f4, [%rd12];
+                add.f32 %f4, %f4, %f3;
+                st.shared.f32 [%rd12], %f4;
+            mr1_skip:
+                bar.sync 0;
+                shr.u32 %r7, %r7, 1;
+                bra mr1_loop;
+            mr1_done:
+                ld.shared.f32 %f5, [sdata];
+                cvt.rn.f32.u32 %f6, %r5;
+                div.approx.f32 %f5, %f5, %f6;
+                bar.sync 0;
+
+                mov.f32 %f7, 0f00000000;
+                mov.u32 %r6, %r3;
+            var_loop:
+                setp.ge.u32 %p5, %r6, %r5;
+                @%p5 bra var_reduce;
+                cvt.u64.u32 %rd13, %r6;
+                shl.b64 %rd13, %rd13, 2;
+                add.u64 %rd14, %rd8, %rd13;
+                ld.global.f32 %f8, [%rd14];
+                sub.f32 %f9, %f8, %f5;
+                mul.f32 %f9, %f9, %f9;
+                add.f32 %f7, %f7, %f9;
+                add.u32 %r6, %r6, %r4;
+                bra var_loop;
+
+            var_reduce:
+                st.shared.f32 [%rd12], %f7;
+                bar.sync 0;
+                mov.u32 %r7, 128;
+            vr_loop:
+                setp.lt.u32 %p6, %r7, 1;
+                @%p6 bra vr_done;
+                setp.ge.u32 %p7, %r3, %r7;
+                @%p7 bra vr_skip;
+                add.u32 %r8, %r3, %r7;
+                cvt.u64.u32 %rd15, %r8;
+                shl.b64 %rd15, %rd15, 2;
+                add.u64 %rd15, %rd10, %rd15;
+                ld.shared.f32 %f3, [%rd15];
+                ld.shared.f32 %f4, [%rd12];
+                add.f32 %f4, %f4, %f3;
+                st.shared.f32 [%rd12], %f4;
+            vr_skip:
+                bar.sync 0;
+                shr.u32 %r7, %r7, 1;
+                bra vr_loop;
+            vr_done:
+                ld.shared.f32 %f10, [sdata];
+                div.approx.f32 %f10, %f10, %f6;
+                add.f32 %f10, %f10, %f15;
+                rsqrt.approx.f32 %f11, %f10;
+                bar.sync 0;
+
+                mov.u32 %r6, %r3;
+            norm_loop:
+                setp.ge.u32 %p5, %r6, %r5;
+                @%p5 bra done;
+                cvt.u64.u32 %rd13, %r6;
+                shl.b64 %rd13, %rd13, 2;
+                add.u64 %rd14, %rd8, %rd13;
+                add.u64 %rd16, %rd9, %rd13;
+                ld.global.f32 %f12, [%rd14];
+                sub.f32 %f12, %f12, %f5;
+                mul.f32 %f12, %f12, %f11;
+                add.u64 %rd17, %rd3, %rd13;
+                ld.global.f32 %f13, [%rd17];
+                mul.f32 %f12, %f12, %f13;
+                add.u64 %rd18, %rd4, %rd13;
+                ld.global.f32 %f14, [%rd18];
+                add.f32 %f12, %f12, %f14;
+                st.global.f32 [%rd16], %f12;
+                add.u32 %r6, %r6, %r4;
+                bra norm_loop;
+
+            done:
+                ret;
+            }
+            """;
+    }
+
+    /**
+     * Generate PTX for embedding lookup.
+     */
+    public static String generateEmbeddingF32(int salt) {
+        return PTX_HEADER_FOR_CUSTOM_OPS + """
+            .visible .entry embedding_f32(
+                .param .u64 indices_ptr,
+                .param .u64 table_ptr,
+                .param .u64 out_ptr,
+                .param .u32 num_indices,
+                .param .u32 embed_dim
+            )
+            {
+                .reg .pred %p<4>;
+                .reg .u64 %rd<16>;
+                .reg .u32 %r<12>;
+                .reg .f32 %f<4>;
+
+                mov.u32 %r1, %ctaid.x;
+                mov.u32 %r2, %ntid.x;
+                mov.u32 %r3, %tid.x;
+                mad.lo.u32 %r4, %r1, %r2, %r3;
+
+                ld.param.u32 %r5, [num_indices];
+                setp.ge.u32 %p1, %r4, %r5;
+                @%p1 bra done;
+
+                ld.param.u64 %rd1, [indices_ptr];
+                ld.param.u64 %rd2, [table_ptr];
+                ld.param.u64 %rd3, [out_ptr];
+                ld.param.u32 %r6, [embed_dim];
+
+                cvt.u64.u32 %rd4, %r4;
+                shl.b64 %rd5, %rd4, 3;
+                add.u64 %rd6, %rd1, %rd5;
+                ld.global.u64 %rd7, [%rd6];
+
+                cvt.u64.u32 %rd8, %r6;
+                mul.lo.u64 %rd9, %rd7, %rd8;
+                shl.b64 %rd9, %rd9, 2;
+                add.u64 %rd10, %rd2, %rd9;
+
+                mul.lo.u64 %rd11, %rd4, %rd8;
+                shl.b64 %rd11, %rd11, 2;
+                add.u64 %rd12, %rd3, %rd11;
+
+                mov.u32 %r7, 0;
+            copy_loop:
+                setp.ge.u32 %p2, %r7, %r6;
+                @%p2 bra done;
+                cvt.u64.u32 %rd13, %r7;
+                shl.b64 %rd13, %rd13, 2;
+                add.u64 %rd14, %rd10, %rd13;
+                add.u64 %rd15, %rd12, %rd13;
+                ld.global.f32 %f1, [%rd14];
+                st.global.f32 [%rd15], %f1;
+                add.u32 %r7, %r7, 1;
+                bra copy_loop;
+
+            done:
+                ret;
+            }
+            """;
     }
 
     // ==================== Utility Methods ====================

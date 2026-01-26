@@ -683,14 +683,17 @@ public final class CudaKernels {
         // |x|^(1/3) = exp(log(|x|) / 3) = 2^(log2(|x|) / 3)
         // 1/3 = 0.3333... = 0x3EAAAAAB
         // Need to handle sign separately since log requires positive input
+        // Note: copysign.f32 is not available on all architectures, use predicate instead
         String ptxOps = """
                     // cbrt(x) = sign(x) * |x|^(1/3)
                     abs.f32         %f2, %f1;              // f2 = |x|
                     lg2.approx.f32  %f2, %f2;              // f2 = log2(|x|)
                     mul.f32         %f2, %f2, 0f3EAAAAAB;  // f2 = log2(|x|) / 3
                     ex2.approx.f32  %f2, %f2;              // f2 = |x|^(1/3)
-                    copysign.f32    %f2, %f2, %f1;         // f2 = sign(x) * |x|^(1/3)""";
-        return generateUnaryElementwiseF32("cbrt", ptxOps, "cbrt(x)", salt);
+                    // Apply sign using predicate (copysign not universally available)
+                    setp.lt.f32     %p2, %f1, 0f00000000;  // p2 = x < 0
+                    @%p2 neg.f32    %f2, %f2;              // if x < 0, negate result""";
+        return generateUnaryElementwiseF32("cbrt", ptxOps, "cbrt(x)", salt, 3, 3);
     }
 
     /**
@@ -726,13 +729,16 @@ public final class CudaKernels {
         // Round away from zero: add 0.5 with same sign as input, then truncate
         // sign(x) * floor(|x| + 0.5)
         // 0.5 = 0x3F000000
+        // Note: copysign.f32 is not available on all architectures, use predicate instead
         String ptxOps = """
                     // round_afz(x) = sign(x) * floor(|x| + 0.5)
                     abs.f32         %f2, %f1;              // f2 = |x|
                     add.f32         %f2, %f2, 0f3F000000;  // f2 = |x| + 0.5
                     cvt.rmi.f32.f32 %f2, %f2;              // f2 = floor(|x| + 0.5)
-                    copysign.f32    %f2, %f2, %f1;         // f2 = sign(x) * floor(|x| + 0.5)""";
-        return generateUnaryElementwiseF32("round_nearest_afz", ptxOps, "round_afz(x)", salt);
+                    // Apply sign using predicate (copysign not universally available)
+                    setp.lt.f32     %p2, %f1, 0f00000000;  // p2 = x < 0
+                    @%p2 neg.f32    %f2, %f2;              // if x < 0, negate result""";
+        return generateUnaryElementwiseF32("round_nearest_afz", ptxOps, "round_afz(x)", salt, 3, 3);
     }
 
     /**

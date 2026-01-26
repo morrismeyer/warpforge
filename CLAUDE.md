@@ -709,6 +709,43 @@ The goal is zero human intervention for routine CI failures. If you broke it, yo
   import static org.junit.jupiter.api.Assertions.assertNotNull;
   ```
 
+## PTX/CUDA Code Style
+
+When writing or fixing PTX (Parallel Thread Execution) code in `CudaKernels.java`:
+
+### Scan for Similar Issues
+
+**When you fix an error in PTX code, immediately scan the entire PTX codebase for other instances of the same error pattern.** Do not commit a fix for one function without checking all similar functions.
+
+Example: If you find that `copysign.f32` doesn't work on some GPU architectures and fix it with `setp` + `neg.f32`, search for ALL uses of `copysign.f32` in the codebase and fix them all in the same commit.
+
+### Known PTX Portability Issues
+
+| Instruction | Issue | Fix |
+|-------------|-------|-----|
+| `copysign.f32` | Not available on all architectures | Use `setp.lt.f32` + `@%p neg.f32` |
+| `atom.global.add.u64` | Wrong for timing accumulation | Use `red.global.add.u64` |
+| Unicode in PTX comments | CUDA driver rejects (ptxas accepts) | Use ASCII only in PTX strings |
+| Double predicates (`@%p1 @%p2`) | Invalid PTX syntax | Use single predicate per instruction |
+
+### PTX Comment Character Encoding
+
+**PTX string literals must contain only ASCII characters.** While `ptxas` (the PTX assembler) may accept Unicode characters in comments, the CUDA driver's `cuModuleLoadData` will reject them with `CUDA_ERROR_INVALID_PTX (218)`.
+
+```java
+// BAD - Unicode in PTX string
+String ptxOps = """
+    // Compute base angle in [0, π/2]
+    // atan(z) ≈ z * (1 - z^2/3)""";
+
+// GOOD - ASCII only in PTX string
+String ptxOps = """
+    // Compute base angle in [0, pi/2]
+    // atan(z) ~ z * (1 - z^2/3)""";
+```
+
+Unicode is fine in Java comments and Javadoc outside the PTX string literals.
+
 ## Documentation Style: Tables
 
 **Use ASCII box-drawing tables**, not GitHub-flavored markdown tables. Tables must have:

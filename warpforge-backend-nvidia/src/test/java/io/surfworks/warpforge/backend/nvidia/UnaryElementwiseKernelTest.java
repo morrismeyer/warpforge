@@ -257,7 +257,7 @@ class UnaryElementwiseKernelTest {
         assertTrue(ptx.contains(".visible .entry cbrt_f32"));
         assertTrue(ptx.contains("lg2.approx.f32"));
         assertTrue(ptx.contains("ex2.approx.f32"));
-        assertTrue(ptx.contains("copysign.f32"));
+        assertTrue(ptx.contains("neg.f32"));  // sign applied via predicate + negation
         System.out.println("[PASS] Cbrt PTX generation OK");
     }
 
@@ -296,7 +296,7 @@ class UnaryElementwiseKernelTest {
         assertTrue(ptx.contains(".visible .entry round_nearest_afz_f32"));
         assertTrue(ptx.contains("abs.f32"));
         assertTrue(ptx.contains("cvt.rmi.f32.f32")); // floor
-        assertTrue(ptx.contains("copysign.f32"));
+        assertTrue(ptx.contains("neg.f32"));  // sign applied via predicate + negation
         System.out.println("[PASS] RoundNearestAfz PTX generation OK");
     }
 

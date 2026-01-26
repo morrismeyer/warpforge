@@ -504,6 +504,7 @@ class HipKernelExecutionTest {
 
         System.out.println("  Device: AMD GPU (device 0)");
         System.out.println("  HIPRTC: " + (HiprtcRuntime.isAvailable() ? "Available" : "Not available"));
+        System.out.println("  HIPRTC Version: " + HiprtcRuntime.VERSION);
         System.out.println("  Context: Created successfully");
         System.out.println("========================================");
 

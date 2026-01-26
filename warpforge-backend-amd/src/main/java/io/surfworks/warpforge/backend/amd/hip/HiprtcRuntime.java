@@ -29,6 +29,9 @@ import java.nio.charset.StandardCharsets;
  */
 public final class HiprtcRuntime {
 
+    // Version sentinel - helps verify correct code is deployed
+    public static final String VERSION = "2026-01-26-v3";
+
     private static final Linker LINKER = Linker.nativeLinker();
     private static final SymbolLookup HIPRTC;
     private static final boolean AVAILABLE;
@@ -207,21 +210,30 @@ public final class HiprtcRuntime {
     public static byte[] compile(String source, String kernelName, String... options) throws Throwable {
         ensureAvailable();
 
+        String step = "init";
         try (Arena arena = Arena.ofConfined()) {
+            step = "allocate-progPtr";
             // Create program - hiprtcCreateProgram takes hiprtcProgram* (pointer to pointer)
             MemorySegment progPtr = arena.allocate(ValueLayout.JAVA_LONG);
+
+            step = "allocate-srcSegment";
             MemorySegment srcSegment = arena.allocateFrom(source + "\0", StandardCharsets.UTF_8);
+
+            step = "allocate-nameSegment";
             MemorySegment nameSegment = arena.allocateFrom(kernelName + "\0", StandardCharsets.UTF_8);
 
+            step = "hiprtcCreateProgram";
             int result = (int) hiprtcCreateProgram.invokeExact(
                 progPtr, srcSegment, nameSegment,
                 0, MemorySegment.NULL, MemorySegment.NULL);
             checkError(result, "hiprtcCreateProgram");
 
+            step = "read-prog";
             // Read the hiprtcProgram handle as a long (opaque handle pattern from HipRuntime)
             long prog = progPtr.get(ValueLayout.JAVA_LONG, 0);
 
             try {
+                step = "setup-options";
                 // Set up compiler options
                 MemorySegment optionsPtr;
                 if (options.length > 0) {
@@ -235,6 +247,7 @@ public final class HiprtcRuntime {
                     optionsPtr = MemorySegment.NULL;
                 }
 
+                step = "hiprtcCompileProgram";
                 // Compile - prog is passed as JAVA_LONG (opaque handle)
                 result = (int) hiprtcCompileProgram.invokeExact(prog, options.length, optionsPtr);
 
@@ -245,12 +258,14 @@ public final class HiprtcRuntime {
                         getErrorString(result) + "\nCompilation log:\n" + log);
                 }
 
+                step = "hiprtcGetCodeSize";
                 // Get code size
                 MemorySegment sizePtr = arena.allocate(ValueLayout.JAVA_LONG);
                 result = (int) hiprtcGetCodeSize.invokeExact(prog, sizePtr);
                 checkError(result, "hiprtcGetCodeSize");
                 long codeSize = sizePtr.get(ValueLayout.JAVA_LONG, 0);
 
+                step = "hiprtcGetCode";
                 // Get code
                 MemorySegment codeSegment = arena.allocate(codeSize);
                 result = (int) hiprtcGetCode.invokeExact(prog, codeSegment);
@@ -259,9 +274,13 @@ public final class HiprtcRuntime {
                 return codeSegment.toArray(ValueLayout.JAVA_BYTE);
 
             } finally {
+                step = "hiprtcDestroyProgram";
                 // Destroy program
                 hiprtcDestroyProgram.invokeExact(progPtr);
             }
+        } catch (Throwable t) {
+            throw new HiprtcException("HIPRTC compile failed at step '" + step + "' for " + kernelName +
+                " (version=" + VERSION + "): " + t.getMessage(), t);
         }
     }
 

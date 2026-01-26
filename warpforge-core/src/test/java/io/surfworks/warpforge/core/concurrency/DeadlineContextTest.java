@@ -226,9 +226,13 @@ class DeadlineContextTest {
                 Duration.ofMillis(200), Duration.ofMillis(100), "inference");
 
             String message = ex.getMessage();
-            assertTrue(message.contains("200"));
-            assertTrue(message.contains("100"));
-            assertTrue(message.contains("2.0x"));
+            // Duration.toString() returns ISO-8601 format like "PT0.2S" for 200ms
+            assertTrue(message.contains("PT0.2S") || message.contains("200"),
+                "Message should contain elapsed time: " + message);
+            assertTrue(message.contains("PT0.1S") || message.contains("100"),
+                "Message should contain allowed time: " + message);
+            assertTrue(message.contains("2.0x"),
+                "Message should contain overrun ratio: " + message);
         }
     }
 

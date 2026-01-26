@@ -3,18 +3,21 @@ package io.surfworks.warpforge.core.concurrency;
 import io.surfworks.warpforge.core.tensor.ScalarType;
 import io.surfworks.warpforge.core.tensor.Tensor;
 
+import org.awaitility.Awaitility;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
+import static org.awaitility.Awaitility.await;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -743,11 +746,8 @@ class TimeSlicedKernelTest {
                                                 List<Tensor> inputs, GpuLease lease) {
                     int concurrent = current.incrementAndGet();
                     maxConcurrent.updateAndGet(max -> Math.max(max, concurrent));
-                    try {
-                        Thread.sleep(10);
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                    }
+                    // Simulate GPU work using consistent timing
+                    backend.simulateGpuWork(lease, MockGpuBackend.MIN_WORK_MS);
                     current.decrementAndGet();
                     return chunkIndex;
                 }

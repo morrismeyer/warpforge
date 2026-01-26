@@ -1,11 +1,13 @@
 package io.surfworks.warpforge.core.concurrency;
 
+import org.awaitility.Awaitility;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
@@ -15,6 +17,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.StructuredTaskScope;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import static org.awaitility.Awaitility.await;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -266,12 +269,12 @@ class GpuTaskScopeTest {
                 AtomicInteger completed = new AtomicInteger(0);
 
                 scope.fork(() -> {
-                    Thread.sleep(10);
+                    backend.simulateGpuWork(MockGpuBackend.MIN_WORK_MS);
                     completed.incrementAndGet();
                     return null;
                 });
                 scope.fork(() -> {
-                    Thread.sleep(10);
+                    backend.simulateGpuWork(MockGpuBackend.MIN_WORK_MS);
                     completed.incrementAndGet();
                     return null;
                 });
@@ -424,7 +427,7 @@ class GpuTaskScopeTest {
 
                 for (int i = 0; i < taskCount; i++) {
                     scope.fork(() -> {
-                        Thread.sleep(1); // Force some concurrency
+                        backend.simulateGpuWork(1); // Force some concurrency
                         return null;
                     });
                 }
@@ -568,13 +571,13 @@ class GpuTaskScopeTest {
                 Thread testThread = Thread.currentThread();
 
                 scope.fork(() -> {
-                    Thread.sleep(10);
+                    backend.simulateGpuWork(MockGpuBackend.MIN_WORK_MS);
                     testThread.interrupt();
                     return null;
                 });
 
                 scope.fork(() -> {
-                    Thread.sleep(100);
+                    backend.simulateGpuWork(20); // Longer work
                     return null;
                 });
 

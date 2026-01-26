@@ -1,5 +1,6 @@
 package io.surfworks.warpforge.core.concurrency;
 
+import org.awaitility.Awaitility;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -8,7 +9,9 @@ import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.concurrent.TimeUnit;
 
+import static org.awaitility.Awaitility.await;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -226,12 +229,10 @@ class DeadlineContextTest {
         void remainingTimeNearZeroAtDeadline() {
             DeadlineContext ctx = DeadlineContext.withTimeout(backend, Duration.ofMillis(50));
 
-            // Wait for deadline to approach
-            try {
-                Thread.sleep(60);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
+            // Wait for deadline to pass using Awaitility
+            await().atMost(Duration.ofMillis(200))
+                   .pollInterval(Duration.ofMillis(10))
+                   .until(ctx::isExpired);
 
             Duration remaining = ctx.remainingTime();
             assertTrue(remaining.isNegative() || remaining.toMillis() <= 10);
@@ -279,11 +280,10 @@ class DeadlineContextTest {
 
             assertFalse(ctx.isExpired());
 
-            try {
-                Thread.sleep(100);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
+            // Wait for deadline to pass using Awaitility
+            await().atMost(Duration.ofMillis(200))
+                   .pollInterval(Duration.ofMillis(10))
+                   .until(ctx::isExpired);
 
             assertTrue(ctx.isExpired());
         }
@@ -354,12 +354,11 @@ class DeadlineContextTest {
         void veryShortTimeout() {
             DeadlineContext ctx = DeadlineContext.withTimeout(backend, Duration.ofNanos(1));
 
-            // Should expire almost immediately
-            try {
-                Thread.sleep(1);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
+            // Should expire almost immediately - use Awaitility to wait
+            await().atMost(Duration.ofMillis(100))
+                   .pollInterval(Duration.ofMillis(1))
+                   .until(ctx::isExpired);
+
             assertTrue(ctx.isExpired());
         }
 

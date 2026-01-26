@@ -59,6 +59,21 @@ public class MockGpuBackend implements GpuBackend {
     private volatile RuntimeException synchronizeException = null;
     private volatile int synchronizeDelayMs = 0;
 
+    // ==================== Timing Constants ====================
+    // These MUST match GpuWorkCalibrator constants for consistency
+
+    /**
+     * Timing tolerance for assertions in milliseconds.
+     * Matches GpuWorkCalibrator.TIMING_TOLERANCE_MS.
+     */
+    public static final long TIMING_TOLERANCE_MS = 20;
+
+    /**
+     * Minimum simulated work duration in milliseconds.
+     * Matches GpuWorkCalibrator.MIN_WORK_MS.
+     */
+    public static final long MIN_WORK_MS = 5;
+
     /**
      * Creates a mock backend with default device index 0.
      */
@@ -150,6 +165,97 @@ public class MockGpuBackend implements GpuBackend {
      */
     public void setSynchronizeDelayMs(int delayMs) {
         this.synchronizeDelayMs = delayMs;
+    }
+
+    // ==================== Work Simulation ====================
+
+    /**
+     * Simulates GPU work for a specified duration.
+     *
+     * <p>This method provides consistent timing behavior that matches
+     * GpuWorkCalibrator.doGpuWork() for unit tests. Use this instead of
+     * Thread.sleep() to simulate GPU operations.
+     *
+     * @param targetMs target duration in milliseconds
+     * @return MockWorkResult with timing information
+     */
+    public MockWorkResult simulateGpuWork(long targetMs) {
+        long startNanos = System.nanoTime();
+        recordOperation("simulateGpuWork:target=" + targetMs + "ms");
+
+        // Simulate work with bounded sleep
+        long sleepMs = Math.max(MIN_WORK_MS, targetMs);
+        try {
+            Thread.sleep(sleepMs);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+
+        long elapsedNanos = System.nanoTime() - startNanos;
+        return new MockWorkResult(elapsedNanos, targetMs);
+    }
+
+    /**
+     * Simulates GPU work on a specific stream (for forkWithStream tests).
+     *
+     * @param lease the GPU lease to use
+     * @param targetMs target duration in milliseconds
+     * @return MockWorkResult with timing information
+     */
+    public MockWorkResult simulateGpuWork(GpuLease lease, long targetMs) {
+        long startNanos = System.nanoTime();
+        recordOperation("simulateGpuWork:stream=" + lease.streamHandle() + ",target=" + targetMs + "ms");
+
+        // Simulate work
+        long sleepMs = Math.max(MIN_WORK_MS, targetMs);
+        try {
+            Thread.sleep(sleepMs);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+
+        // Simulate stream synchronization (what real GPU work does)
+        lease.synchronize();
+
+        long elapsedNanos = System.nanoTime() - startNanos;
+        return new MockWorkResult(elapsedNanos, targetMs, lease.streamHandle());
+    }
+
+    /**
+     * Asserts that a duration is within timing tolerance.
+     *
+     * @param expectedMs expected duration in milliseconds
+     * @param actualNanos actual duration in nanoseconds
+     * @param description description for error message
+     * @throws AssertionError if timing is outside tolerance
+     */
+    public static void assertTimingWithinTolerance(long expectedMs, long actualNanos, String description) {
+        long actualMs = actualNanos / 1_000_000;
+        long lowerBound = Math.max(0, expectedMs - TIMING_TOLERANCE_MS);
+        long upperBound = expectedMs + TIMING_TOLERANCE_MS * 2; // More tolerance for upper bound
+
+        if (actualMs < lowerBound || actualMs > upperBound) {
+            throw new AssertionError(String.format(
+                "%s: expected ~%dms, got %dms (tolerance: %d-%dms)",
+                description, expectedMs, actualMs, lowerBound, upperBound));
+        }
+    }
+
+    /**
+     * Result of simulated GPU work, analogous to GpuWorkCalibrator.GpuWorkResult.
+     */
+    public record MockWorkResult(
+        long elapsedNanos,
+        long targetMs,
+        long streamHandle
+    ) {
+        public MockWorkResult(long elapsedNanos, long targetMs) {
+            this(elapsedNanos, targetMs, 0);
+        }
+
+        public long elapsedMillis() {
+            return elapsedNanos / 1_000_000;
+        }
     }
 
     // ==================== Backend Interface Implementation ====================

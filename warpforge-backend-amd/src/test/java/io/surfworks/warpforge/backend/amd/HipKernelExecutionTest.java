@@ -355,9 +355,13 @@ class HipKernelExecutionTest {
         float[] result = executeBinaryOp("add", a, b);
 
         // Check a few samples
-        assertEquals(expected[0], result[0], EPSILON);
-        assertEquals(expected[n / 2], result[n / 2], EPSILON);
-        assertEquals(expected[n - 1], result[n - 1], EPSILON);
+        // Use larger tolerance for values ~1000 due to floating-point representation of 0.001f
+        // The GPU computes a[i] + b[i] directly, while expected uses n * 0.001f
+        // Both are correct within single-precision limits
+        float largeTensorEpsilon = 1e-3f;
+        assertEquals(expected[0], result[0], largeTensorEpsilon);
+        assertEquals(expected[n / 2], result[n / 2], largeTensorEpsilon);
+        assertEquals(expected[n - 1], result[n - 1], largeTensorEpsilon);
 
         System.out.println("  Verified 1M element addition");
         System.out.println("[PASS] Large tensor add OK");

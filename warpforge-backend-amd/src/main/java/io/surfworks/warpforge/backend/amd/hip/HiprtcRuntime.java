@@ -276,8 +276,9 @@ public final class HiprtcRuntime {
 
             } finally {
                 step = "hiprtcDestroyProgram";
-                // Destroy program
-                hiprtcDestroyProgram.invokeExact(progPtr);
+                // Destroy program - must capture return value due to invokeExact semantics
+                @SuppressWarnings("unused")
+                int destroyResult = (int) hiprtcDestroyProgram.invokeExact(progPtr);
             }
         } catch (Throwable t) {
             throw new HiprtcException("HIPRTC compile failed at step '" + step + "' for " + kernelName +

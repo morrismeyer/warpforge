@@ -125,7 +125,7 @@ class BinaryElementwiseKernelTest {
 
         assertNotNull(ptx);
         assertTrue(ptx.contains(".visible .entry atan2_f32"));
-        assertTrue(ptx.contains("copysign.f32"));
+        assertTrue(ptx.contains("neg.f32"));  // quadrant adjustment uses negation
         System.out.println("[PASS] Atan2 PTX generation OK");
     }
 

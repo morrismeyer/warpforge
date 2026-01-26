@@ -73,7 +73,7 @@ class MultiplyKernelTest {
         // Should contain timing parameter and instrumentation
         assertTrue(ptx.contains("timing_ptr"));
         assertTrue(ptx.contains("%globaltimer"));
-        assertTrue(ptx.contains("atom.global.add.u64"));
+        assertTrue(ptx.contains("red.global.add.u64"));  // reduction instruction for timing accumulation
     }
 
     // ==================== CUDA Hardware Tests ====================

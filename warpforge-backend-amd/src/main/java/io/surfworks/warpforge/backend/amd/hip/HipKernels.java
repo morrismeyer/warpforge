@@ -627,6 +627,1283 @@ public final class HipKernels {
         return src.toString();
     }
 
+    // ==================== Binary Elementwise Operations ====================
+
+    /**
+     * Generate HIP C++ source for element-wise float32 subtraction.
+     */
+    public static String generateSubtractF32(int salt) {
+        return generateBinaryElementwiseF32("subtract", "a[i] - b[i]", salt);
+    }
+
+    /**
+     * Generate HIP C++ source for element-wise float32 division.
+     */
+    public static String generateDivideF32(int salt) {
+        return generateBinaryElementwiseF32("divide", "a[i] / b[i]", salt);
+    }
+
+    /**
+     * Generate HIP C++ source for element-wise float32 maximum.
+     */
+    public static String generateMaximumF32(int salt) {
+        return generateBinaryElementwiseF32("maximum", "fmaxf(a[i], b[i])", salt);
+    }
+
+    /**
+     * Generate HIP C++ source for element-wise float32 minimum.
+     */
+    public static String generateMinimumF32(int salt) {
+        return generateBinaryElementwiseF32("minimum", "fminf(a[i], b[i])", salt);
+    }
+
+    /**
+     * Generate HIP C++ source for element-wise float32 power.
+     */
+    public static String generatePowerF32(int salt) {
+        return generateBinaryElementwiseF32("power", "powf(a[i], b[i])", salt);
+    }
+
+    /**
+     * Generate HIP C++ source for element-wise float32 remainder.
+     */
+    public static String generateRemainderF32(int salt) {
+        return generateBinaryElementwiseF32("remainder", "fmodf(a[i], b[i])", salt);
+    }
+
+    /**
+     * Generate HIP C++ source for element-wise float32 atan2.
+     */
+    public static String generateAtan2F32(int salt) {
+        return generateBinaryElementwiseF32("atan2", "atan2f(a[i], b[i])", salt);
+    }
+
+    private static String generateBinaryElementwiseF32(String name, String op, int salt) {
+        StringBuilder src = new StringBuilder();
+
+        src.append("""
+            //
+            // %s_f32: Element-wise %s of float32 arrays
+            // Salt level: %d
+            //
+            #include <hip/hip_runtime.h>
+            #include <math.h>
+
+            """.formatted(name, name, salt));
+
+        if (salt >= SALT_TIMING) {
+            src.append("""
+            __device__ __forceinline__ unsigned long long get_timer() {
+                return clock64();
+            }
+
+            """);
+        }
+
+        src.append("""
+            extern "C" __global__ void %s_f32(
+                const float* __restrict__ a,
+                const float* __restrict__ b,
+                float* __restrict__ out,
+                int n
+            """.formatted(name));
+
+        if (salt >= SALT_TIMING) {
+            src.append("    , unsigned long long* timing\n");
+        }
+
+        src.append(") {\n");
+
+        src.append("""
+                int i = blockIdx.x * blockDim.x + threadIdx.x;
+                if (i >= n) return;
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            src.append("""
+                unsigned long long t0 = get_timer();
+
+            """);
+        }
+
+        src.append("        out[i] = %s;\n\n".formatted(op));
+
+        if (salt >= SALT_TIMING) {
+            src.append("""
+                unsigned long long t1 = get_timer();
+                atomicAdd(timing, t1 - t0);
+
+            """);
+        }
+
+        src.append("}\n");
+
+        return src.toString();
+    }
+
+    // ==================== Unary Elementwise Operations ====================
+
+    /**
+     * Generate HIP C++ source for element-wise float32 negation.
+     */
+    public static String generateNegateF32(int salt) {
+        return generateUnaryElementwiseF32("negate", "-x", salt);
+    }
+
+    /**
+     * Generate HIP C++ source for element-wise float32 absolute value.
+     */
+    public static String generateAbsF32(int salt) {
+        return generateUnaryElementwiseF32("abs", "fabsf(x)", salt);
+    }
+
+    /**
+     * Generate HIP C++ source for element-wise float32 exponential.
+     */
+    public static String generateExpF32(int salt) {
+        return generateUnaryElementwiseF32("exp", "expf(x)", salt);
+    }
+
+    /**
+     * Generate HIP C++ source for element-wise float32 natural logarithm.
+     */
+    public static String generateLogF32(int salt) {
+        return generateUnaryElementwiseF32("log", "logf(x)", salt);
+    }
+
+    /**
+     * Generate HIP C++ source for element-wise float32 square root.
+     */
+    public static String generateSqrtF32(int salt) {
+        return generateUnaryElementwiseF32("sqrt", "sqrtf(x)", salt);
+    }
+
+    /**
+     * Generate HIP C++ source for element-wise float32 hyperbolic tangent.
+     */
+    public static String generateTanhF32(int salt) {
+        return generateUnaryElementwiseF32("tanh", "tanhf(x)", salt);
+    }
+
+    /**
+     * Generate HIP C++ source for element-wise float32 reciprocal square root.
+     */
+    public static String generateRsqrtF32(int salt) {
+        return generateUnaryElementwiseF32("rsqrt", "rsqrtf(x)", salt);
+    }
+
+    /**
+     * Generate HIP C++ source for element-wise float32 sine.
+     */
+    public static String generateSinF32(int salt) {
+        return generateUnaryElementwiseF32("sin", "sinf(x)", salt);
+    }
+
+    /**
+     * Generate HIP C++ source for element-wise float32 cosine.
+     */
+    public static String generateCosF32(int salt) {
+        return generateUnaryElementwiseF32("cos", "cosf(x)", salt);
+    }
+
+    /**
+     * Generate HIP C++ source for element-wise float32 ceiling.
+     */
+    public static String generateCeilF32(int salt) {
+        return generateUnaryElementwiseF32("ceil", "ceilf(x)", salt);
+    }
+
+    /**
+     * Generate HIP C++ source for element-wise float32 floor.
+     */
+    public static String generateFloorF32(int salt) {
+        return generateUnaryElementwiseF32("floor", "floorf(x)", salt);
+    }
+
+    /**
+     * Generate HIP C++ source for element-wise float32 sign.
+     */
+    public static String generateSignF32(int salt) {
+        return generateUnaryElementwiseF32("sign", "(x > 0.0f) ? 1.0f : ((x < 0.0f) ? -1.0f : 0.0f)", salt);
+    }
+
+    /**
+     * Generate HIP C++ source for element-wise float32 tangent.
+     */
+    public static String generateTanF32(int salt) {
+        return generateUnaryElementwiseF32("tan", "tanf(x)", salt);
+    }
+
+    /**
+     * Generate HIP C++ source for element-wise float32 logistic (sigmoid).
+     */
+    public static String generateLogisticF32(int salt) {
+        return generateUnaryElementwiseF32("logistic", "1.0f / (1.0f + expf(-x))", salt);
+    }
+
+    /**
+     * Generate HIP C++ source for element-wise float32 expm1 (exp(x) - 1).
+     */
+    public static String generateExpm1F32(int salt) {
+        return generateUnaryElementwiseF32("expm1", "expm1f(x)", salt);
+    }
+
+    /**
+     * Generate HIP C++ source for element-wise float32 log1p (log(1 + x)).
+     */
+    public static String generateLog1pF32(int salt) {
+        return generateUnaryElementwiseF32("log1p", "log1pf(x)", salt);
+    }
+
+    /**
+     * Generate HIP C++ source for element-wise float32 cube root.
+     */
+    public static String generateCbrtF32(int salt) {
+        return generateUnaryElementwiseF32("cbrt", "cbrtf(x)", salt);
+    }
+
+    /**
+     * Generate HIP C++ source for element-wise float32 is_finite check.
+     */
+    public static String generateIsFiniteF32(int salt) {
+        return generateUnaryElementwiseF32("is_finite", "isfinite(x) ? 1.0f : 0.0f", salt);
+    }
+
+    /**
+     * Generate HIP C++ source for element-wise float32 round nearest even.
+     */
+    public static String generateRoundNearestEvenF32(int salt) {
+        return generateUnaryElementwiseF32("round_nearest_even", "rintf(x)", salt);
+    }
+
+    /**
+     * Generate HIP C++ source for element-wise float32 round nearest away from zero.
+     */
+    public static String generateRoundNearestAfzF32(int salt) {
+        return generateUnaryElementwiseF32("round_nearest_afz", "roundf(x)", salt);
+    }
+
+    /**
+     * Generate HIP C++ source for element-wise float32 logical NOT.
+     */
+    public static String generateNotF32(int salt) {
+        return generateUnaryElementwiseF32("not", "(x == 0.0f) ? 1.0f : 0.0f", salt);
+    }
+
+    private static String generateUnaryElementwiseF32(String name, String op, int salt) {
+        StringBuilder src = new StringBuilder();
+
+        src.append("""
+            //
+            // %s_f32: Element-wise %s of float32 array
+            // Salt level: %d
+            //
+            #include <hip/hip_runtime.h>
+            #include <math.h>
+
+            """.formatted(name, name, salt));
+
+        if (salt >= SALT_TIMING) {
+            src.append("""
+            __device__ __forceinline__ unsigned long long get_timer() {
+                return clock64();
+            }
+
+            """);
+        }
+
+        src.append("""
+            extern "C" __global__ void %s_f32(
+                const float* __restrict__ input,
+                float* __restrict__ out,
+                int n
+            """.formatted(name));
+
+        if (salt >= SALT_TIMING) {
+            src.append("    , unsigned long long* timing\n");
+        }
+
+        src.append(") {\n");
+
+        src.append("""
+                int i = blockIdx.x * blockDim.x + threadIdx.x;
+                if (i >= n) return;
+
+                float x = input[i];
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            src.append("""
+                unsigned long long t0 = get_timer();
+
+            """);
+        }
+
+        src.append("        out[i] = %s;\n\n".formatted(op));
+
+        if (salt >= SALT_TIMING) {
+            src.append("""
+                unsigned long long t1 = get_timer();
+                atomicAdd(timing, t1 - t0);
+
+            """);
+        }
+
+        src.append("}\n");
+
+        return src.toString();
+    }
+
+    // ==================== Compare Operations ====================
+
+    /**
+     * Generate HIP C++ source for element-wise float32 comparison.
+     *
+     * @param direction One of: "EQ", "NE", "LT", "LE", "GT", "GE"
+     * @param salt Instrumentation level
+     * @return HIP C++ source code
+     */
+    public static String generateCompareF32(String direction, int salt) {
+        String op = switch (direction) {
+            case "EQ" -> "a[i] == b[i]";
+            case "NE" -> "a[i] != b[i]";
+            case "LT" -> "a[i] < b[i]";
+            case "LE" -> "a[i] <= b[i]";
+            case "GT" -> "a[i] > b[i]";
+            case "GE" -> "a[i] >= b[i]";
+            default -> throw new IllegalArgumentException("Unknown comparison direction: " + direction);
+        };
+
+        StringBuilder src = new StringBuilder();
+
+        src.append("""
+            //
+            // compare_%s_f32: Element-wise %s comparison of float32 arrays
+            // Salt level: %d
+            //
+            #include <hip/hip_runtime.h>
+
+            """.formatted(direction.toLowerCase(), direction, salt));
+
+        if (salt >= SALT_TIMING) {
+            src.append("""
+            __device__ __forceinline__ unsigned long long get_timer() {
+                return clock64();
+            }
+
+            """);
+        }
+
+        src.append("""
+            extern "C" __global__ void compare_%s_f32(
+                const float* __restrict__ a,
+                const float* __restrict__ b,
+                float* __restrict__ out,
+                int n
+            """.formatted(direction.toLowerCase()));
+
+        if (salt >= SALT_TIMING) {
+            src.append("    , unsigned long long* timing\n");
+        }
+
+        src.append(") {\n");
+
+        src.append("""
+                int i = blockIdx.x * blockDim.x + threadIdx.x;
+                if (i >= n) return;
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            src.append("""
+                unsigned long long t0 = get_timer();
+
+            """);
+        }
+
+        src.append("        out[i] = (%s) ? 1.0f : 0.0f;\n\n".formatted(op));
+
+        if (salt >= SALT_TIMING) {
+            src.append("""
+                unsigned long long t1 = get_timer();
+                atomicAdd(timing, t1 - t0);
+
+            """);
+        }
+
+        src.append("}\n");
+
+        return src.toString();
+    }
+
+    /**
+     * Generate HIP C++ source for element-wise float32 select.
+     */
+    public static String generateSelectF32(int salt) {
+        StringBuilder src = new StringBuilder();
+
+        src.append("""
+            //
+            // select_f32: Element-wise select of float32 arrays
+            // Salt level: %d
+            //
+            #include <hip/hip_runtime.h>
+
+            """.formatted(salt));
+
+        if (salt >= SALT_TIMING) {
+            src.append("""
+            __device__ __forceinline__ unsigned long long get_timer() {
+                return clock64();
+            }
+
+            """);
+        }
+
+        src.append("""
+            extern "C" __global__ void select_f32(
+                const float* __restrict__ pred_ptr,
+                const float* __restrict__ on_true_ptr,
+                const float* __restrict__ on_false_ptr,
+                float* __restrict__ out,
+                int n
+            """);
+
+        if (salt >= SALT_TIMING) {
+            src.append("    , unsigned long long* timing\n");
+        }
+
+        src.append(") {\n");
+
+        src.append("""
+                int i = blockIdx.x * blockDim.x + threadIdx.x;
+                if (i >= n) return;
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            src.append("""
+                unsigned long long t0 = get_timer();
+
+            """);
+        }
+
+        src.append("""
+                out[i] = (pred_ptr[i] != 0.0f) ? on_true_ptr[i] : on_false_ptr[i];
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            src.append("""
+                unsigned long long t1 = get_timer();
+                atomicAdd(timing, t1 - t0);
+
+            """);
+        }
+
+        src.append("}\n");
+
+        return src.toString();
+    }
+
+    /**
+     * Generate HIP C++ source for element-wise float32 clamp.
+     */
+    public static String generateClampF32(int salt) {
+        StringBuilder src = new StringBuilder();
+
+        src.append("""
+            //
+            // clamp_f32: Element-wise clamp of float32 arrays
+            // Salt level: %d
+            //
+            #include <hip/hip_runtime.h>
+            #include <math.h>
+
+            """.formatted(salt));
+
+        if (salt >= SALT_TIMING) {
+            src.append("""
+            __device__ __forceinline__ unsigned long long get_timer() {
+                return clock64();
+            }
+
+            """);
+        }
+
+        src.append("""
+            extern "C" __global__ void clamp_f32(
+                const float* __restrict__ min_ptr,
+                const float* __restrict__ operand_ptr,
+                const float* __restrict__ max_ptr,
+                float* __restrict__ out,
+                int n
+            """);
+
+        if (salt >= SALT_TIMING) {
+            src.append("    , unsigned long long* timing\n");
+        }
+
+        src.append(") {\n");
+
+        src.append("""
+                int i = blockIdx.x * blockDim.x + threadIdx.x;
+                if (i >= n) return;
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            src.append("""
+                unsigned long long t0 = get_timer();
+
+            """);
+        }
+
+        src.append("""
+                out[i] = fmaxf(min_ptr[i], fminf(operand_ptr[i], max_ptr[i]));
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            src.append("""
+                unsigned long long t1 = get_timer();
+                atomicAdd(timing, t1 - t0);
+
+            """);
+        }
+
+        src.append("}\n");
+
+        return src.toString();
+    }
+
+    // ==================== Integer Bitwise Operations ====================
+
+    /**
+     * Generate HIP C++ source for element-wise int32 AND.
+     */
+    public static String generateAndI32(int salt) {
+        return generateIntegerBinaryOp("and", "a[i] & b[i]", salt);
+    }
+
+    /**
+     * Generate HIP C++ source for element-wise int32 OR.
+     */
+    public static String generateOrI32(int salt) {
+        return generateIntegerBinaryOp("or", "a[i] | b[i]", salt);
+    }
+
+    /**
+     * Generate HIP C++ source for element-wise int32 XOR.
+     */
+    public static String generateXorI32(int salt) {
+        return generateIntegerBinaryOp("xor", "a[i] ^ b[i]", salt);
+    }
+
+    /**
+     * Generate HIP C++ source for element-wise int32 left shift.
+     */
+    public static String generateShiftLeftI32(int salt) {
+        return generateIntegerBinaryOp("shift_left", "a[i] << b[i]", salt);
+    }
+
+    /**
+     * Generate HIP C++ source for element-wise int32 arithmetic right shift.
+     */
+    public static String generateShiftRightArithmeticI32(int salt) {
+        return generateIntegerBinaryOp("shift_right_arithmetic", "a[i] >> b[i]", salt);
+    }
+
+    /**
+     * Generate HIP C++ source for element-wise int32 logical right shift.
+     */
+    public static String generateShiftRightLogicalI32(int salt) {
+        return generateIntegerBinaryOp("shift_right_logical", "((unsigned int)a[i]) >> b[i]", salt);
+    }
+
+    private static String generateIntegerBinaryOp(String name, String op, int salt) {
+        StringBuilder src = new StringBuilder();
+
+        src.append("""
+            //
+            // %s_i32: Element-wise %s of int32 arrays
+            // Salt level: %d
+            //
+            #include <hip/hip_runtime.h>
+
+            """.formatted(name, name, salt));
+
+        if (salt >= SALT_TIMING) {
+            src.append("""
+            __device__ __forceinline__ unsigned long long get_timer() {
+                return clock64();
+            }
+
+            """);
+        }
+
+        src.append("""
+            extern "C" __global__ void %s_i32(
+                const int* __restrict__ a,
+                const int* __restrict__ b,
+                int* __restrict__ out,
+                int n
+            """.formatted(name));
+
+        if (salt >= SALT_TIMING) {
+            src.append("    , unsigned long long* timing\n");
+        }
+
+        src.append(") {\n");
+
+        src.append("""
+                int i = blockIdx.x * blockDim.x + threadIdx.x;
+                if (i >= n) return;
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            src.append("""
+                unsigned long long t0 = get_timer();
+
+            """);
+        }
+
+        src.append("        out[i] = %s;\n\n".formatted(op));
+
+        if (salt >= SALT_TIMING) {
+            src.append("""
+                unsigned long long t1 = get_timer();
+                atomicAdd(timing, t1 - t0);
+
+            """);
+        }
+
+        src.append("}\n");
+
+        return src.toString();
+    }
+
+    // ==================== Reduce Operations ====================
+
+    /**
+     * Generate HIP C++ source for reduce add.
+     */
+    public static String generateReduceAddF32(int salt) {
+        return generateReduceOp("add", "0.0f", "+", salt);
+    }
+
+    /**
+     * Generate HIP C++ source for reduce max.
+     */
+    public static String generateReduceMaxF32(int salt) {
+        return generateReduceOp("max", "-INFINITY", "fmaxf", salt);
+    }
+
+    /**
+     * Generate HIP C++ source for reduce min.
+     */
+    public static String generateReduceMinF32(int salt) {
+        return generateReduceOp("min", "INFINITY", "fminf", salt);
+    }
+
+    /**
+     * Generate HIP C++ source for reduce mul.
+     */
+    public static String generateReduceMulF32(int salt) {
+        return generateReduceOp("mul", "1.0f", "*", salt);
+    }
+
+    private static String generateReduceOp(String name, String identity, String op, int salt) {
+        StringBuilder src = new StringBuilder();
+
+        src.append("""
+            //
+            // reduce_%s_f32: Reduce %s of float32 array
+            // Salt level: %d
+            //
+            #include <hip/hip_runtime.h>
+            #include <math.h>
+
+            #define BLOCK_SIZE 256
+
+            """.formatted(name, name, salt));
+
+        if (salt >= SALT_TIMING) {
+            src.append("""
+            __device__ __forceinline__ unsigned long long get_timer() {
+                return clock64();
+            }
+
+            """);
+        }
+
+        src.append("""
+            extern "C" __global__ void reduce_%s_f32(
+                const float* __restrict__ input,
+                float* __restrict__ output,
+                int n
+            """.formatted(name));
+
+        if (salt >= SALT_TIMING) {
+            src.append("    , unsigned long long* timing\n");
+        }
+
+        src.append(") {\n");
+
+        src.append("""
+                __shared__ float sdata[BLOCK_SIZE];
+
+                int tid = threadIdx.x;
+                int i = blockIdx.x * blockDim.x + threadIdx.x;
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            src.append("""
+                unsigned long long t0 = get_timer();
+
+            """);
+        }
+
+        // Load into shared memory
+        src.append("        sdata[tid] = (i < n) ? input[i] : %s;\n".formatted(identity));
+        src.append("        __syncthreads();\n\n");
+
+        // Reduction in shared memory
+        src.append("        for (int s = blockDim.x / 2; s > 0; s >>= 1) {\n");
+        src.append("            if (tid < s) {\n");
+        if (op.equals("+") || op.equals("*")) {
+            src.append("                sdata[tid] = sdata[tid] %s sdata[tid + s];\n".formatted(op));
+        } else {
+            src.append("                sdata[tid] = %s(sdata[tid], sdata[tid + s]);\n".formatted(op));
+        }
+        src.append("            }\n");
+        src.append("            __syncthreads();\n");
+        src.append("        }\n\n");
+
+        src.append("        if (tid == 0) {\n");
+        if (op.equals("+")) {
+            src.append("            atomicAdd(output, sdata[0]);\n");
+        } else {
+            src.append("            output[blockIdx.x] = sdata[0];\n");
+        }
+        src.append("        }\n");
+
+        if (salt >= SALT_TIMING) {
+            src.append("""
+
+                unsigned long long t1 = get_timer();
+                if (tid == 0) atomicAdd(timing, t1 - t0);
+
+            """);
+        }
+
+        src.append("}\n");
+
+        return src.toString();
+    }
+
+    // ==================== Shape Manipulation Operations ====================
+
+    /**
+     * Generate HIP C++ source for reshape (copy).
+     */
+    public static String generateReshapeF32(int salt) {
+        return generateUnaryElementwiseF32("reshape", "x", salt);
+    }
+
+    /**
+     * Generate HIP C++ source for 2D transpose.
+     */
+    public static String generateTranspose2DF32(int salt) {
+        StringBuilder src = new StringBuilder();
+
+        src.append("""
+            //
+            // transpose_2d_f32: 2D matrix transpose
+            // Salt level: %d
+            //
+            #include <hip/hip_runtime.h>
+
+            """.formatted(salt));
+
+        if (salt >= SALT_TIMING) {
+            src.append("""
+            __device__ __forceinline__ unsigned long long get_timer() {
+                return clock64();
+            }
+
+            """);
+        }
+
+        src.append("""
+            extern "C" __global__ void transpose_2d_f32(
+                const float* __restrict__ input,
+                float* __restrict__ output,
+                int rows,
+                int cols
+            """);
+
+        if (salt >= SALT_TIMING) {
+            src.append("    , unsigned long long* timing\n");
+        }
+
+        src.append(") {\n");
+
+        src.append("""
+                int row = blockIdx.y * blockDim.y + threadIdx.y;
+                int col = blockIdx.x * blockDim.x + threadIdx.x;
+
+                if (row >= rows || col >= cols) return;
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            src.append("""
+                unsigned long long t0 = get_timer();
+
+            """);
+        }
+
+        src.append("""
+                output[col * rows + row] = input[row * cols + col];
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            src.append("""
+                unsigned long long t1 = get_timer();
+                atomicAdd(timing, t1 - t0);
+
+            """);
+        }
+
+        src.append("}\n");
+
+        return src.toString();
+    }
+
+    /**
+     * Generate HIP C++ source for broadcast scalar.
+     */
+    public static String generateBroadcastScalarF32(int salt) {
+        StringBuilder src = new StringBuilder();
+
+        src.append("""
+            //
+            // broadcast_scalar_f32: Broadcast scalar to array
+            // Salt level: %d
+            //
+            #include <hip/hip_runtime.h>
+
+            """.formatted(salt));
+
+        if (salt >= SALT_TIMING) {
+            src.append("""
+            __device__ __forceinline__ unsigned long long get_timer() {
+                return clock64();
+            }
+
+            """);
+        }
+
+        src.append("""
+            extern "C" __global__ void broadcast_scalar_f32(
+                const float* __restrict__ input,
+                float* __restrict__ output,
+                int n
+            """);
+
+        if (salt >= SALT_TIMING) {
+            src.append("    , unsigned long long* timing\n");
+        }
+
+        src.append(") {\n");
+
+        src.append("""
+                int i = blockIdx.x * blockDim.x + threadIdx.x;
+                if (i >= n) return;
+
+                float value = input[0];
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            src.append("""
+                unsigned long long t0 = get_timer();
+
+            """);
+        }
+
+        src.append("""
+                output[i] = value;
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            src.append("""
+                unsigned long long t1 = get_timer();
+                atomicAdd(timing, t1 - t0);
+
+            """);
+        }
+
+        src.append("}\n");
+
+        return src.toString();
+    }
+
+    /**
+     * Generate HIP C++ source for broadcast 1D to 2D along rows.
+     */
+    public static String generateBroadcast1Dto2DRowF32(int salt) {
+        StringBuilder src = new StringBuilder();
+
+        src.append("""
+            //
+            // broadcast_1d_to_2d_row_f32: Broadcast 1D array to 2D along rows
+            // Salt level: %d
+            //
+            #include <hip/hip_runtime.h>
+
+            """.formatted(salt));
+
+        if (salt >= SALT_TIMING) {
+            src.append("""
+            __device__ __forceinline__ unsigned long long get_timer() {
+                return clock64();
+            }
+
+            """);
+        }
+
+        src.append("""
+            extern "C" __global__ void broadcast_1d_to_2d_row_f32(
+                const float* __restrict__ input,
+                float* __restrict__ output,
+                int rows,
+                int cols
+            """);
+
+        if (salt >= SALT_TIMING) {
+            src.append("    , unsigned long long* timing\n");
+        }
+
+        src.append(") {\n");
+
+        src.append("""
+                int row = blockIdx.y * blockDim.y + threadIdx.y;
+                int col = blockIdx.x * blockDim.x + threadIdx.x;
+
+                if (row >= rows || col >= cols) return;
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            src.append("""
+                unsigned long long t0 = get_timer();
+
+            """);
+        }
+
+        src.append("""
+                output[row * cols + col] = input[col];
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            src.append("""
+                unsigned long long t1 = get_timer();
+                atomicAdd(timing, t1 - t0);
+
+            """);
+        }
+
+        src.append("}\n");
+
+        return src.toString();
+    }
+
+    /**
+     * Generate HIP C++ source for broadcast 1D to 2D along columns.
+     */
+    public static String generateBroadcast1Dto2DColF32(int salt) {
+        StringBuilder src = new StringBuilder();
+
+        src.append("""
+            //
+            // broadcast_1d_to_2d_col_f32: Broadcast 1D array to 2D along columns
+            // Salt level: %d
+            //
+            #include <hip/hip_runtime.h>
+
+            """.formatted(salt));
+
+        if (salt >= SALT_TIMING) {
+            src.append("""
+            __device__ __forceinline__ unsigned long long get_timer() {
+                return clock64();
+            }
+
+            """);
+        }
+
+        src.append("""
+            extern "C" __global__ void broadcast_1d_to_2d_col_f32(
+                const float* __restrict__ input,
+                float* __restrict__ output,
+                int rows,
+                int cols
+            """);
+
+        if (salt >= SALT_TIMING) {
+            src.append("    , unsigned long long* timing\n");
+        }
+
+        src.append(") {\n");
+
+        src.append("""
+                int row = blockIdx.y * blockDim.y + threadIdx.y;
+                int col = blockIdx.x * blockDim.x + threadIdx.x;
+
+                if (row >= rows || col >= cols) return;
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            src.append("""
+                unsigned long long t0 = get_timer();
+
+            """);
+        }
+
+        src.append("""
+                output[row * cols + col] = input[row];
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            src.append("""
+                unsigned long long t1 = get_timer();
+                atomicAdd(timing, t1 - t0);
+
+            """);
+        }
+
+        src.append("}\n");
+
+        return src.toString();
+    }
+
+    // ==================== Type Conversion Operations ====================
+
+    /**
+     * Generate HIP C++ source for F32 to I32 conversion.
+     */
+    public static String generateConvertF32toI32(int salt) {
+        StringBuilder src = new StringBuilder();
+
+        src.append("""
+            //
+            // convert_f32_to_i32: Convert float32 to int32
+            // Salt level: %d
+            //
+            #include <hip/hip_runtime.h>
+
+            """.formatted(salt));
+
+        if (salt >= SALT_TIMING) {
+            src.append("""
+            __device__ __forceinline__ unsigned long long get_timer() {
+                return clock64();
+            }
+
+            """);
+        }
+
+        src.append("""
+            extern "C" __global__ void convert_f32_to_i32(
+                const float* __restrict__ input,
+                int* __restrict__ output,
+                int n
+            """);
+
+        if (salt >= SALT_TIMING) {
+            src.append("    , unsigned long long* timing\n");
+        }
+
+        src.append(") {\n");
+
+        src.append("""
+                int i = blockIdx.x * blockDim.x + threadIdx.x;
+                if (i >= n) return;
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            src.append("""
+                unsigned long long t0 = get_timer();
+
+            """);
+        }
+
+        src.append("""
+                output[i] = (int)input[i];
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            src.append("""
+                unsigned long long t1 = get_timer();
+                atomicAdd(timing, t1 - t0);
+
+            """);
+        }
+
+        src.append("}\n");
+
+        return src.toString();
+    }
+
+    /**
+     * Generate HIP C++ source for I32 to F32 conversion.
+     */
+    public static String generateConvertI32toF32(int salt) {
+        StringBuilder src = new StringBuilder();
+
+        src.append("""
+            //
+            // convert_i32_to_f32: Convert int32 to float32
+            // Salt level: %d
+            //
+            #include <hip/hip_runtime.h>
+
+            """.formatted(salt));
+
+        if (salt >= SALT_TIMING) {
+            src.append("""
+            __device__ __forceinline__ unsigned long long get_timer() {
+                return clock64();
+            }
+
+            """);
+        }
+
+        src.append("""
+            extern "C" __global__ void convert_i32_to_f32(
+                const int* __restrict__ input,
+                float* __restrict__ output,
+                int n
+            """);
+
+        if (salt >= SALT_TIMING) {
+            src.append("    , unsigned long long* timing\n");
+        }
+
+        src.append(") {\n");
+
+        src.append("""
+                int i = blockIdx.x * blockDim.x + threadIdx.x;
+                if (i >= n) return;
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            src.append("""
+                unsigned long long t0 = get_timer();
+
+            """);
+        }
+
+        src.append("""
+                output[i] = (float)input[i];
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            src.append("""
+                unsigned long long t1 = get_timer();
+                atomicAdd(timing, t1 - t0);
+
+            """);
+        }
+
+        src.append("}\n");
+
+        return src.toString();
+    }
+
+    /**
+     * Generate HIP C++ source for I32 to I32 identity conversion.
+     */
+    public static String generateConvertI32toI32(int salt) {
+        StringBuilder src = new StringBuilder();
+
+        src.append("""
+            //
+            // convert_i32_to_i32: Identity conversion for int32
+            // Salt level: %d
+            //
+            #include <hip/hip_runtime.h>
+
+            """.formatted(salt));
+
+        if (salt >= SALT_TIMING) {
+            src.append("""
+            __device__ __forceinline__ unsigned long long get_timer() {
+                return clock64();
+            }
+
+            """);
+        }
+
+        src.append("""
+            extern "C" __global__ void convert_i32_to_i32(
+                const int* __restrict__ input,
+                int* __restrict__ output,
+                int n
+            """);
+
+        if (salt >= SALT_TIMING) {
+            src.append("    , unsigned long long* timing\n");
+        }
+
+        src.append(") {\n");
+
+        src.append("""
+                int i = blockIdx.x * blockDim.x + threadIdx.x;
+                if (i >= n) return;
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            src.append("""
+                unsigned long long t0 = get_timer();
+
+            """);
+        }
+
+        src.append("""
+                output[i] = input[i];
+
+            """);
+
+        if (salt >= SALT_TIMING) {
+            src.append("""
+                unsigned long long t1 = get_timer();
+                atomicAdd(timing, t1 - t0);
+
+            """);
+        }
+
+        src.append("}\n");
+
+        return src.toString();
+    }
+
     // ==================== Utility Methods ====================
 
     /**

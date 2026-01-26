@@ -1776,7 +1776,8 @@ lg2.approx.f32  %f4, %f2;              // temp for checking if x is positive
                 bar.sync        0;
 
                 // Phase 2: Tree reduction in shared memory
-                mov.u32         %%r10, 128;          // s = blockDim.x / 2
+                mov.u32         %%r10, %%ntid.x;     // s = blockDim.x
+                shr.u32         %%r10, %%r10, 1;     // s = s / 2
 
             REDUCE_LOOP:
                 setp.eq.s32     %%p2, %%r10, 0;

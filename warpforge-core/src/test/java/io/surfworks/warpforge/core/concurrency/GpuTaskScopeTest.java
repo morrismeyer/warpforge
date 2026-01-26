@@ -115,7 +115,11 @@ class GpuTaskScopeTest {
                     scope.forkWithStream(lease -> {
                         int current = backend.activeStreamCount();
                         maxConcurrent.updateAndGet(max -> Math.max(max, current));
-                        Thread.sleep(10);
+                        try {
+                            Thread.sleep(10);
+                        } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                        }
                         return current;
                     });
                 }

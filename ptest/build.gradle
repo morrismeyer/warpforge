@@ -64,7 +64,25 @@ tasks.register('validateJfrAmd', JavaExec) {
     ]
 }
 
-// Task to validate JFR recordings contain expected events
+// Task to validate NVIDIA JFR recording (run on NVIDIA box after validateJfrNvidia)
+tasks.register('checkJfrNvidia', JavaExec) {
+    group = 'verification'
+    description = 'Validate that NVIDIA JFR recording contains GPU events'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'io.surfworks.warpforge.ptest.JfrRecordingValidator'
+    args = ['build/jfr-nvidia.jfr']
+}
+
+// Task to validate AMD JFR recording (run on AMD box after validateJfrAmd)
+tasks.register('checkJfrAmd', JavaExec) {
+    group = 'verification'
+    description = 'Validate that AMD JFR recording contains GPU events'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'io.surfworks.warpforge.ptest.JfrRecordingValidator'
+    args = ['build/jfr-amd.jfr']
+}
+
+// Combined task to validate JFR recordings (for local use when both files exist)
 tasks.register('validateJfrRecordings', JavaExec) {
     group = 'verification'
     description = 'Validate that JFR recordings contain GPU events'

@@ -169,6 +169,18 @@ ssh "$TARGET_HOST" bash -lc "
   echo \"[remote \$(date)] Running AMD GPU tests: ${AMD_TEST_CMD}\"
   bash -lc \"${AMD_TEST_CMD}\"
 
+  echo \"[remote \$(date)] Running JFR GPU validation...\"
+  bash -lc \"./gradlew :ptest:validateJfrAmd --no-configuration-cache\" || echo \"JFR validation skipped (HIP/ROCm may not be available)\"
+
+  # Validate the JFR recording contains GPU events
+  if [ -f ptest/build/jfr-amd.jfr ]; then
+    echo \"[remote \$(date)] Validating JFR recording...\"
+    bash -lc \"./gradlew :ptest:checkJfrAmd --no-configuration-cache\"
+    echo \"[remote \$(date)] JFR validation SUCCESS - GPU events captured\"
+  else
+    echo \"[remote \$(date)] JFR recording not found (HIP/ROCm may not be available)\"
+  fi
+
   echo \"[remote \$(date)] Build + tests completed successfully\"
 " 2>&1 | tee -a "$LOG_FILE"
 

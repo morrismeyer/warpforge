@@ -104,7 +104,10 @@ public final class ReduceKernel implements CudaOpKernel {
         ensureInitialized(reducer);
 
         Tensor operand = inputs.get(0);
-        // inputs.get(1) is the init value, which is baked into the PTX kernel
+        Tensor initTensor = inputs.get(1);
+
+        // Extract the init value from the tensor (should be a scalar)
+        float initValue = initTensor.toFloatArray()[0];
 
         int n = (int) operand.elementCount();
         TensorSpec outputSpec = TensorSpec.fromAst(op.tensorResultType());
@@ -141,21 +144,25 @@ public final class ReduceKernel implements CudaOpKernel {
 
             long function = getFunction(reducer);
 
+            // PTX parameter order: in_ptr, out_ptr, n, init_value, [timing_ptr]
             if (salt >= CudaKernels.SALT_TIMING) {
-                context.launchKernelWithIntParams(
-                    function,
-                    new int[]{gridSize, 1, 1}, new int[]{blockSize, 1, 1},
-                    sharedMemSize,
-                    new long[]{dInput, dOutput, dTiming},
-                    n
-                );
-            } else {
-                context.launchKernelWithIntParams(
+                context.launchKernelWithMixedParams(
                     function,
                     new int[]{gridSize, 1, 1}, new int[]{blockSize, 1, 1},
                     sharedMemSize,
                     new long[]{dInput, dOutput},
-                    n
+                    new int[]{n},
+                    new float[]{initValue},
+                    new long[]{dTiming}  // timing_ptr comes after init_value
+                );
+            } else {
+                context.launchKernelWithMixedParams(
+                    function,
+                    new int[]{gridSize, 1, 1}, new int[]{blockSize, 1, 1},
+                    sharedMemSize,
+                    new long[]{dInput, dOutput},
+                    new int[]{n},
+                    new float[]{initValue}
                 );
             }
 

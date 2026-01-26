@@ -1,0 +1,21 @@
+Waiting for peer connection on port 18520...
+Peer connected
+
+UCC Collective Benchmark
+========================
+Ranks:       2
+Message:     16777216 bytes (16.78 MB)
+Iterations:  10 (warmup: 2)
+Collective:  all
+
+Collective            Size   Avg(us)   Min(us)   Max(us)   p50(us)   p95(us)   p99(us)      Gbps
+--------------------------------------------------------------------------------------------
+allreduce         16777216   2916.21   2889.82   2936.00   2920.03   2936.00   2936.00     46.02
+broadcast         16777216   2451.16   2442.21   2456.56   2452.23   2456.56   2456.56     54.76
+allgather         16777216   3247.87   3224.57   3285.47   3243.29   3285.47   3285.47     41.32
+reduce_scatter    16777216   2004.55   1890.52   2149.76   2093.58   2149.76   2149.76     66.96
+alltoall          16777216   2383.92   2381.69   2386.28   2383.80   2386.28   2386.28     56.30
+barrier                N/A      0.99      0.71      1.20      1.02      1.20      1.20       N/A
+
+Connecting to 10.0.0.1:18520...
+Connected to peer

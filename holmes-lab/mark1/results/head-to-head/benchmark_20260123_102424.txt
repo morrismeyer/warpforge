@@ -1,0 +1,48 @@
+==============================================================================
+Head-to-Head Benchmark Results
+==============================================================================
+
+Configuration:
+  Message Size: 16777216 bytes (16.00 MB)
+  Iterations: 10
+  Warmup: 2
+  Date: Fri Jan 23 10:40:37 EST 2026
+
+------------------------------------------------------------------------------
+Native-Image Java (warpforge-io AOT compiled)
+------------------------------------------------------------------------------
+======================================================================
+UCC Collective Performance Test
+======================================================================
+Rank: 0 / 2
+Master: 192.168.1.160:29500
+Message size: 16.00 MB (4194304 floats)
+Iterations: 10 (warmup: 2)
+Collective System Information:
+  Platform: Linux
+  Linux: true
+  UCC libraries: true
+  RDMA available: true
+  Can use real UCC: true
+
+
+Jan 23, 2026 10:24:56 AM io.surfworks.warpforge.io.collective.impl.UccCollectiveImpl initializeUccReal
+INFO: Initializing UCC for rank 0 of 2
+Jan 23, 2026 10:24:56 AM io.surfworks.warpforge.io.collective.impl.OobCoordinator initializeServer
+INFO: OOB server listening on port 29500
+Jan 23, 2026 10:40:37 AM io.surfworks.warpforge.io.collective.impl.OobCoordinator initializeNetwork
+INFO: OOB coordinator initialized: rank=0, worldSize=2
+[Rank 0] FAILED: Failed to load UCC: java.lang.NoSuchMethodError: io.surfworks.warpforge.io.ffi.ucc.ucc_oob_coll$allgather$Function.apply(java.lang.foreign.MemorySegment, java.lang.foreign.MemorySegment, long, java.lang.foreign.MemorySegment, java.lang.foreign.MemorySegment)
+io.surfworks.warpforge.io.collective.CollectiveException: Failed to load UCC: java.lang.NoSuchMethodError: io.surfworks.warpforge.io.ffi.ucc.ucc_oob_coll$allgather$Function.apply(java.lang.foreign.MemorySegment, java.lang.foreign.MemorySegment, long, java.lang.foreign.MemorySegment, java.lang.foreign.MemorySegment)
+	at io.surfworks.warpforge.io.collective.Collective.loadUcc(Collective.java:121)
+	at io.surfworks.warpforge.io.test.UccPerfTest.main(UccPerfTest.java:93)
+	at java.base@25.0.1/java.lang.invoke.LambdaForm$DMH/sa346b79c.invokeStaticInit(LambdaForm$DMH)
+StaticInit(LambdaForm$DMH)
+
+==============================================================================
+Analysis
+==============================================================================
+
+Native-image eliminates JVM startup and reduces FFM overhead.
+Expected: Native should be within 5-10% of C baseline.
+

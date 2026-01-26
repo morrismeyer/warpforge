@@ -254,6 +254,72 @@ public final class CudaContext implements AutoCloseable {
         }
     }
 
+    /**
+     * Launch a kernel with int and float parameters.
+     *
+     * <p>Parameters are passed in order: device pointers, then ints, then floats.
+     */
+    public void launchKernelWithMixedParams(long function, int[] gridDim, int[] blockDim, int sharedMem,
+                                            long[] devicePtrs, int[] intParams, float[] floatParams) {
+        launchKernelWithMixedParams(function, gridDim, blockDim, sharedMem, devicePtrs, intParams, floatParams, null);
+    }
+
+    /**
+     * Launch a kernel with int, float, and optional trailing pointer parameters.
+     *
+     * <p>Parameters are passed in order: device pointers, then ints, then floats, then trailing pointers.
+     * This supports PTX kernels where timing pointers come at the end of the parameter list.
+     */
+    public void launchKernelWithMixedParams(long function, int[] gridDim, int[] blockDim, int sharedMem,
+                                            long[] devicePtrs, int[] intParams, float[] floatParams,
+                                            long[] trailingPtrs) {
+        checkNotClosed();
+        try (Arena launchArena = Arena.ofConfined()) {
+            int totalParams = devicePtrs.length + intParams.length + floatParams.length
+                + (trailingPtrs != null ? trailingPtrs.length : 0);
+            MemorySegment paramsArray = launchArena.allocate(ValueLayout.ADDRESS, totalParams);
+
+            int idx = 0;
+            // Add device pointer parameters
+            for (long ptr : devicePtrs) {
+                MemorySegment paramPtr = launchArena.allocate(ValueLayout.JAVA_LONG);
+                paramPtr.set(ValueLayout.JAVA_LONG, 0, ptr);
+                paramsArray.setAtIndex(ValueLayout.ADDRESS, idx++, paramPtr);
+            }
+            // Add int parameters
+            for (int val : intParams) {
+                MemorySegment paramPtr = launchArena.allocate(ValueLayout.JAVA_INT);
+                paramPtr.set(ValueLayout.JAVA_INT, 0, val);
+                paramsArray.setAtIndex(ValueLayout.ADDRESS, idx++, paramPtr);
+            }
+            // Add float parameters
+            for (float val : floatParams) {
+                MemorySegment paramPtr = launchArena.allocate(ValueLayout.JAVA_FLOAT);
+                paramPtr.set(ValueLayout.JAVA_FLOAT, 0, val);
+                paramsArray.setAtIndex(ValueLayout.ADDRESS, idx++, paramPtr);
+            }
+            // Add trailing pointer parameters (e.g., timing_ptr)
+            if (trailingPtrs != null) {
+                for (long ptr : trailingPtrs) {
+                    MemorySegment paramPtr = launchArena.allocate(ValueLayout.JAVA_LONG);
+                    paramPtr.set(ValueLayout.JAVA_LONG, 0, ptr);
+                    paramsArray.setAtIndex(ValueLayout.ADDRESS, idx++, paramPtr);
+                }
+            }
+
+            CudaRuntime.launchKernel(
+                function,
+                gridDim[0], gridDim.length > 1 ? gridDim[1] : 1, gridDim.length > 2 ? gridDim[2] : 1,
+                blockDim[0], blockDim.length > 1 ? blockDim[1] : 1, blockDim.length > 2 ? blockDim[2] : 1,
+                sharedMem,
+                0,
+                paramsArray
+            );
+        } catch (Throwable t) {
+            throw new CudaRuntime.CudaException("Failed to launch kernel", t);
+        }
+    }
+
     // ==================== cuBLAS Operations ====================
 
     /**

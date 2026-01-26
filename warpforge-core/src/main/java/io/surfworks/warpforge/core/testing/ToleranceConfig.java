@@ -64,6 +64,8 @@ public record ToleranceConfig(double atol, double rtol) {
         Map.entry("bert", new ToleranceConfig(5e-3, 5e-3)),
         Map.entry("bert_squad", new ToleranceConfig(5e-3, 5e-3)),
         Map.entry("bert_squad_mini", new ToleranceConfig(5e-3, 5e-3)),
+        Map.entry("bert_squad_small", new ToleranceConfig(1e-2, 1e-2)),  // 6 layers, higher tolerance
+        Map.entry("bert_squad_base", new ToleranceConfig(2e-2, 2e-2)),   // 12 layers, highest tolerance
         Map.entry("gpt", new ToleranceConfig(5e-3, 5e-3)),
         Map.entry("vit", new ToleranceConfig(5e-3, 5e-3)),
 

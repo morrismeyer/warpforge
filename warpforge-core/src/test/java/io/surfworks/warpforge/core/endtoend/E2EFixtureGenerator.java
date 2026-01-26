@@ -566,7 +566,260 @@ class E2EFixtureGenerator {
             """, "[(2, 8, 32)]");
     }
 
-    // ==================== Tier 6: Embedding Operations ====================
+    // ==================== Tier 6: Full BERT Models ====================
+
+    @Test
+    @DisplayName("Generate: bert_squad_base")
+    void generateBertSquadBase() throws Exception {
+        // Full BERT-base model for SQuAD question answering
+        // Architecture matches HuggingFace bert-base-uncased:
+        // - 12 encoder layers
+        // - 768 hidden dimensions
+        // - 12 attention heads (64 per head)
+        // - 3072 FFN intermediate size
+        // - 30522 vocab size (using 1000 for testing)
+        // - 512 max position embeddings (using 128 for testing)
+        // Note: token_type_embeddings removed to avoid index range issues with random i64 inputs
+        generateFixture("bert_squad_base", """
+            import torch
+            import torch.nn as nn
+            import math
+
+            class BertEmbeddings(nn.Module):
+                def __init__(self, vocab_size, hidden_size, max_position):
+                    super().__init__()
+                    self.word_embeddings = nn.Embedding(vocab_size, hidden_size)
+                    self.position_embeddings = nn.Embedding(max_position, hidden_size)
+                    self.LayerNorm = nn.LayerNorm(hidden_size, eps=1e-12)
+
+                def forward(self, input_ids, position_ids):
+                    embeddings = self.word_embeddings(input_ids)
+                    embeddings = embeddings + self.position_embeddings(position_ids)
+                    embeddings = self.LayerNorm(embeddings)
+                    return embeddings
+
+            class BertSelfAttention(nn.Module):
+                def __init__(self, hidden_size, num_heads):
+                    super().__init__()
+                    self.num_heads = num_heads
+                    self.head_dim = hidden_size // num_heads
+                    self.scale = 1.0 / math.sqrt(self.head_dim)
+
+                    self.query = nn.Linear(hidden_size, hidden_size)
+                    self.key = nn.Linear(hidden_size, hidden_size)
+                    self.value = nn.Linear(hidden_size, hidden_size)
+
+                def forward(self, hidden_states, batch_size, seq_len):
+                    q = self.query(hidden_states).reshape(batch_size, seq_len, self.num_heads, self.head_dim).transpose(1, 2)
+                    k = self.key(hidden_states).reshape(batch_size, seq_len, self.num_heads, self.head_dim).transpose(1, 2)
+                    v = self.value(hidden_states).reshape(batch_size, seq_len, self.num_heads, self.head_dim).transpose(1, 2)
+
+                    scores = torch.matmul(q, k.transpose(-2, -1)) * self.scale
+                    attn_probs = torch.softmax(scores, dim=-1)
+                    context = torch.matmul(attn_probs, v)
+                    context = context.transpose(1, 2).reshape(batch_size, seq_len, -1)
+                    return context
+
+            class BertSelfOutput(nn.Module):
+                def __init__(self, hidden_size):
+                    super().__init__()
+                    self.dense = nn.Linear(hidden_size, hidden_size)
+                    self.LayerNorm = nn.LayerNorm(hidden_size, eps=1e-12)
+
+                def forward(self, hidden_states, input_tensor):
+                    hidden_states = self.dense(hidden_states)
+                    hidden_states = self.LayerNorm(hidden_states + input_tensor)
+                    return hidden_states
+
+            class BertIntermediate(nn.Module):
+                def __init__(self, hidden_size, intermediate_size):
+                    super().__init__()
+                    self.dense = nn.Linear(hidden_size, intermediate_size)
+                    self.gelu = nn.GELU()
+
+                def forward(self, hidden_states):
+                    return self.gelu(self.dense(hidden_states))
+
+            class BertOutput(nn.Module):
+                def __init__(self, intermediate_size, hidden_size):
+                    super().__init__()
+                    self.dense = nn.Linear(intermediate_size, hidden_size)
+                    self.LayerNorm = nn.LayerNorm(hidden_size, eps=1e-12)
+
+                def forward(self, hidden_states, input_tensor):
+                    hidden_states = self.dense(hidden_states)
+                    hidden_states = self.LayerNorm(hidden_states + input_tensor)
+                    return hidden_states
+
+            class BertLayer(nn.Module):
+                def __init__(self, hidden_size, num_heads, intermediate_size):
+                    super().__init__()
+                    self.attention = BertSelfAttention(hidden_size, num_heads)
+                    self.attention_output = BertSelfOutput(hidden_size)
+                    self.intermediate = BertIntermediate(hidden_size, intermediate_size)
+                    self.output = BertOutput(intermediate_size, hidden_size)
+
+                def forward(self, hidden_states, batch_size, seq_len):
+                    attention_output = self.attention(hidden_states, batch_size, seq_len)
+                    attention_output = self.attention_output(attention_output, hidden_states)
+                    intermediate_output = self.intermediate(attention_output)
+                    layer_output = self.output(intermediate_output, attention_output)
+                    return layer_output
+
+            class BertForQuestionAnswering(nn.Module):
+                def __init__(self, vocab_size=1000, hidden_size=768, num_layers=12,
+                             num_heads=12, intermediate_size=3072, max_position=128):
+                    super().__init__()
+                    self.embeddings = BertEmbeddings(vocab_size, hidden_size, max_position)
+                    self.layers = nn.ModuleList([
+                        BertLayer(hidden_size, num_heads, intermediate_size)
+                        for _ in range(num_layers)
+                    ])
+                    self.qa_outputs = nn.Linear(hidden_size, 2)
+
+                def forward(self, input_ids, position_ids):
+                    batch_size = 1
+                    seq_len = 128
+
+                    hidden_states = self.embeddings(input_ids, position_ids)
+                    for layer in self.layers:
+                        hidden_states = layer(hidden_states, batch_size, seq_len)
+                    logits = self.qa_outputs(hidden_states)
+                    return logits
+
+            class Model(nn.Module):
+                def __init__(self):
+                    super().__init__()
+                    self.bert = BertForQuestionAnswering()
+
+                def forward(self, input_ids, position_ids):
+                    return self.bert(input_ids, position_ids)
+            """, "[(1, 128, 'i64'), (1, 128, 'i64')]");
+    }
+
+    @Test
+    @DisplayName("Generate: bert_squad_small")
+    void generateBertSquadSmall() throws Exception {
+        // Smaller BERT for faster testing (6 layers, 384 hidden)
+        // Uses only word + position embeddings (no token_type to avoid index range issues)
+        generateFixture("bert_squad_small", """
+            import torch
+            import torch.nn as nn
+            import math
+
+            class BertEmbeddings(nn.Module):
+                def __init__(self, vocab_size, hidden_size, max_position):
+                    super().__init__()
+                    self.word_embeddings = nn.Embedding(vocab_size, hidden_size)
+                    self.position_embeddings = nn.Embedding(max_position, hidden_size)
+                    self.LayerNorm = nn.LayerNorm(hidden_size, eps=1e-12)
+
+                def forward(self, input_ids, position_ids):
+                    embeddings = self.word_embeddings(input_ids)
+                    embeddings = embeddings + self.position_embeddings(position_ids)
+                    embeddings = self.LayerNorm(embeddings)
+                    return embeddings
+
+            class BertSelfAttention(nn.Module):
+                def __init__(self, hidden_size, num_heads):
+                    super().__init__()
+                    self.num_heads = num_heads
+                    self.head_dim = hidden_size // num_heads
+                    self.scale = 1.0 / math.sqrt(self.head_dim)
+
+                    self.query = nn.Linear(hidden_size, hidden_size)
+                    self.key = nn.Linear(hidden_size, hidden_size)
+                    self.value = nn.Linear(hidden_size, hidden_size)
+
+                def forward(self, hidden_states, batch_size, seq_len):
+                    q = self.query(hidden_states).reshape(batch_size, seq_len, self.num_heads, self.head_dim).transpose(1, 2)
+                    k = self.key(hidden_states).reshape(batch_size, seq_len, self.num_heads, self.head_dim).transpose(1, 2)
+                    v = self.value(hidden_states).reshape(batch_size, seq_len, self.num_heads, self.head_dim).transpose(1, 2)
+
+                    scores = torch.matmul(q, k.transpose(-2, -1)) * self.scale
+                    attn_probs = torch.softmax(scores, dim=-1)
+                    context = torch.matmul(attn_probs, v)
+                    context = context.transpose(1, 2).reshape(batch_size, seq_len, -1)
+                    return context
+
+            class BertSelfOutput(nn.Module):
+                def __init__(self, hidden_size):
+                    super().__init__()
+                    self.dense = nn.Linear(hidden_size, hidden_size)
+                    self.LayerNorm = nn.LayerNorm(hidden_size, eps=1e-12)
+
+                def forward(self, hidden_states, input_tensor):
+                    hidden_states = self.dense(hidden_states)
+                    hidden_states = self.LayerNorm(hidden_states + input_tensor)
+                    return hidden_states
+
+            class BertIntermediate(nn.Module):
+                def __init__(self, hidden_size, intermediate_size):
+                    super().__init__()
+                    self.dense = nn.Linear(hidden_size, intermediate_size)
+                    self.gelu = nn.GELU()
+
+                def forward(self, hidden_states):
+                    return self.gelu(self.dense(hidden_states))
+
+            class BertOutput(nn.Module):
+                def __init__(self, intermediate_size, hidden_size):
+                    super().__init__()
+                    self.dense = nn.Linear(intermediate_size, hidden_size)
+                    self.LayerNorm = nn.LayerNorm(hidden_size, eps=1e-12)
+
+                def forward(self, hidden_states, input_tensor):
+                    hidden_states = self.dense(hidden_states)
+                    hidden_states = self.LayerNorm(hidden_states + input_tensor)
+                    return hidden_states
+
+            class BertLayer(nn.Module):
+                def __init__(self, hidden_size, num_heads, intermediate_size):
+                    super().__init__()
+                    self.attention = BertSelfAttention(hidden_size, num_heads)
+                    self.attention_output = BertSelfOutput(hidden_size)
+                    self.intermediate = BertIntermediate(hidden_size, intermediate_size)
+                    self.output = BertOutput(intermediate_size, hidden_size)
+
+                def forward(self, hidden_states, batch_size, seq_len):
+                    attention_output = self.attention(hidden_states, batch_size, seq_len)
+                    attention_output = self.attention_output(attention_output, hidden_states)
+                    intermediate_output = self.intermediate(attention_output)
+                    layer_output = self.output(intermediate_output, attention_output)
+                    return layer_output
+
+            class BertForQuestionAnswering(nn.Module):
+                def __init__(self, vocab_size=1000, hidden_size=384, num_layers=6,
+                             num_heads=6, intermediate_size=1536, max_position=128):
+                    super().__init__()
+                    self.embeddings = BertEmbeddings(vocab_size, hidden_size, max_position)
+                    self.layers = nn.ModuleList([
+                        BertLayer(hidden_size, num_heads, intermediate_size)
+                        for _ in range(num_layers)
+                    ])
+                    self.qa_outputs = nn.Linear(hidden_size, 2)
+
+                def forward(self, input_ids, position_ids):
+                    batch_size = 1
+                    seq_len = 64
+
+                    hidden_states = self.embeddings(input_ids, position_ids)
+                    for layer in self.layers:
+                        hidden_states = layer(hidden_states, batch_size, seq_len)
+                    logits = self.qa_outputs(hidden_states)
+                    return logits
+
+            class Model(nn.Module):
+                def __init__(self):
+                    super().__init__()
+                    self.bert = BertForQuestionAnswering()
+
+                def forward(self, input_ids, position_ids):
+                    return self.bert(input_ids, position_ids)
+            """, "[(1, 64, 'i64'), (1, 64, 'i64')]");
+    }
+
+    // ==================== Tier 7: Embedding Operations ====================
 
     @Test
     @DisplayName("Generate: bert_squad_mini")

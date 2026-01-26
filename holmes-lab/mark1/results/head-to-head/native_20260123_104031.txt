@@ -1,0 +1,46 @@
+======================================================================
+UCC Collective Performance Test
+======================================================================
+Rank: 0 / 2
+Master: 10.0.0.1:29500
+Message size: 16.00 MB (4194304 floats)
+Iterations: 10 (warmup: 2)
+Collective System Information:
+  Platform: Linux
+  Linux: true
+  UCC libraries: true
+  RDMA available: true
+  Can use real UCC: true
+
+
+Jan 23, 2026 10:40:33 AM io.surfworks.warpforge.io.collective.impl.UccCollectiveImpl initializeUccReal
+INFO: Initializing UCC for rank 0 of 2
+[Rank 0] FAILED: Failed to load UCC: java.net.BindException: Address already in use
+io.surfworks.warpforge.io.collective.CollectiveException: Failed to load UCC: java.net.BindException: Address already in use
+	at io.surfworks.warpforge.io.collective.Collective.loadUcc(Collective.java:121)
+	at io.surfworks.warpforge.io.test.UccPerfTest.main(UccPerfTest.java:93)
+	at java.base@25.0.1/java.lang.invoke.LambdaForm$DMH/sa346b79c.invokeStaticInit(LambdaForm$DMH)
+======================================================================
+UCC Collective Performance Test
+======================================================================
+Rank: 1 / 2
+Master: 10.0.0.1:29500
+Message size: 16.00 MB (4194304 floats)
+Iterations: 10 (warmup: 2)
+Collective System Information:
+  Platform: Linux
+  Linux: true
+  UCC libraries: true
+  RDMA available: true
+  Can use real UCC: true
+
+
+Jan 23, 2026 10:40:36 AM io.surfworks.warpforge.io.collective.impl.UccCollectiveImpl initializeUccReal
+INFO: Initializing UCC for rank 1 of 2
+Jan 23, 2026 10:40:37 AM io.surfworks.warpforge.io.collective.impl.OobCoordinator initializeNetwork
+INFO: OOB coordinator initialized: rank=1, worldSize=2
+[Rank 1] FAILED: Failed to load UCC: java.lang.NoSuchMethodError: io.surfworks.warpforge.io.ffi.ucc.ucc_oob_coll$allgather$Function.apply(java.lang.foreign.MemorySegment, java.lang.foreign.MemorySegment, long, java.lang.foreign.MemorySegment, java.lang.foreign.MemorySegment)
+io.surfworks.warpforge.io.collective.CollectiveException: Failed to load UCC: java.lang.NoSuchMethodError: io.surfworks.warpforge.io.ffi.ucc.ucc_oob_coll$allgather$Function.apply(java.lang.foreign.MemorySegment, java.lang.foreign.MemorySegment, long, java.lang.foreign.MemorySegment, java.lang.foreign.MemorySegment)
+	at io.surfworks.warpforge.io.collective.Collective.loadUcc(Collective.java:121)
+	at io.surfworks.warpforge.io.test.UccPerfTest.main(UccPerfTest.java:93)
+	at java.base@25.0.1/java.lang.invoke.LambdaForm$DMH/sa346b79c.invokeStaticInit(LambdaForm$DMH)

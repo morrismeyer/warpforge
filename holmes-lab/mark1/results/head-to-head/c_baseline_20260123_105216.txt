@@ -1,0 +1,4 @@
+bind: Address already in use
+Failed to initialize OOB server
+Connecting to 10.0.0.1:18520...
+Connected to peer

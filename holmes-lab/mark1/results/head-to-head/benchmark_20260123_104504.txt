@@ -1,0 +1,279 @@
+==============================================================================
+Head-to-Head Benchmark Results
+==============================================================================
+
+Configuration:
+  Message Size: 16777216 bytes (16.00 MB)
+  Iterations: 10
+  Warmup: 2
+  Date: Fri Jan 23 10:45:16 EST 2026
+
+------------------------------------------------------------------------------
+Java Implementation (warpforge-io UCC on JVM)
+------------------------------------------------------------------------------
+Calculating task graph as configuration cache cannot be reused because file 'warpforge-io/build.gradle' has changed.
+> Task :build-logic:extractPluginRequests
+> Task :build-logic:generatePluginAdapters
+> Task :build-logic:compileJava
+> Task :build-logic:compileGroovy NO-SOURCE
+> Task :build-logic:compileGroovyPlugins
+> Task :build-logic:pluginDescriptors
+> Task :build-logic:processResources
+> Task :build-logic:classes
+> Task :build-logic:jar
+> Task :snakeburger-core:processResources NO-SOURCE
+> Task :warpforge-core:processResources NO-SOURCE
+> Task :warpforge-io:processResources
+> Task :snakeburger-core:compileJava
+> Task :snakeburger-core:classes
+> Task :snakeburger-core:jar
+
+> Task :warpforge-core:compileJava
+
+> Task :warpforge-core:classes
+> Task :warpforge-core:jar
+warning: [incubating] using incubating module(s): jdk.incubator.vector
+1 warning
+
+> Task :warpforge-io:compileJava
+warning: [incubating] using incubating module(s): jdk.incubator.vector
+1 warning
+
+> Task :warpforge-io:classes
+
+> Task :warpforge-io:uccPerfMaster
+======================================================================
+UCC Collective Performance Test
+======================================================================
+Rank: 0 / 2
+Master: 10.0.0.1WARNING: Using incubator modules: jdk.incubator.vector
+:29500
+Message size: 16.00 MB (4194304 floats)
+Iterations: 10 (warmup: 10)
+Collective System Information:
+  Platform: Linux
+  Linux: true
+  UCC libraries: true
+  RDMA available: true
+  Can use real UCC: true
+
+
+Jan 23, 2026 10:45:09 AM io.surfworks.warpforge.io.collective.impl.UccCollectiveImpl initializeUccReal
+INFO: Initializing UCC for rank 0 of 2
+Jan 23, 2026 10:45:09 AM io.surfworks.warpforge.io.collective.impl.OobCoordinator initializeServer
+INFO: OOB server listening on port 29500
+Jan 23, 2026 10:45:15 AM io.surfworks.warpforge.io.collective.impl.OobCoordinator initializeNetwork
+INFO: OOB coordinator initialized: rank=0, worldSize=2
+[Rank 0] UCC initialized, backend: ucc
+
+----------------------------------------------------------------------
+[Rank 0] Benchmark: AllReduce SUM
+----------------------------------------------------------------------
+[Rank 0] Warmup (10 iterations)...
+Jan 23, 2026 10:45:16 AM io.surfworks.warpforge.io.collective.impl.UccCollectiveImpl initializeUccReal
+INFO: UCC team created successfully for rank 0
+[Rank 0] Running 10 iterations...
+
+[Rank 0] AllReduce Results:
+  Correctness:    PASS
+  Message size:   16.00 MB
+  Iterations:     10
+  Total time:     0.035 s
+  Throughput:     38.04 Gbps
+  Ops/second:     283.5
+
+  Latency (ms):
+    Average:      3.528 ms
+    Min:          3.454 ms
+    Max:          3.707 ms
+    P50:          3.488 ms
+    P95:          3.707 ms
+    P99:          3.707 ms
+
+PERF_RESULT: AllReduce size=16777216 bw=38.04 Gbps lat=3.528 ms
+----------------------------------------------------------------------
+[Rank 0] Benchmark: AllGather
+----------------------------------------------------------------------
+[Rank 0] Warmup (10 iterations)...
+[Rank 0] Running 10 iterations...
+
+[Rank 0] AllGather Results:
+  Correctness:    PASS
+  Message size:   32.00 MB
+  Iterations:     10
+  Total time:     0.105 s
+  Throughput:     25.68 Gbps
+  Ops/second:     95.7
+
+  Latency (ms):
+    Average:      10.453 ms
+    Min:          10.039 ms
+    Max:          10.488 ms
+    P50:          10.299 ms
+    P95:          10.488 ms
+    P99:          10.488 ms
+
+PERF_RESULT: AllGather size=33554432 bw=25.68 Gbps lat=10.453 ms
+----------------------------------------------------------------------
+[Rank 0] Benchmark: Broadcast from rank 0
+----------------------------------------------------------------------
+[Rank 0] Warmup (10 iterations)...
+[Rank 0] Running 10 iterations...
+
+[Rank 0] Broadcast Results:
+  Correctness:    PASS
+  Message size:   16.00 MB
+  Iterations:     10
+  Total time:     0.038 s
+  Throughput:     35.27 Gbps
+  Ops/second:     262.8
+
+  Latency (ms):
+    Average:      3.805 ms
+    Min:          3.720 ms
+    Max:          3.969 ms
+    P50:          3.767 ms
+    P95:          3.969 ms
+    P99:          3.969 ms
+
+PERF_RESULT: Broadcast size=16777216 bw=35.27 Gbps lat=3.805 ms
+----------------------------------------------------------------------
+[Rank 0] Benchmark: ReduceScatter SUM
+----------------------------------------------------------------------
+[Rank 0] Warmup (10 iterations)...
+[Rank 0] Running 10 iterations...
+
+[Rank 0] ReduceScatter Results:
+  Correctness:    PASS
+  Message size:   32.00 MB
+  Iterations:     10
+  Total time:     0.067 s
+  Throughput:     40.01 Gbps
+  Ops/second:     149.0
+
+  Latency (ms):
+    Average:      6.710 ms
+    Min:          6.408 ms
+    Max:          7.037 ms
+    P50:          6.704 ms
+    P95:          7.037 ms
+    P99:          7.037 ms
+
+PERF_RESULT: ReduceScatter size=33554432 bw=40.01 Gbps lat=6.710 ms
+----------------------------------------------------------------------
+[Rank 0] Benchmark: AllToAll
+----------------------------------------------------------------------
+[Rank 0] Warmup (10 iterations)...
+[Rank 0] Running 10 iterations...
+
+[Rank 0] AllToAll Results:
+  Correctness:    PASS
+  Message size:   32.00 MB
+  Iterations:     10
+  Total time:     0.121 s
+  Throughput:     22.11 Gbps
+  Ops/second:     82.3
+
+  Latency (ms):
+    Average:      12.143 ms
+    Min:          10.633 ms
+    Max:          14.945 ms
+    P50:          10.994 ms
+    P95:          14.945 ms
+    P99:          14.945 ms
+
+PERF_RESULT: AllToAll size=33554432 bw=22.11 Gbps lat=12.143 ms
+----------------------------------------------------------------------
+[Rank 0] Benchmark: Barrier
+----------------------------------------------------------------------
+[Rank 0] Warmup (10 iterations)...
+[Rank 0] Running 10 iterations...
+
+[Rank 0] Barrier Results:
+  Iterations:     10
+  Total time:     0.001 s
+  Ops/second:     8506.6
+
+  Latency (us):
+    Average:      117.6 us
+    Min:          8.6 us
+    Max:          468.0 us
+    P50:          45.2 us
+    P95:          468.0 us
+    P99:          468.0 us
+
+PERF_RESULT: Barrier ops/s=8506.6 lat=117.6 us
+
+======================================================================
+[Rank 0] All benchmarks completed
+Stats: CollectiveStats[allReduceCount=21, allGatherCount=21, broadcastCount=21, reduceScatterCount=21, barrierCount=28, totalBytesTransferred=2818572288, totalOperations=133]
+======================================================================
+
+[Incubating] Problems report is available at: file:///home/morris/projects/warpforge/build/reports/problems/problems-report.html
+
+BUILD SUCCESSFUL in 11s
+14 actionable tasks: 14 executed
+Configuration cache entry stored.
+Jan 23, 2026 10:45:16 AM io.surfworks.warpforge.io.collective.impl.UccCollectiveImpl close
+INFO: Closing UCC collective for rank 0
+-----------------------------------
+[Rank 1] Benchmark: AllToAll
+----------------------------------------------------------------------
+[Rank 1] Warmup (10 iterations)...
+[Rank 1] Running 10 iterations...
+
+[Rank 1] AllToAll Results:
+  Correctness:    PASS
+  Message size:   32.00 MB
+  Iterations:     10
+  Total time:     0.122 s
+  Throughput:     22.08 Gbps
+  Ops/second:     82.2
+
+  Latency (ms):
+    Average:      12.160 ms
+    Min:          10.581 ms
+    Max:          14.913 ms
+    P50:          10.913 ms
+    P95:          14.913 ms
+    P99:          14.913 ms
+
+PERF_RESULT: AllToAll size=33554432 bw=22.08 Gbps lat=12.160 ms
+----------------------------------------------------------------------
+[Rank 1] Benchmark: Barrier
+----------------------------------------------------------------------
+[Rank 1] Warmup (10 iterations)...
+[Rank 1] Running 10 iterations...
+
+[Rank 1] Barrier Results:
+  Iterations:     10
+  Total time:     0.001 s
+  Ops/second:     8608.9
+
+  Latency (us):
+    Average:      116.2 us
+    Min:          8.7 us
+    Max:          518.4 us
+    P50:          36.4 us
+    P95:          518.4 us
+    P99:          518.4 us
+
+PERF_RESULT: Barrier ops/s=8608.9 lat=116.2 us
+
+======================================================================
+[Rank 1] All benchmarks completed
+Stats: CollectiveStats[allReduceCount=21, allGatherCount=21, broadcastCount=21, reduceScatterCount=21, barrierCount=28, totalBytesTransferred=2818572288, totalOperations=133]
+======================================================================
+Jan 23, 2026 10:45:16 AM io.surfworks.warpforge.io.collective.impl.UccCollectiveImpl close
+INFO: Closing UCC collective for rank 1
+
+[Incubating] Problems report is available at: file:///home/morris/projects/warpforge/build/reports/problems/problems-report.html
+
+BUILD SUCCESSFUL in 6s
+14 actionable tasks: 14 executed
+Configuration cache entry stored.
+
+==============================================================================
+Analysis
+==============================================================================
+

@@ -1,0 +1,52 @@
+==============================================================================
+Head-to-Head Benchmark Results
+==============================================================================
+
+Configuration:
+  Message Size: 16777216 bytes (16.00 MB)
+  Iterations: 10
+  Warmup: 2
+  Date: Fri Jan 23 09:50:43 EST 2026
+
+------------------------------------------------------------------------------
+Java Implementation (warpforge-io UCC on JVM)
+------------------------------------------------------------------------------
+Reusing configuration cache.
+> Task :warpforge-core:processResources NO-SOURCE
+> Task :snakeburger-core:processResources NO-SOURCE
+> Task :warpforge-io:processResources UP-TO-DATE
+> Task :snakeburger-core:compileJava UP-TO-DATE
+> Task :snakeburger-core:classes UP-TO-DATE
+> Task :snakeburger-core:jar UP-TO-DATE
+> Task :warpforge-core:compileJava UP-TO-DATE
+> Task :warpforge-core:classes UP-TO-DATE
+> Task :warpforge-core:jar UP-TO-DATE
+> Task :warpforge-io:compileJava UP-TO-DATE
+> Task :warpforge-io:classes UP-TO-DATE
+> Task :warpforge-io:uccPerfMaster UP-TO-DATE
+
+BUILD SUCCESSFUL in 259ms
+7 actionable tasks: 7 up-to-date
+Configuration cache entry reused.
+Reusing configuration cache.
+> Task :snakeburger-core:processResources NO-SOURCE
+> Task :warpforge-core:processResources NO-SOURCE
+> Task :warpforge-io:processResources UP-TO-DATE
+> Task :snakeburger-core:compileJava UP-TO-DATE
+> Task :snakeburger-core:classes UP-TO-DATE
+> Task :snakeburger-core:jar UP-TO-DATE
+> Task :warpforge-core:compileJava UP-TO-DATE
+> Task :warpforge-core:classes UP-TO-DATE
+> Task :warpforge-core:jar UP-TO-DATE
+> Task :warpforge-io:compileJava UP-TO-DATE
+> Task :warpforge-io:classes UP-TO-DATE
+> Task :warpforge-io:uccPerfWorker UP-TO-DATE
+
+BUILD SUCCESSFUL in 310ms
+7 actionable tasks: 7 up-to-date
+Configuration cache entry reused.
+
+==============================================================================
+Analysis
+==============================================================================
+

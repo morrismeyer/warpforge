@@ -39,6 +39,49 @@ Exceptions are acceptable when:
 - A Java solution would require significantly more effort or complexity
 - External dependencies mandate a specific language
 
+## Vectorization: Use Java Vector API
+
+**Every loop is a potential vector loop.** When writing code that processes arrays or performs numerical computation, always consider using the Java Vector API (`jdk.incubator.vector`).
+
+The Vector API enables SIMD (Single Instruction, Multiple Data) operations that can provide 4-16x speedups over scalar loops. WarpForge is a high-performance ML compiler - vectorized code is not optional, it's expected.
+
+**When to vectorize:**
+- Any loop over float/double/int arrays
+- Matrix operations (transpose, element-wise ops, reductions)
+- Data transformation (normalization, scaling, type conversion)
+- Batch processing of tensors
+
+**Pattern to follow:**
+```java
+import jdk.incubator.vector.FloatVector;
+import jdk.incubator.vector.VectorSpecies;
+
+private static final VectorSpecies<Float> SPECIES = FloatVector.SPECIES_PREFERRED;
+
+// Vectorized loop
+int i = 0;
+int upperBound = SPECIES.loopBound(data.length);
+for (; i < upperBound; i += SPECIES.length()) {
+    FloatVector v = FloatVector.fromArray(SPECIES, data, i);
+    v = v.mul(scale);  // or other vector operations
+    v.intoArray(result, i);
+}
+// Scalar tail
+for (; i < data.length; i++) {
+    result[i] = data[i] * scale;
+}
+```
+
+**Do NOT write scalar loops like this when vectors are possible:**
+```java
+// BAD - scalar loop that should be vectorized
+for (int i = 0; i < data.length; i++) {
+    result[i] = data[i] * scale;
+}
+```
+
+If you write a loop over numerical data, ask yourself: "Can this be vectorized?" The answer is usually yes.
+
 ## Build Commands
 
 ```bash

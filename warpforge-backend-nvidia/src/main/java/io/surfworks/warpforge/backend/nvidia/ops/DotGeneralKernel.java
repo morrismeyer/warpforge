@@ -6,9 +6,11 @@ import io.surfworks.warpforge.backend.nvidia.cuda.CudaKernels;
 import io.surfworks.warpforge.core.tensor.Tensor;
 import io.surfworks.warpforge.core.tensor.TensorSpec;
 
+import jdk.incubator.vector.FloatVector;
+import jdk.incubator.vector.VectorSpecies;
+
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
-import java.lang.foreign.ValueLayout;
 import java.util.List;
 
 /**
@@ -25,6 +27,7 @@ import java.util.List;
 public final class DotGeneralKernel implements CudaOpKernel {
 
     private static final int BLOCK_SIZE = 16;
+    private static final VectorSpecies<Float> SPECIES = FloatVector.SPECIES_PREFERRED;
 
     private final CudaContext context;
     private final int salt;
@@ -297,12 +300,40 @@ public final class DotGeneralKernel implements CudaOpKernel {
     /**
      * Transpose a 2D matrix stored in row-major order.
      * Input [rows, cols] -> Output [cols, rows]
+     *
+     * Uses cache-blocking for better memory access patterns. Within each block,
+     * uses vector loads where possible for contiguous input access.
      */
     private static float[] transpose2D(float[] data, int rows, int cols) {
         float[] result = new float[data.length];
-        for (int r = 0; r < rows; r++) {
-            for (int c = 0; c < cols; c++) {
-                result[c * rows + r] = data[r * cols + c];
+        int blockSize = SPECIES.length();  // Use vector width as block size
+
+        // Process in blocks for cache efficiency
+        for (int rBlock = 0; rBlock < rows; rBlock += blockSize) {
+            int rEnd = Math.min(rBlock + blockSize, rows);
+
+            for (int cBlock = 0; cBlock < cols; cBlock += blockSize) {
+                int cEnd = Math.min(cBlock + blockSize, cols);
+
+                // Transpose this block
+                // When block is full vector width, use vectorized load
+                if (cEnd - cBlock == blockSize && cBlock + blockSize <= cols) {
+                    // Full-width columns: can use vector loads
+                    for (int r = rBlock; r < rEnd; r++) {
+                        FloatVector v = FloatVector.fromArray(SPECIES, data, r * cols + cBlock);
+                        // Scatter store - extract lanes individually (no scatter in Vector API)
+                        for (int i = 0; i < blockSize; i++) {
+                            result[(cBlock + i) * rows + r] = v.lane(i);
+                        }
+                    }
+                } else {
+                    // Partial block: scalar fallback
+                    for (int r = rBlock; r < rEnd; r++) {
+                        for (int c = cBlock; c < cEnd; c++) {
+                            result[c * rows + r] = data[r * cols + c];
+                        }
+                    }
+                }
             }
         }
         return result;

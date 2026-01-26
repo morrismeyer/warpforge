@@ -236,7 +236,12 @@ public final class HipOpDispatcher {
         registerStub(StableHloAst.SortOp.class, "SortOp");
         registerStub(StableHloAst.OptimizationBarrierOp.class, "OptimizationBarrierOp");
         registerStub(StableHloAst.CompositeOp.class, "CompositeOp");
-        registerStub(StableHloAst.CustomCallOp.class, "CustomCallOp");
+        // CustomCall operations for transformers (HIPRTC required)
+        if (context != null) {
+            kernels.put(StableHloAst.CustomCallOp.class, new HipCustomCallKernel(context, salt));
+        } else {
+            registerStub(StableHloAst.CustomCallOp.class, "CustomCallOp");
+        }
         registerStub(StableHloAst.ReturnOp.class, "ReturnOp");
     }
 

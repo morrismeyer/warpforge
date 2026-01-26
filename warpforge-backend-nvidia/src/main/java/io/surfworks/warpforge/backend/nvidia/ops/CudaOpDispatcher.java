@@ -583,7 +583,14 @@ public final class CudaOpDispatcher {
         registerStub(StableHloAst.SortOp.class);
         registerStub(StableHloAst.OptimizationBarrierOp.class);
         registerStub(StableHloAst.CompositeOp.class);
-        registerStub(StableHloAst.CustomCallOp.class);
+
+        // CustomCall operations for transformers (IMPLEMENTED)
+        if (context != null) {
+            kernels.put(StableHloAst.CustomCallOp.class, new CudaCustomCallKernel(context, salt));
+        } else {
+            registerStub(StableHloAst.CustomCallOp.class);
+        }
+
         registerStub(StableHloAst.ReturnOp.class);
     }
 

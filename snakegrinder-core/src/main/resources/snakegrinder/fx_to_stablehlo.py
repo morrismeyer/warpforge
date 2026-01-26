@@ -773,12 +773,24 @@ class FXToStableHLO:
         target_name = getattr(target, '__name__', str(target))
 
         # Helper to get input SSA values
-        def get_input(idx):
+        # Returns (ssa_name, constant_lines) where constant_lines is a list of
+        # constant definitions needed if the arg is a scalar
+        def get_input_with_const(idx):
             if idx < len(node.args):
                 arg = node.args[idx]
                 if hasattr(arg, 'name'):
-                    return self.ssa_map.get(arg.name, '%unknown')
-            return '%unknown'
+                    return self.ssa_map.get(arg.name, '%unknown'), []
+                elif isinstance(arg, (int, float)):
+                    # Scalar constant - create a broadcast constant
+                    const_ssa = f'{result_ssa}_const{idx}'
+                    const_val = float(arg)
+                    const_line = f'{const_ssa} = stablehlo.constant dense<{const_val}> : {result_type}'
+                    return const_ssa, [const_line]
+            return '%unknown', []
+
+        def get_input(idx):
+            ssa, _ = get_input_with_const(idx)
+            return ssa
 
         def get_input_type(idx):
             if idx < len(node.args) and hasattr(node.args[idx], 'name'):
@@ -795,23 +807,36 @@ class FXToStableHLO:
             ]
 
         # === Binary arithmetic ops ===
+        # These ops support scalar constants as either operand
         elif target_name == 'add':
-            return [f'{result_ssa} = stablehlo.add {get_input(0)}, {get_input(1)} : {result_type}']
+            lhs, lhs_const = get_input_with_const(0)
+            rhs, rhs_const = get_input_with_const(1)
+            return lhs_const + rhs_const + [f'{result_ssa} = stablehlo.add {lhs}, {rhs} : {result_type}']
 
         elif target_name in ('sub', 'subtract'):
-            return [f'{result_ssa} = stablehlo.subtract {get_input(0)}, {get_input(1)} : {result_type}']
+            lhs, lhs_const = get_input_with_const(0)
+            rhs, rhs_const = get_input_with_const(1)
+            return lhs_const + rhs_const + [f'{result_ssa} = stablehlo.subtract {lhs}, {rhs} : {result_type}']
 
         elif target_name in ('mul', 'multiply'):
-            return [f'{result_ssa} = stablehlo.multiply {get_input(0)}, {get_input(1)} : {result_type}']
+            lhs, lhs_const = get_input_with_const(0)
+            rhs, rhs_const = get_input_with_const(1)
+            return lhs_const + rhs_const + [f'{result_ssa} = stablehlo.multiply {lhs}, {rhs} : {result_type}']
 
         elif target_name in ('div', 'divide', 'truediv', 'true_divide'):
-            return [f'{result_ssa} = stablehlo.divide {get_input(0)}, {get_input(1)} : {result_type}']
+            lhs, lhs_const = get_input_with_const(0)
+            rhs, rhs_const = get_input_with_const(1)
+            return lhs_const + rhs_const + [f'{result_ssa} = stablehlo.divide {lhs}, {rhs} : {result_type}']
 
         elif target_name == 'maximum':
-            return [f'{result_ssa} = stablehlo.maximum {get_input(0)}, {get_input(1)} : {result_type}']
+            lhs, lhs_const = get_input_with_const(0)
+            rhs, rhs_const = get_input_with_const(1)
+            return lhs_const + rhs_const + [f'{result_ssa} = stablehlo.maximum {lhs}, {rhs} : {result_type}']
 
         elif target_name == 'minimum':
-            return [f'{result_ssa} = stablehlo.minimum {get_input(0)}, {get_input(1)} : {result_type}']
+            lhs, lhs_const = get_input_with_const(0)
+            rhs, rhs_const = get_input_with_const(1)
+            return lhs_const + rhs_const + [f'{result_ssa} = stablehlo.minimum {lhs}, {rhs} : {result_type}']
 
         # === Unary ops ===
         elif target_name in ('neg', 'negative'):
@@ -1093,15 +1118,56 @@ class FXToStableHLO:
         # === Softmax ===
         elif target_name == 'softmax':
             input_ssa = get_input(0)
+            input_type = get_input_type(0)
             dim = node.args[1] if len(node.args) > 1 else node.kwargs.get('dim', -1)
-            # softmax(x) = exp(x) / sum(exp(x))
+
+            # Get shape info for reduction
+            input_shape = self.shape_map.get(node.args[0].name, ()) if hasattr(node.args[0], 'name') else ()
+            input_rank = len(input_shape)
+            if dim < 0:
+                dim = input_rank + dim
+
+            # Build reduced shape type (for max and sum) - keeps dim with size 1
+            reduced_shape = list(input_shape)
+            reduced_shape[dim] = 1
+            reduced_shape_str = 'x'.join(str(d) for d in reduced_shape)
+            reduced_type = f'tensor<{reduced_shape_str}xf32>'
+
+            # Build broadcast dims - all dims except the reduced one map to themselves
+            broadcast_dims = [i for i in range(input_rank)]
+
+            # Softmax = exp(x - max(x)) / sum(exp(x - max(x)))
+            # For numerical stability, subtract max before exp
+            max_ssa = f'{result_ssa}_max'
+            max_bc_ssa = f'{result_ssa}_max_bc'
+            shifted_ssa = f'{result_ssa}_shifted'
             exp_ssa = f'{result_ssa}_exp'
             sum_ssa = f'{result_ssa}_sum'
-            return [
-                f'{exp_ssa} = stablehlo.exponential {input_ssa} : {result_type}',
-                f'// Note: Full softmax requires reduction and broadcast - simplified here',
-                f'{result_ssa} = stablehlo.divide {exp_ssa}, {exp_ssa} : {result_type}  // placeholder'
+            sum_bc_ssa = f'{result_ssa}_sum_bc'
+            init_max = f'{result_ssa}_init_max'
+            init_sum = f'{result_ssa}_init_sum'
+
+            lines = [
+                # Step 1: Find max along dim (for numerical stability)
+                f'{init_max} = stablehlo.constant dense<-3.40282e+38> : tensor<f32>',
+                f'{max_ssa} = stablehlo.reduce {input_ssa}, {init_max}, dims = [{dim}], reducer = max : ({input_type}, tensor<f32>) -> {reduced_type}',
+
+                # Step 2: Broadcast max back to original shape and subtract
+                f'{max_bc_ssa} = stablehlo.broadcast_in_dim {max_ssa}, dims = [{", ".join(str(d) for d in broadcast_dims)}] : ({reduced_type}) -> {result_type}',
+                f'{shifted_ssa} = stablehlo.subtract {input_ssa}, {max_bc_ssa} : {result_type}',
+
+                # Step 3: Compute exp(x - max)
+                f'{exp_ssa} = stablehlo.exponential {shifted_ssa} : {result_type}',
+
+                # Step 4: Sum exp along dim
+                f'{init_sum} = stablehlo.constant dense<0.0> : tensor<f32>',
+                f'{sum_ssa} = stablehlo.reduce {exp_ssa}, {init_sum}, dims = [{dim}], reducer = add : ({result_type}, tensor<f32>) -> {reduced_type}',
+
+                # Step 5: Broadcast sum and divide
+                f'{sum_bc_ssa} = stablehlo.broadcast_in_dim {sum_ssa}, dims = [{", ".join(str(d) for d in broadcast_dims)}] : ({reduced_type}) -> {result_type}',
+                f'{result_ssa} = stablehlo.divide {exp_ssa}, {sum_bc_ssa} : {result_type}'
             ]
+            return lines
 
         elif target_name == 'log_softmax':
             input_ssa = get_input(0)
@@ -1991,7 +2057,30 @@ class FXToStableHLO:
             rhs = get_input(1)
             lhs_type = get_input_type(0)
             rhs_type = get_input_type(1)
-            dot_attr = '#stablehlo.dot<lhs_batching_dimensions = [], rhs_batching_dimensions = [], lhs_contracting_dimensions = [1], rhs_contracting_dimensions = [0]>'
+
+            # Determine dimensions based on input ranks
+            lhs_shape = self.shape_map.get(node.args[0].name, ()) if hasattr(node.args[0], 'name') else ()
+            rhs_shape = self.shape_map.get(node.args[1].name, ()) if hasattr(node.args[1], 'name') else ()
+            lhs_rank = len(lhs_shape)
+            rhs_rank = len(rhs_shape)
+
+            if lhs_rank >= 3 and rhs_rank >= 3:
+                # Batched matmul: (..., M, K) x (..., K, N) -> (..., M, N)
+                # Batch dims are all but the last two
+                batch_dims = list(range(lhs_rank - 2))
+                lhs_contract = lhs_rank - 1  # Last dim of LHS (K)
+                rhs_contract = rhs_rank - 2  # Second-to-last dim of RHS (K)
+                batch_dims_str = ', '.join(str(d) for d in batch_dims)
+                dot_attr = f'#stablehlo.dot<lhs_batching_dimensions = [{batch_dims_str}], rhs_batching_dimensions = [{batch_dims_str}], lhs_contracting_dimensions = [{lhs_contract}], rhs_contracting_dimensions = [{rhs_contract}]>'
+            elif lhs_rank == 2 and rhs_rank == 2:
+                # 2D matmul: (M, K) x (K, N) -> (M, N)
+                dot_attr = '#stablehlo.dot<lhs_batching_dimensions = [], rhs_batching_dimensions = [], lhs_contracting_dimensions = [1], rhs_contracting_dimensions = [0]>'
+            else:
+                # Default: contract last dim of LHS with first dim of RHS
+                lhs_contract = max(0, lhs_rank - 1)
+                rhs_contract = max(0, rhs_rank - 2) if rhs_rank >= 2 else 0
+                dot_attr = f'#stablehlo.dot<lhs_batching_dimensions = [], rhs_batching_dimensions = [], lhs_contracting_dimensions = [{lhs_contract}], rhs_contracting_dimensions = [{rhs_contract}]>'
+
             return [
                 f'{result_ssa} = stablehlo.dot_general {lhs}, {rhs}, '
                 f'{dot_attr} : ({lhs_type}, {rhs_type}) -> {result_type}'

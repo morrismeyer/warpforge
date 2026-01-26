@@ -50,12 +50,15 @@ public final class FxStableHloExport {
 
         // Extended fields for trace-with-values
         public final List<byte[]> inputTensorsNpy;
+        public final List<byte[]> weightTensorsNpy;
+        public final List<String> weightNames;
         public final List<byte[]> outputTensorsNpy;
         public final long seed;
 
         private TraceResult(boolean success, String mlir, String fxGraph, String error,
                             String traceback, List<String> warnings, Map<String, Object> metadata,
-                            List<byte[]> inputTensorsNpy, List<byte[]> outputTensorsNpy, long seed) {
+                            List<byte[]> inputTensorsNpy, List<byte[]> weightTensorsNpy,
+                            List<String> weightNames, List<byte[]> outputTensorsNpy, long seed) {
             this.success = success;
             this.mlir = mlir;
             this.fxGraph = fxGraph;
@@ -64,27 +67,38 @@ public final class FxStableHloExport {
             this.warnings = warnings != null ? warnings : List.of();
             this.metadata = metadata != null ? metadata : Map.of();
             this.inputTensorsNpy = inputTensorsNpy != null ? inputTensorsNpy : List.of();
+            this.weightTensorsNpy = weightTensorsNpy != null ? weightTensorsNpy : List.of();
+            this.weightNames = weightNames != null ? weightNames : List.of();
             this.outputTensorsNpy = outputTensorsNpy != null ? outputTensorsNpy : List.of();
             this.seed = seed;
         }
 
         public static TraceResult ok(String mlir, String fxGraph, Map<String, Object> metadata) {
-            return new TraceResult(true, mlir, fxGraph, null, null, List.of(), metadata, null, null, 0);
+            return new TraceResult(true, mlir, fxGraph, null, null, List.of(), metadata,
+                                   null, null, null, null, 0);
         }
 
         public static TraceResult okWithValues(String mlir, Map<String, Object> metadata,
-                                               List<byte[]> inputTensorsNpy, List<byte[]> outputTensorsNpy, long seed) {
+                                               List<byte[]> inputTensorsNpy,
+                                               List<byte[]> weightTensorsNpy, List<String> weightNames,
+                                               List<byte[]> outputTensorsNpy, long seed) {
             return new TraceResult(true, mlir, null, null, null, List.of(), metadata,
-                                   inputTensorsNpy, outputTensorsNpy, seed);
+                                   inputTensorsNpy, weightTensorsNpy, weightNames, outputTensorsNpy, seed);
         }
 
         public static TraceResult fail(String error, String traceback) {
-            return new TraceResult(false, null, null, error, traceback, List.of(), Map.of(), null, null, 0);
+            return new TraceResult(false, null, null, error, traceback, List.of(), Map.of(),
+                                   null, null, null, null, 0);
         }
 
         /** Check if this result includes tensor values. */
         public boolean hasValues() {
             return !inputTensorsNpy.isEmpty() || !outputTensorsNpy.isEmpty();
+        }
+
+        /** Check if this result includes model weights. */
+        public boolean hasWeights() {
+            return !weightTensorsNpy.isEmpty();
         }
     }
 
@@ -149,20 +163,18 @@ public final class FxStableHloExport {
             String fxModule = readResource("/snakegrinder/fx_to_stablehlo.py");
             ctx.eval("python", fxModule);
 
-            // Build input_shapes as Python list of tuples
+            // Build input_shapes as Python list of tuples with dtype
+            // Format: [(dim1, dim2, ..., 'dtype'), ...]
             StringBuilder inputShapesPy = new StringBuilder("[");
             for (int i = 0; i < inputSpecs.size(); i++) {
                 if (i > 0) inputShapesPy.append(", ");
                 inputShapesPy.append("(");
                 for (int j = 0; j < inputSpecs.get(i).shape.length; j++) {
-                    if (j > 0) inputShapesPy.append(", ");
                     inputShapesPy.append(inputSpecs.get(i).shape[j]);
+                    inputShapesPy.append(", ");
                 }
-                // Single-element tuples need trailing comma: (4,) not (4)
-                if (inputSpecs.get(i).shape.length == 1) {
-                    inputShapesPy.append(",");
-                }
-                inputShapesPy.append(")");
+                // Add dtype as the last element
+                inputShapesPy.append("'").append(inputSpecs.get(i).dtype).append("')");
             }
             inputShapesPy.append("]");
 
@@ -247,20 +259,18 @@ public final class FxStableHloExport {
             String fxModule = readResource("/snakegrinder/fx_to_stablehlo.py");
             ctx.eval("python", fxModule);
 
-            // Build input_shapes as Python list of tuples
+            // Build input_shapes as Python list of tuples with dtype
+            // Format: [(dim1, dim2, ..., 'dtype'), ...]
             StringBuilder inputShapesPy = new StringBuilder("[");
             for (int i = 0; i < inputSpecs.size(); i++) {
                 if (i > 0) inputShapesPy.append(", ");
                 inputShapesPy.append("(");
                 for (int j = 0; j < inputSpecs.get(i).shape.length; j++) {
-                    if (j > 0) inputShapesPy.append(", ");
                     inputShapesPy.append(inputSpecs.get(i).shape[j]);
+                    inputShapesPy.append(", ");
                 }
-                // Single-element tuples need trailing comma: (4,) not (4)
-                if (inputSpecs.get(i).shape.length == 1) {
-                    inputShapesPy.append(",");
-                }
-                inputShapesPy.append(")");
+                // Add dtype as the last element
+                inputShapesPy.append("'").append(inputSpecs.get(i).dtype).append("')");
             }
             inputShapesPy.append("]");
 
@@ -298,6 +308,26 @@ public final class FxStableHloExport {
                 inputTensorsNpy.add(npyBytes);
             }
 
+            // Extract weight tensor .npy bytes
+            Value weightNpyList = resultValue.getHashValue("weight_npy");
+            List<byte[]> weightTensorsNpy = new ArrayList<>();
+            if (weightNpyList != null && !weightNpyList.isNull() && weightNpyList.hasArrayElements()) {
+                for (int i = 0; i < weightNpyList.getArraySize(); i++) {
+                    Value pyBytes = weightNpyList.getArrayElement(i);
+                    byte[] npyBytes = extractBytes(pyBytes);
+                    weightTensorsNpy.add(npyBytes);
+                }
+            }
+
+            // Extract weight names
+            Value weightNamesList = resultValue.getHashValue("weight_names");
+            List<String> weightNames = new ArrayList<>();
+            if (weightNamesList != null && !weightNamesList.isNull() && weightNamesList.hasArrayElements()) {
+                for (int i = 0; i < weightNamesList.getArraySize(); i++) {
+                    weightNames.add(weightNamesList.getArrayElement(i).asString());
+                }
+            }
+
             // Extract output tensor .npy bytes
             Value outputNpyList = resultValue.getHashValue("output_npy");
             List<byte[]> outputTensorsNpy = new ArrayList<>();
@@ -315,11 +345,13 @@ public final class FxStableHloExport {
             metadata.put("class", className);
             metadata.put("tracer", "torch.fx.symbolic_trace");
             metadata.put("input_count", inputSpecs.size());
+            metadata.put("weight_count", weightTensorsNpy.size());
             metadata.put("output_count", outputTensorsNpy.size());
             metadata.put("seed", returnedSeed);
             metadata.put("timestamp", Instant.now().toString());
 
-            return TraceResult.okWithValues(mlir, metadata, inputTensorsNpy, outputTensorsNpy, returnedSeed);
+            return TraceResult.okWithValues(mlir, metadata, inputTensorsNpy,
+                                           weightTensorsNpy, weightNames, outputTensorsNpy, returnedSeed);
 
         } catch (PolyglotException e) {
             String error = "GraalPy error: " + e.getMessage();
@@ -492,6 +524,22 @@ public final class FxStableHloExport {
             }
         }
 
+        // Write weight tensor .npy files if present
+        List<String> weightPaths = new ArrayList<>();
+        List<String> weightNames = new ArrayList<>();
+        if (result.hasWeights() && !result.weightTensorsNpy.isEmpty()) {
+            Path weightsDir = outputDir.resolve("weights");
+            Files.createDirectories(weightsDir);
+            for (int i = 0; i < result.weightTensorsNpy.size(); i++) {
+                String filename = "weight_" + i + ".npy";
+                Files.write(weightsDir.resolve(filename), result.weightTensorsNpy.get(i));
+                weightPaths.add("weights/" + filename);
+                if (i < result.weightNames.size()) {
+                    weightNames.add(result.weightNames.get(i));
+                }
+            }
+        }
+
         // Write output tensor .npy files if present
         List<String> outputPaths = new ArrayList<>();
         if (result.hasValues() && !result.outputTensorsNpy.isEmpty()) {
@@ -530,6 +578,10 @@ public final class FxStableHloExport {
             if (!inputPaths.isEmpty()) {
                 artifacts.put("inputs", inputPaths);
             }
+            if (!weightPaths.isEmpty()) {
+                artifacts.put("weights", weightPaths);
+                artifacts.put("weight_names", weightNames);
+            }
             if (!outputPaths.isEmpty()) {
                 artifacts.put("outputs", outputPaths);
             }
@@ -538,6 +590,9 @@ public final class FxStableHloExport {
 
         if (result.hasValues()) {
             manifest.put("seed", result.seed);
+        }
+        if (result.hasWeights()) {
+            manifest.put("weight_count", result.weightTensorsNpy.size());
         }
 
         manifest.put("timestamp", Instant.now().toString());

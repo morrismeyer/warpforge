@@ -198,6 +198,42 @@ class E2EFixtureGenerator {
             """, "[(4,)]");
     }
 
+    // ==================== Tier 3.5: Linear Layer (with weights) ====================
+
+    @Test
+    @DisplayName("Generate: linear")
+    void generateLinear() throws Exception {
+        generateFixture("linear", """
+            import torch
+            import torch.nn as nn
+
+            class Model(nn.Module):
+                def __init__(self):
+                    super().__init__()
+                    self.fc = nn.Linear(8, 4)
+
+                def forward(self, x):
+                    return self.fc(x)
+            """, "[(2, 8)]");
+    }
+
+    @Test
+    @DisplayName("Generate: linear_no_bias")
+    void generateLinearNoBias() throws Exception {
+        generateFixture("linear_no_bias", """
+            import torch
+            import torch.nn as nn
+
+            class Model(nn.Module):
+                def __init__(self):
+                    super().__init__()
+                    self.fc = nn.Linear(8, 4, bias=False)
+
+                def forward(self, x):
+                    return self.fc(x)
+            """, "[(2, 8)]");
+    }
+
     // ==================== Tier 4: Transformer Operations ====================
 
     @Test
@@ -320,9 +356,6 @@ class E2EFixtureGenerator {
     }
 
     // ==================== Tier 5: Composite Transformer Patterns ====================
-    // NOTE: These tests are disabled until SnakeGrinder properly exports model weights.
-    // Currently, Linear layer weights are emitted as zeros (placeholders) instead of actual values.
-    // See: https://github.com/surfworks/warpforge/issues/XXX
 
     // @Test
     // @DisplayName("Generate: attention_scores")
@@ -343,50 +376,91 @@ class E2EFixtureGenerator {
     //         """, "[(1, 4, 8), (1, 4, 8)]");
     // }
 
-    // @Test
-    // @DisplayName("Generate: ffn_block")
-    // void generateFfnBlock() throws Exception {
-    //     // DISABLED: Linear weights not captured by SnakeGrinder --trace-with-values
-    //     generateFixture("ffn_block", """
-    //         import torch
-    //         import torch.nn as nn
-    //
-    //         class Model(nn.Module):
-    //             def __init__(self):
-    //                 super().__init__()
-    //                 self.fc1 = nn.Linear(16, 64, bias=False)
-    //                 self.gelu = nn.GELU()
-    //                 self.fc2 = nn.Linear(64, 16, bias=False)
-    //
-    //             def forward(self, x):
-    //                 x = self.fc1(x)
-    //                 x = self.gelu(x)
-    //                 x = self.fc2(x)
-    //                 return x
-    //         """, "[(2, 4, 16)]");
-    // }
+    @Test
+    @DisplayName("Generate: ffn_block")
+    void generateFfnBlock() throws Exception {
+        // Feed-forward network block: Linear -> GELU -> Linear
+        generateFixture("ffn_block", """
+            import torch
+            import torch.nn as nn
 
-    // @Test
-    // @DisplayName("Generate: pre_norm_residual")
-    // void generatePreNormResidual() throws Exception {
-    //     // DISABLED: Linear weights not captured by SnakeGrinder --trace-with-values
-    //     generateFixture("pre_norm_residual", """
-    //         import torch
-    //         import torch.nn as nn
-    //
-    //         class Model(nn.Module):
-    //             def __init__(self):
-    //                 super().__init__()
-    //                 self.ln = nn.LayerNorm(16)
-    //                 self.fc = nn.Linear(16, 16, bias=False)
-    //
-    //             def forward(self, x):
-    //                 residual = x
-    //                 x = self.ln(x)
-    //                 x = self.fc(x)
-    //                 return x + residual
-    //         """, "[(2, 4, 16)]");
-    // }
+            class Model(nn.Module):
+                def __init__(self):
+                    super().__init__()
+                    self.fc1 = nn.Linear(16, 64, bias=False)
+                    self.gelu = nn.GELU()
+                    self.fc2 = nn.Linear(64, 16, bias=False)
+
+                def forward(self, x):
+                    x = self.fc1(x)
+                    x = self.gelu(x)
+                    x = self.fc2(x)
+                    return x
+            """, "[(2, 4, 16)]");
+    }
+
+    @Test
+    @DisplayName("Generate: pre_norm_residual")
+    void generatePreNormResidual() throws Exception {
+        // Pre-normalization residual block: LayerNorm -> Linear -> add residual
+        generateFixture("pre_norm_residual", """
+            import torch
+            import torch.nn as nn
+
+            class Model(nn.Module):
+                def __init__(self):
+                    super().__init__()
+                    self.ln = nn.LayerNorm(16)
+                    self.fc = nn.Linear(16, 16, bias=False)
+
+                def forward(self, x):
+                    residual = x
+                    x = self.ln(x)
+                    x = self.fc(x)
+                    return x + residual
+            """, "[(2, 4, 16)]");
+    }
+
+    // ==================== Tier 6: Embedding Operations ====================
+
+    @Test
+    @DisplayName("Generate: embedding")
+    void generateEmbedding() throws Exception {
+        // Simple embedding lookup (vocab_size=100, embedding_dim=32)
+        // Input: token indices (int64), Output: embedded vectors (float32)
+        generateFixture("embedding", """
+            import torch
+            import torch.nn as nn
+
+            class Model(nn.Module):
+                def __init__(self):
+                    super().__init__()
+                    self.embed = nn.Embedding(100, 32)
+
+                def forward(self, x):
+                    return self.embed(x)
+            """, "[(4, 8, 'i64')]");
+    }
+
+    @Test
+    @DisplayName("Generate: embedding_with_position")
+    void generateEmbeddingWithPosition() throws Exception {
+        // Token embedding + position embedding (BERT-style)
+        // Both use vocab_size=100 to match the random index range (0-99)
+        generateFixture("embedding_with_position", """
+            import torch
+            import torch.nn as nn
+
+            class Model(nn.Module):
+                def __init__(self):
+                    super().__init__()
+                    self.token_embed = nn.Embedding(100, 32)
+                    self.pos_embed = nn.Embedding(100, 32)
+
+                def forward(self, token_ids, position_ids):
+                    return self.token_embed(token_ids) + self.pos_embed(position_ids)
+            """, "[(2, 8, 'i64'), (2, 8, 'i64')]");
+    }
 
     // ==================== Helper Methods ====================
 

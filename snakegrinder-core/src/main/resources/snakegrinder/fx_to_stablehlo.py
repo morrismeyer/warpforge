@@ -42,7 +42,8 @@ class FXToStableHLO:
     """
 
     def __init__(self, traced_module, sample_inputs: Tuple[torch.Tensor, ...],
-                 dynamic_dims: Optional[Dict[int, Set[int]]] = None):
+                 dynamic_dims: Optional[Dict[int, Set[int]]] = None,
+                 capture_weights: bool = False):
         self.traced = traced_module
         self.sample_inputs = sample_inputs
         self.graph = traced_module.graph
@@ -53,7 +54,130 @@ class FXToStableHLO:
         # Track which (node_name, dim_index) pairs are dynamic
         self.dynamic_dim_map: Dict[str, Set[int]] = {}
         self.input_dynamic_dims = dynamic_dims or {}
+        # Weight capture support
+        self.capture_weights = capture_weights
+        self.weight_args: List[Dict[str, Any]] = []  # List of {name, tensor, ssa, type}
+        self.weight_ssa_map: Dict[str, str] = {}  # module_target -> ssa for weight
+        self.bias_ssa_map: Dict[str, str] = {}    # module_target -> ssa for bias
         self._infer_shapes()
+        if capture_weights:
+            self._collect_weights()
+
+    def _collect_weights(self):
+        """Collect weights from modules that need them (Linear, Conv2d, etc.).
+
+        This scans the graph for call_module nodes and extracts their weight/bias tensors,
+        adding them as function arguments instead of emitting dense<0.0> placeholders.
+        """
+        # Count placeholders to know where weight args start
+        num_inputs = sum(1 for node in self.graph.nodes if node.op == 'placeholder')
+        arg_idx = num_inputs
+
+        for node in self.graph.nodes:
+            if node.op != 'call_module':
+                continue
+
+            module = self.traced.get_submodule(node.target)
+
+            # Linear layer weights
+            if isinstance(module, torch.nn.Linear):
+                weight = module.weight.detach()
+                weight_ssa = f'%arg{arg_idx}'
+                weight_type = f'tensor<{weight.shape[0]}x{weight.shape[1]}xf32>'
+                self.weight_args.append({
+                    'name': f'{node.target}.weight',
+                    'tensor': weight,
+                    'ssa': weight_ssa,
+                    'type': weight_type,
+                })
+                self.weight_ssa_map[node.target] = weight_ssa
+                arg_idx += 1
+
+                if module.bias is not None:
+                    bias = module.bias.detach()
+                    bias_ssa = f'%arg{arg_idx}'
+                    bias_type = f'tensor<{bias.shape[0]}xf32>'
+                    self.weight_args.append({
+                        'name': f'{node.target}.bias',
+                        'tensor': bias,
+                        'ssa': bias_ssa,
+                        'type': bias_type,
+                    })
+                    self.bias_ssa_map[node.target] = bias_ssa
+                    arg_idx += 1
+
+            # Conv2d layer weights
+            elif isinstance(module, torch.nn.Conv2d):
+                weight = module.weight.detach()
+                out_c, in_c, kh, kw = weight.shape
+                weight_ssa = f'%arg{arg_idx}'
+                weight_type = f'tensor<{out_c}x{in_c}x{kh}x{kw}xf32>'
+                self.weight_args.append({
+                    'name': f'{node.target}.weight',
+                    'tensor': weight,
+                    'ssa': weight_ssa,
+                    'type': weight_type,
+                })
+                self.weight_ssa_map[node.target] = weight_ssa
+                arg_idx += 1
+
+                if module.bias is not None:
+                    bias = module.bias.detach()
+                    bias_ssa = f'%arg{arg_idx}'
+                    bias_type = f'tensor<{bias.shape[0]}xf32>'
+                    self.weight_args.append({
+                        'name': f'{node.target}.bias',
+                        'tensor': bias,
+                        'ssa': bias_ssa,
+                        'type': bias_type,
+                    })
+                    self.bias_ssa_map[node.target] = bias_ssa
+                    arg_idx += 1
+
+            # LayerNorm weights (gamma/beta)
+            elif isinstance(module, torch.nn.LayerNorm):
+                if module.weight is not None:
+                    weight = module.weight.detach()
+                    weight_ssa = f'%arg{arg_idx}'
+                    # LayerNorm normalized_shape can be multi-dimensional
+                    shape_str = 'x'.join(str(d) for d in weight.shape)
+                    weight_type = f'tensor<{shape_str}xf32>'
+                    self.weight_args.append({
+                        'name': f'{node.target}.weight',
+                        'tensor': weight,
+                        'ssa': weight_ssa,
+                        'type': weight_type,
+                    })
+                    self.weight_ssa_map[node.target] = weight_ssa
+                    arg_idx += 1
+
+                if module.bias is not None:
+                    bias = module.bias.detach()
+                    bias_ssa = f'%arg{arg_idx}'
+                    shape_str = 'x'.join(str(d) for d in bias.shape)
+                    bias_type = f'tensor<{shape_str}xf32>'
+                    self.weight_args.append({
+                        'name': f'{node.target}.bias',
+                        'tensor': bias,
+                        'ssa': bias_ssa,
+                        'type': bias_type,
+                    })
+                    self.bias_ssa_map[node.target] = bias_ssa
+                    arg_idx += 1
+
+            # Embedding layer weights
+            elif isinstance(module, torch.nn.Embedding):
+                weight = module.weight.detach()
+                weight_ssa = f'%arg{arg_idx}'
+                weight_type = f'tensor<{weight.shape[0]}x{weight.shape[1]}xf32>'
+                self.weight_args.append({
+                    'name': f'{node.target}.weight',
+                    'tensor': weight,
+                    'ssa': weight_ssa,
+                    'type': weight_type,
+                })
+                self.weight_ssa_map[node.target] = weight_ssa
+                arg_idx += 1
 
     def _infer_shapes(self):
         """Infer shapes by running the model with ShapeProp and track dynamic dimensions."""
@@ -265,12 +389,17 @@ class FXToStableHLO:
             elif node.op == 'output':
                 output_node = node
 
-        # Build function signature
+        # Build function signature - regular inputs first
         arg_strs = []
         for i, inp in enumerate(inputs):
             ssa_name = f'%arg{i}'
             self.ssa_map[inp.name] = ssa_name
             arg_strs.append(f'{ssa_name}: {self._tensor_type(inp.name)}')
+
+        # Add weight arguments if capture_weights is enabled
+        if self.capture_weights and self.weight_args:
+            for weight_info in self.weight_args:
+                arg_strs.append(f'{weight_info["ssa"]}: {weight_info["type"]}')
 
         # Get output type
         output_args = output_node.args[0] if output_node else None
@@ -324,27 +453,51 @@ class FXToStableHLO:
         if isinstance(module, torch.nn.Linear):
             input_ssa = self.ssa_map.get(node.args[0].name, '%unknown')
             input_type = self._tensor_type(node.args[0].name)
+            input_shape = self.shape_map.get(node.args[0].name, ())
             weight_shape = module.weight.shape
-
-            weight_ssa = f'{result_ssa}_weight'
             weight_type = f'tensor<{weight_shape[0]}x{weight_shape[1]}xf32>'
 
             lines = [f'// Linear layer: {node.target}']
-            lines.append(f'{weight_ssa} = stablehlo.constant dense<0.0> : {weight_type}  // placeholder for weight')
+
+            # Use weight argument if capture_weights is enabled, otherwise emit placeholder
+            if self.capture_weights and node.target in self.weight_ssa_map:
+                weight_ssa = self.weight_ssa_map[node.target]
+                lines.append(f'// Using weight from function argument {weight_ssa}')
+            else:
+                weight_ssa = f'{result_ssa}_weight'
+                lines.append(f'{weight_ssa} = stablehlo.constant dense<0.0> : {weight_type}  // placeholder for weight')
 
             matmul_ssa = f'{result_ssa}_matmul'
-            # Use the official StableHLO dot attribute format
-            dot_attr = '#stablehlo.dot<lhs_batching_dimensions = [], rhs_batching_dimensions = [], lhs_contracting_dimensions = [1], rhs_contracting_dimensions = [1]>'
+            # Linear layer: contract the last dimension of input with last dimension of weight
+            # For 2D input [batch, features], lhs_contract = 1
+            # For 3D input [batch, seq, features], lhs_contract = 2
+            input_rank = len(input_shape)
+            lhs_contract_dim = input_rank - 1
+            dot_attr = f'#stablehlo.dot<lhs_batching_dimensions = [], rhs_batching_dimensions = [], lhs_contracting_dimensions = [{lhs_contract_dim}], rhs_contracting_dimensions = [1]>'
             lines.append(
                 f'{matmul_ssa} = stablehlo.dot_general {input_ssa}, {weight_ssa}, '
                 f'{dot_attr} : ({input_type}, {weight_type}) -> {result_type}'
             )
 
             if module.bias is not None:
-                bias_ssa = f'{result_ssa}_bias'
                 bias_type = f'tensor<{weight_shape[0]}xf32>'
-                lines.append(f'{bias_ssa} = stablehlo.constant dense<0.0> : {bias_type}  // placeholder for bias')
-                lines.append(f'{result_ssa} = stablehlo.add {matmul_ssa}, {bias_ssa} : {result_type}')
+                # Use bias argument if capture_weights is enabled
+                if self.capture_weights and node.target in self.bias_ssa_map:
+                    bias_ssa = self.bias_ssa_map[node.target]
+                    lines.append(f'// Using bias from function argument {bias_ssa}')
+                else:
+                    bias_ssa = f'{result_ssa}_bias'
+                    lines.append(f'{bias_ssa} = stablehlo.constant dense<0.0> : {bias_type}  // placeholder for bias')
+                # Broadcast bias from (out_features,) to output shape (batch, out_features)
+                # The bias dimension maps to the last dimension of the output
+                output_shape = self.shape_map.get(node.name, ())
+                output_rank = len(output_shape)
+                bias_broadcast_ssa = f'{result_ssa}_bias_broadcast'
+                lines.append(
+                    f'{bias_broadcast_ssa} = stablehlo.broadcast_in_dim {bias_ssa}, dims = [{output_rank - 1}] : '
+                    f'({bias_type}) -> {result_type}'
+                )
+                lines.append(f'{result_ssa} = stablehlo.add {matmul_ssa}, {bias_broadcast_ssa} : {result_type}')
             else:
                 lines[-1] = lines[-1].replace(matmul_ssa, result_ssa)
 
@@ -362,11 +515,17 @@ class FXToStableHLO:
             sh, sw = module.stride if isinstance(module.stride, tuple) else (module.stride, module.stride)
             ph, pw = module.padding if isinstance(module.padding, tuple) else (module.padding, module.padding)
 
-            kernel_ssa = f'{result_ssa}_kernel'
             kernel_type = f'tensor<{out_channels}x{in_channels}x{kh}x{kw}xf32>'
 
             lines = [f'// Conv2d layer: {node.target}']
-            lines.append(f'{kernel_ssa} = stablehlo.constant dense<0.0> : {kernel_type}  // placeholder for kernel')
+
+            # Use kernel argument if capture_weights is enabled
+            if self.capture_weights and node.target in self.weight_ssa_map:
+                kernel_ssa = self.weight_ssa_map[node.target]
+                lines.append(f'// Using kernel from function argument {kernel_ssa}')
+            else:
+                kernel_ssa = f'{result_ssa}_kernel'
+                lines.append(f'{kernel_ssa} = stablehlo.constant dense<0.0> : {kernel_type}  // placeholder for kernel')
 
             # Format: %c = stablehlo.convolution %lhs, %rhs, strides=[...], padding_low=[...], padding_high=[...], ...
             conv_ssa = f'{result_ssa}_conv' if module.bias is not None else result_ssa
@@ -378,10 +537,22 @@ class FXToStableHLO:
             )
 
             if module.bias is not None:
-                bias_ssa = f'{result_ssa}_bias'
                 bias_type = f'tensor<{out_channels}xf32>'
-                lines.append(f'{bias_ssa} = stablehlo.constant dense<0.0> : {bias_type}  // placeholder for bias')
-                lines.append(f'{result_ssa} = stablehlo.add {conv_ssa}, {bias_ssa} : {result_type}')
+                # Use bias argument if capture_weights is enabled
+                if self.capture_weights and node.target in self.bias_ssa_map:
+                    bias_ssa = self.bias_ssa_map[node.target]
+                    lines.append(f'// Using bias from function argument {bias_ssa}')
+                else:
+                    bias_ssa = f'{result_ssa}_bias'
+                    lines.append(f'{bias_ssa} = stablehlo.constant dense<0.0> : {bias_type}  // placeholder for bias')
+                # Broadcast bias from (out_channels,) to output shape (N, out_channels, H, W)
+                # The bias dimension maps to dimension 1 (channel dimension in NCHW)
+                bias_broadcast_ssa = f'{result_ssa}_bias_broadcast'
+                lines.append(
+                    f'{bias_broadcast_ssa} = stablehlo.broadcast_in_dim {bias_ssa}, dims = [1] : '
+                    f'({bias_type}) -> {result_type}'
+                )
+                lines.append(f'{result_ssa} = stablehlo.add {conv_ssa}, {bias_broadcast_ssa} : {result_type}')
 
             return lines
 
@@ -476,13 +647,24 @@ class FXToStableHLO:
             # Use custom_call for LayerNorm since StableHLO doesn't have native support
             # This will be handled by SnakeBurger/WarpForge backend
             if elementwise_affine:
-                weight_shape = 'x'.join(str(d) for d in normalized_shape)
-                weight_ssa = f'{result_ssa}_weight'
-                bias_ssa = f'{result_ssa}_bias'
-                weight_type = f'tensor<{weight_shape}xf32>'
+                weight_shape_str = 'x'.join(str(d) for d in normalized_shape)
+                weight_type = f'tensor<{weight_shape_str}xf32>'
 
-                lines.append(f'{weight_ssa} = stablehlo.constant dense<1.0> : {weight_type}  // placeholder for gamma')
-                lines.append(f'{bias_ssa} = stablehlo.constant dense<0.0> : {weight_type}  // placeholder for beta')
+                # Use weight/bias arguments if capture_weights is enabled
+                if self.capture_weights and node.target in self.weight_ssa_map:
+                    weight_ssa = self.weight_ssa_map[node.target]
+                    lines.append(f'// Using gamma from function argument {weight_ssa}')
+                else:
+                    weight_ssa = f'{result_ssa}_weight'
+                    lines.append(f'{weight_ssa} = stablehlo.constant dense<1.0> : {weight_type}  // placeholder for gamma')
+
+                if self.capture_weights and node.target in self.bias_ssa_map:
+                    bias_ssa = self.bias_ssa_map[node.target]
+                    lines.append(f'// Using beta from function argument {bias_ssa}')
+                else:
+                    bias_ssa = f'{result_ssa}_bias'
+                    lines.append(f'{bias_ssa} = stablehlo.constant dense<0.0> : {weight_type}  // placeholder for beta')
+
                 lines.append(
                     f'{result_ssa} = stablehlo.custom_call @layer_norm({input_ssa}, {weight_ssa}, {bias_ssa}) : '
                     f'({input_type}, {weight_type}, {weight_type}) -> {result_type}'
@@ -563,11 +745,18 @@ class FXToStableHLO:
 
             num_embeddings = module.num_embeddings
             embedding_dim = module.embedding_dim
-            weight_ssa = f'{result_ssa}_weight'
             weight_type = f'tensor<{num_embeddings}x{embedding_dim}xf32>'
 
             lines = [f'// Embedding layer: {node.target} (num_embeddings={num_embeddings}, embedding_dim={embedding_dim})']
-            lines.append(f'{weight_ssa} = stablehlo.constant dense<0.0> : {weight_type}  // placeholder for embedding weights')
+
+            # Use weight argument if capture_weights is enabled, otherwise emit placeholder
+            if self.capture_weights and node.target in self.weight_ssa_map:
+                weight_ssa = self.weight_ssa_map[node.target]
+                lines.append(f'// Using embedding weights from function argument {weight_ssa}')
+            else:
+                weight_ssa = f'{result_ssa}_weight'
+                lines.append(f'{weight_ssa} = stablehlo.constant dense<0.0> : {weight_type}  // placeholder for embedding weights')
+
             lines.append(
                 f'{result_ssa} = stablehlo.custom_call @embedding({input_ssa}, {weight_ssa}) '
                 f'{{num_embeddings = {num_embeddings}, embedding_dim = {embedding_dim}}} : '
@@ -4255,6 +4444,7 @@ def trace_with_values(source_code: str, class_name: str, input_shapes: list, see
 
     This function runs the model forward pass with deterministic inputs
     and captures both the graph (MLIR) and the actual tensor values.
+    Model weights are captured and exported as additional function arguments.
 
     Args:
         source_code: Python source containing an nn.Module class
@@ -4265,11 +4455,15 @@ def trace_with_values(source_code: str, class_name: str, input_shapes: list, see
     Returns:
         Dictionary with:
             - 'mlir': StableHLO MLIR text
-            - 'inputs': List of numpy arrays (serializable)
+            - 'inputs': List of numpy arrays (actual inputs, not weights)
+            - 'weights': List of numpy arrays (model weights as function args)
+            - 'weight_names': List of weight parameter names
             - 'outputs': List of numpy arrays (serializable)
             - 'seed': Random seed used
             - 'input_shapes': Input shape tuples
             - 'output_shapes': Output shape tuples
+            - 'input_count': Number of actual inputs (before weights)
+            - 'weight_count': Number of weight arguments
     """
     _ensure_torch_imported()
 
@@ -4287,8 +4481,42 @@ def trace_with_values(source_code: str, class_name: str, input_shapes: list, see
     model = model_class()
     model.eval()
 
-    # Create deterministic inputs
-    sample_inputs = tuple(torch.randn(*shape) for shape in input_shapes)
+    # Create deterministic inputs with proper dtypes
+    def create_input(spec):
+        """Create a random tensor from shape/dtype specification."""
+        if isinstance(spec, tuple) and len(spec) >= 2 and isinstance(spec[-1], str):
+            # Format: (dim1, dim2, ..., 'dtype')
+            shape = spec[:-1]
+            dtype_str = spec[-1]
+        else:
+            # Format: (dim1, dim2, ...) - assume float32
+            shape = spec
+            dtype_str = 'f32'
+
+        # Map dtype string to torch dtype
+        dtype_map = {
+            'f32': torch.float32,
+            'f64': torch.float64,
+            'f16': torch.float16,
+            'bf16': torch.bfloat16,
+            'i32': torch.int32,
+            'i64': torch.int64,
+            'i16': torch.int16,
+            'i8': torch.int8,
+            'bool': torch.bool,
+        }
+        dtype = dtype_map.get(dtype_str, torch.float32)
+
+        # Generate random tensor with appropriate method
+        if dtype in (torch.int8, torch.int16, torch.int32, torch.int64):
+            # For embeddings, use reasonable vocab range (0 to 99)
+            return torch.randint(0, 100, shape, dtype=dtype)
+        elif dtype == torch.bool:
+            return torch.rand(*shape) > 0.5
+        else:
+            return torch.randn(*shape, dtype=dtype)
+
+    sample_inputs = tuple(create_input(spec) for spec in input_shapes)
 
     # Run forward pass to get actual outputs
     with torch.no_grad():
@@ -4300,22 +4528,30 @@ def trace_with_values(source_code: str, class_name: str, input_shapes: list, see
     elif not isinstance(outputs, tuple):
         outputs = tuple(outputs)
 
-    # Trace for MLIR (reusing same inputs for consistency)
+    # Trace for MLIR with weight capture enabled
     traced = symbolic_trace(model)
-    converter = FXToStableHLO(traced, sample_inputs)
+    converter = FXToStableHLO(traced, sample_inputs, capture_weights=True)
     mlir = converter.convert()
 
     # Convert tensors to numpy arrays for serialization
     input_arrays = [inp.detach().cpu().numpy() for inp in sample_inputs]
     output_arrays = [out.detach().cpu().numpy() for out in outputs]
 
+    # Extract weight tensors from the converter
+    weight_arrays = [w['tensor'].cpu().numpy() for w in converter.weight_args]
+    weight_names = [w['name'] for w in converter.weight_args]
+
     return {
         'mlir': mlir,
         'inputs': input_arrays,
+        'weights': weight_arrays,
+        'weight_names': weight_names,
         'outputs': output_arrays,
         'seed': seed,
         'input_shapes': [tuple(arr.shape) for arr in input_arrays],
         'output_shapes': [tuple(arr.shape) for arr in output_arrays],
+        'input_count': len(input_arrays),
+        'weight_count': len(weight_arrays),
     }
 
 
@@ -4335,25 +4571,34 @@ def trace_with_values_npy(source_code: str, class_name: str, input_shapes: list,
     Returns:
         Dictionary with:
             - 'mlir': StableHLO MLIR text
-            - 'input_npy': List of bytes (.npy format)
+            - 'input_npy': List of bytes (.npy format) - actual inputs only
+            - 'weight_npy': List of bytes (.npy format) - model weights
+            - 'weight_names': List of weight parameter names
             - 'output_npy': List of bytes (.npy format)
             - 'seed': Random seed used
             - 'input_shapes': Input shape tuples
             - 'output_shapes': Output shape tuples
+            - 'input_count': Number of actual inputs
+            - 'weight_count': Number of weight arguments
     """
     result = trace_with_values(source_code, class_name, input_shapes, seed)
 
     # Convert numpy arrays to .npy bytes
     input_npy = [serialize_npy(arr) for arr in result['inputs']]
+    weight_npy = [serialize_npy(arr) for arr in result['weights']]
     output_npy = [serialize_npy(arr) for arr in result['outputs']]
 
     return {
         'mlir': result['mlir'],
         'input_npy': input_npy,
+        'weight_npy': weight_npy,
+        'weight_names': result['weight_names'],
         'output_npy': output_npy,
         'seed': result['seed'],
         'input_shapes': result['input_shapes'],
         'output_shapes': result['output_shapes'],
+        'input_count': result['input_count'],
+        'weight_count': result['weight_count'],
     }
 
 

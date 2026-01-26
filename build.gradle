@@ -30,11 +30,12 @@ subprojects {
         }
 
         tasks.register('nvidiaTest', Test) {
-            description = 'Run NVIDIA GPU tests (tagged @Tag("nvidia")).'
+            description = 'Run NVIDIA GPU tests (tagged @Tag("nvidia")), excluding nightly.'
             group = 'verification'
 
             useJUnitPlatform {
                 includeTags 'nvidia'
+                excludeTags 'nightly'  // BERT EndToEnd tests run nightly only
             }
 
             testClassesDirs = sourceSets.test.output.classesDirs
@@ -42,11 +43,12 @@ subprojects {
         }
 
         tasks.register('amdTest', Test) {
-            description = 'Run AMD GPU tests (tagged @Tag("amd")).'
+            description = 'Run AMD GPU tests (tagged @Tag("amd")), excluding nightly.'
             group = 'verification'
 
             useJUnitPlatform {
                 includeTags 'amd'
+                excludeTags 'nightly'  // BERT EndToEnd tests run nightly only
             }
 
             testClassesDirs = sourceSets.test.output.classesDirs

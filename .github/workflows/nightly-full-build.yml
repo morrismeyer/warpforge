@@ -238,16 +238,16 @@ jobs:
           E2E_FAILURES=$(grep -oE 'failures="[0-9]+"' "$TEST_XML" | head -1 | grep -oE '[0-9]+')
           E2E_SKIPPED=$(grep -oE 'skipped="[0-9]+"' "$TEST_XML" | head -1 | grep -oE '[0-9]+')
 
-          echo "E2E Test Results:"
+          echo "Quick E2E Test Results:"
           echo "  Total:    ${E2E_TESTS:-0}"
           echo "  Passed:   $((${E2E_TESTS:-0} - ${E2E_FAILURES:-0} - ${E2E_SKIPPED:-0}))"
           echo "  Failed:   ${E2E_FAILURES:-0}"
           echo "  Skipped:  ${E2E_SKIPPED:-0}"
 
-          # Minimum E2E test count (currently 20 fixtures)
+          # Minimum quick E2E test count (BERT moved to nightly, so ~25 quick fixtures)
           MIN_E2E_TESTS=15
           if [[ "${E2E_TESTS:-0}" -lt $MIN_E2E_TESTS ]]; then
-            echo "ERROR: Expected at least $MIN_E2E_TESTS E2E tests, found ${E2E_TESTS:-0}"
+            echo "ERROR: Expected at least $MIN_E2E_TESTS quick E2E tests, found ${E2E_TESTS:-0}"
             echo "E2E fixtures may be missing or not discovered"
             exit 1
           fi
@@ -261,15 +261,58 @@ jobs:
           fi
 
           echo ""
-          echo "SUCCESS: All ${E2E_TESTS} E2E tests passed"
-          echo "WarpForge CPU backend matches PyTorch output for all fixtures"
+          echo "SUCCESS: All ${E2E_TESTS} quick E2E tests passed"
+          echo "WarpForge CPU backend matches PyTorch output for quick fixtures"
 
-          # List the fixtures that were tested
+      - name: Run nightly-only tests (BERT E2E)
+        run: |
+          set -euo pipefail
+          cd ~/surfworks/warpforge
+
+          echo "=== Nightly-Only E2E Tests (BERT models) ==="
+          echo "These are expensive fixtures that only run in nightly builds"
+
+          ./gradlew :warpforge-core:nightlyTest --no-build-cache --no-configuration-cache 2>&1 | tee nightly-test.log
+
+          # Find nightly test results
+          NIGHTLY_XML="warpforge-core/build/test-results/nightlyTest/TEST-io.surfworks.warpforge.core.endtoend.PyTorchWarpForgeEndToEndTest.xml"
+
+          if [[ -f "$NIGHTLY_XML" ]]; then
+            BERT_TESTS=$(grep -oE 'tests="[0-9]+"' "$NIGHTLY_XML" | head -1 | grep -oE '[0-9]+')
+            BERT_FAILURES=$(grep -oE 'failures="[0-9]+"' "$NIGHTLY_XML" | head -1 | grep -oE '[0-9]+')
+
+            echo ""
+            echo "BERT E2E Test Results:"
+            echo "  Total:    ${BERT_TESTS:-0}"
+            echo "  Failed:   ${BERT_FAILURES:-0}"
+
+            if [[ "${BERT_FAILURES:-0}" -gt 0 ]]; then
+              echo "ERROR: BERT E2E tests failed!"
+              grep -A5 'testcase.*status="failed"' "$NIGHTLY_XML" || true
+              exit 1
+            fi
+
+            echo ""
+            echo "SUCCESS: All ${BERT_TESTS} BERT E2E tests passed"
+          else
+            echo "WARNING: Nightly test results not found - may have no nightly fixtures"
+          fi
+
+      - name: Summary - All E2E fixtures tested
+        run: |
+          set -euo pipefail
+          cd ~/surfworks/warpforge
+
+          echo "=== Complete E2E Fixture Summary ==="
           echo ""
           echo "Tested fixtures:"
           ls -1 src/test/resources/fixtures/e2e/ | grep -v VERSION | while read fixture; do
             if [[ -d "src/test/resources/fixtures/e2e/$fixture" ]]; then
-              echo "  - $fixture"
+              if [[ "$fixture" == bert_* ]]; then
+                echo "  - $fixture (nightly)"
+              else
+                echo "  - $fixture (quick)"
+              fi
             fi
           done
 
@@ -513,6 +556,20 @@ jobs:
 
           chmod +x holmes-lab/mark1/ci-scripts/orchestrate-nvidia-build.sh
           bash holmes-lab/mark1/ci-scripts/orchestrate-nvidia-build.sh 2>&1 | tee nvidia-test.log
+
+      - name: NVIDIA box - nightly tests (BERT E2E)
+        if: ${{ !inputs.skip_gpu_boxes }}
+        run: |
+          set -euo pipefail
+          cd ~/surfworks/warpforge
+
+          echo "=== NVIDIA Nightly Tests (BERT E2E) ==="
+
+          NVIDIA_HOST="${NVIDIA_HOST:-mark1nvidia}"
+
+          ssh -o ConnectTimeout=30 "$NVIDIA_HOST" "cd ~/projects/warpforge && ./gradlew :warpforge-backend-nvidia:nightlyNvidiaTest --no-build-cache" 2>&1 | tee nvidia-nightly-test.log
+
+          echo "NVIDIA nightly BERT tests complete"
 
       - name: AMD box - build and test
         if: ${{ !inputs.skip_gpu_boxes }}

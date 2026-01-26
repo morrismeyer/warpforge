@@ -39,6 +39,12 @@ import static org.junit.jupiter.api.Assertions.fail;
  * </ol>
  *
  * <p>Fixtures are located in: warpforge-core/src/test/resources/fixtures/e2e/
+ *
+ * <p>Test distribution:
+ * <ul>
+ *   <li>Quick fixtures (add, relu, softmax, etc.) - run on every CI push</li>
+ *   <li>BERT fixtures (bert_squad_*) - run nightly only (tagged with "nightly")</li>
+ * </ul>
  */
 @Tag("cpu")
 @DisplayName("PyTorch vs WarpForge E2E Tests")
@@ -47,6 +53,13 @@ class PyTorchWarpForgeEndToEndTest {
     private static final Path FIXTURES_DIR = Paths.get(
         "src/test/resources/fixtures/e2e"
     );
+
+    /**
+     * Pattern for expensive fixtures that should only run nightly.
+     * BERT models take significantly longer due to their size and complexity.
+     */
+    private static final java.util.regex.Pattern NIGHTLY_FIXTURE_PATTERN =
+        java.util.regex.Pattern.compile("bert_.*");
 
     private CpuBackend backend;
     private GraphExecutor executor;
@@ -65,11 +78,26 @@ class PyTorchWarpForgeEndToEndTest {
     }
 
     /**
-     * Discover all E2E fixture directories.
+     * Discover quick E2E fixture directories (excludes BERT and other expensive fixtures).
+     * These run on every CI push.
      */
-    static Stream<Path> e2eFixtures() {
+    static Stream<Path> quickE2eFixtures() {
+        return discoverFixtures(false);
+    }
+
+    /**
+     * Discover expensive E2E fixture directories (BERT models).
+     * These run nightly only.
+     */
+    static Stream<Path> nightlyE2eFixtures() {
+        return discoverFixtures(true);
+    }
+
+    /**
+     * Discover fixtures based on whether we want expensive (nightly) or quick fixtures.
+     */
+    private static Stream<Path> discoverFixtures(boolean nightlyOnly) {
         if (!Files.exists(FIXTURES_DIR)) {
-            // Return a placeholder that will be skipped
             return Stream.of(Paths.get("NO_FIXTURES_AVAILABLE"));
         }
 
@@ -78,6 +106,11 @@ class PyTorchWarpForgeEndToEndTest {
                 .filter(Files::isDirectory)
                 .filter(dir -> Files.exists(dir.resolve("model.mlir")))
                 .filter(dir -> Files.exists(dir.resolve("inputs")) || Files.exists(dir.resolve("outputs")))
+                .filter(dir -> {
+                    String name = dir.getFileName().toString();
+                    boolean isExpensive = NIGHTLY_FIXTURE_PATTERN.matcher(name).matches();
+                    return nightlyOnly ? isExpensive : !isExpensive;
+                })
                 .toList();
 
             if (fixtures.isEmpty()) {
@@ -90,9 +123,21 @@ class PyTorchWarpForgeEndToEndTest {
     }
 
     @ParameterizedTest(name = "{0}")
-    @MethodSource("e2eFixtures")
+    @MethodSource("quickE2eFixtures")
     @DisplayName("PyTorch output matches WarpForge execution")
     void pytorchMatchesWarpforge(Path fixtureDir) throws IOException {
+        runE2eTest(fixtureDir);
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("nightlyE2eFixtures")
+    @Tag("nightly")
+    @DisplayName("BERT model output matches WarpForge execution (nightly)")
+    void bertMatchesWarpforge(Path fixtureDir) throws IOException {
+        runE2eTest(fixtureDir);
+    }
+
+    private void runE2eTest(Path fixtureDir) throws IOException {
         // Skip if no fixtures are available
         if (fixtureDir.toString().equals("NO_FIXTURES_AVAILABLE")) {
             System.out.println("No E2E fixtures found. Run: ./gradlew :warpforge-core:generateE2EFixtures");

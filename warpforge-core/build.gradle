@@ -30,7 +30,24 @@ tasks.withType(Test).configureEach {
 
 test {
     useJUnitPlatform {
-        excludeTags 'integration', 'fixture-generator'
+        excludeTags 'integration', 'fixture-generator', 'nightly'
+    }
+}
+
+tasks.register('nightlyTest', Test) {
+    description = 'Run nightly-only tests (expensive E2E fixtures like BERT)'
+    group = 'verification'
+
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+
+    useJUnitPlatform {
+        includeTags 'nightly'
+    }
+
+    testLogging {
+        events 'passed', 'skipped', 'failed', 'standardOut'
+        showStandardStreams = true
     }
 }
 

@@ -37,6 +37,12 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
  * on the NVIDIA GPU backend to verify CUDA kernel correctness.
  *
  * <p>Requires CUDA hardware to run (tagged with "nvidia").
+ *
+ * <p>Test distribution:
+ * <ul>
+ *   <li>Quick fixtures (add, relu, softmax, etc.) - run on every CI push</li>
+ *   <li>BERT fixtures (bert_squad_*) - run nightly only (tagged with "nightly")</li>
+ * </ul>
  */
 @Tag("nvidia")
 @DisplayName("NVIDIA Backend End-to-End Tests")
@@ -45,6 +51,13 @@ class NvidiaEndToEndTest {
     private static final Path FIXTURES_DIR = Paths.get(
         "../warpforge-core/src/test/resources/fixtures/e2e"
     );
+
+    /**
+     * Pattern for expensive fixtures that should only run nightly.
+     * BERT models take significantly longer due to their size and complexity.
+     */
+    private static final java.util.regex.Pattern NIGHTLY_FIXTURE_PATTERN =
+        java.util.regex.Pattern.compile("bert_.*");
 
     private NvidiaBackend backend;
     private GraphExecutor executor;
@@ -68,9 +81,25 @@ class NvidiaEndToEndTest {
     }
 
     /**
-     * Discover all end-to-end fixture directories.
+     * Discover quick E2E fixture directories (excludes BERT and other expensive fixtures).
+     * These run on every CI push.
      */
-    static Stream<Path> endToEndFixtures() {
+    static Stream<Path> quickEndToEndFixtures() {
+        return discoverFixtures(false);
+    }
+
+    /**
+     * Discover expensive E2E fixture directories (BERT models).
+     * These run nightly only.
+     */
+    static Stream<Path> nightlyEndToEndFixtures() {
+        return discoverFixtures(true);
+    }
+
+    /**
+     * Discover fixtures based on whether we want expensive (nightly) or quick fixtures.
+     */
+    private static Stream<Path> discoverFixtures(boolean nightlyOnly) {
         if (!Files.exists(FIXTURES_DIR)) {
             return Stream.of(Paths.get("NO_FIXTURES_AVAILABLE"));
         }
@@ -80,6 +109,11 @@ class NvidiaEndToEndTest {
                 .filter(Files::isDirectory)
                 .filter(dir -> Files.exists(dir.resolve("model.mlir")))
                 .filter(dir -> Files.exists(dir.resolve("inputs")) || Files.exists(dir.resolve("outputs")))
+                .filter(dir -> {
+                    String name = dir.getFileName().toString();
+                    boolean isExpensive = NIGHTLY_FIXTURE_PATTERN.matcher(name).matches();
+                    return nightlyOnly ? isExpensive : !isExpensive;
+                })
                 .toList();
 
             if (fixtures.isEmpty()) {
@@ -92,9 +126,21 @@ class NvidiaEndToEndTest {
     }
 
     @ParameterizedTest(name = "{0}")
-    @MethodSource("endToEndFixtures")
+    @MethodSource("quickEndToEndFixtures")
     @DisplayName("NVIDIA backend matches PyTorch output")
     void nvidiaMatchesPytorch(Path fixtureDir) throws IOException {
+        runNvidiaE2eTest(fixtureDir);
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("nightlyEndToEndFixtures")
+    @Tag("nightly")
+    @DisplayName("BERT model matches PyTorch output on NVIDIA (nightly)")
+    void bertMatchesPytorchOnNvidia(Path fixtureDir) throws IOException {
+        runNvidiaE2eTest(fixtureDir);
+    }
+
+    private void runNvidiaE2eTest(Path fixtureDir) throws IOException {
         if (fixtureDir.toString().equals("NO_FIXTURES_AVAILABLE")) {
             System.out.println("No fixtures found. Run: ./gradlew :warpforge-core:generateE2EFixtures");
             return;

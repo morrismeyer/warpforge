@@ -42,6 +42,29 @@ tasks.register('nvidiaBackendTest', Test) {
 
     useJUnitPlatform {
         includeTags 'nvidia'
+        excludeTags 'nightly'  // BERT tests run nightly only
+    }
+
+    // Set CUDA library paths
+    def cudaHome = System.getenv('CUDA_HOME') ?: '/usr/local/cuda'
+    environment 'LD_LIBRARY_PATH', "${cudaHome}/lib64:${System.getenv('LD_LIBRARY_PATH') ?: ''}"
+
+    testLogging {
+        events 'passed', 'skipped', 'failed', 'standardOut'
+        showStandardStreams = true
+    }
+}
+
+// Nightly NVIDIA tests (BERT models)
+tasks.register('nightlyNvidiaTest', Test) {
+    description = 'Run nightly-only NVIDIA tests (BERT E2E fixtures)'
+    group = 'verification'
+
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+
+    useJUnitPlatform {
+        includeTags 'nvidia', 'nightly'
     }
 
     // Set CUDA library paths

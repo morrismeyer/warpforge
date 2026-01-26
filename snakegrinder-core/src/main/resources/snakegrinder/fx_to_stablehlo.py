@@ -757,9 +757,9 @@ class FXToStableHLO:
                 weight_ssa = f'{result_ssa}_weight'
                 lines.append(f'{weight_ssa} = stablehlo.constant dense<0.0> : {weight_type}  // placeholder for embedding weights')
 
+            # Note: dimensions are encoded in tensor types, no need for attributes
             lines.append(
-                f'{result_ssa} = stablehlo.custom_call @embedding({input_ssa}, {weight_ssa}) '
-                f'{{num_embeddings = {num_embeddings}, embedding_dim = {embedding_dim}}} : '
+                f'{result_ssa} = stablehlo.custom_call @embedding({input_ssa}, {weight_ssa}) : '
                 f'({input_type}, {weight_type}) -> {result_type}'
             )
             return lines

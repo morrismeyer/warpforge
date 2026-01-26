@@ -60,6 +60,13 @@ public record ToleranceConfig(double atol, double rtol) {
         Map.entry("transformer_encoder_block", new ToleranceConfig(1e-3, 1e-3)),
         Map.entry("transformer_block", new ToleranceConfig(1e-3, 1e-3)),
 
+        // Full model patterns (high accumulated errors from multiple layers)
+        Map.entry("bert", new ToleranceConfig(5e-3, 5e-3)),
+        Map.entry("bert_squad", new ToleranceConfig(5e-3, 5e-3)),
+        Map.entry("bert_squad_mini", new ToleranceConfig(5e-3, 5e-3)),
+        Map.entry("gpt", new ToleranceConfig(5e-3, 5e-3)),
+        Map.entry("vit", new ToleranceConfig(5e-3, 5e-3)),
+
         // Matrix operations (accumulated errors)
         Map.entry("dot_general", new ToleranceConfig(1e-4, 1e-3)),
         Map.entry("convolution", new ToleranceConfig(1e-3, 1e-2)),

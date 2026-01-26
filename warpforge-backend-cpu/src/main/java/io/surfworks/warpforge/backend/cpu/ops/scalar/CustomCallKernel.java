@@ -280,10 +280,10 @@ public final class CustomCallKernel implements OpKernel {
     }
 
     private List<Tensor> executeEmbedding(CustomCallOp op, List<Tensor> inputs) {
-        // inputs[0] = embedding table [vocab_size, embed_dim]
-        // inputs[1] = indices [batch, seq] or [seq]
-        Tensor embedTable = inputs.get(0);
-        Tensor indices = inputs.get(1);
+        // inputs[0] = indices [batch, seq] or [seq] (int64)
+        // inputs[1] = embedding table [vocab_size, embed_dim] (float32)
+        Tensor indices = inputs.get(0);
+        Tensor embedTable = inputs.get(1);
 
         int[] tableShape = embedTable.shape();
         int embedDim = tableShape[1];
@@ -302,8 +302,9 @@ public final class CustomCallKernel implements OpKernel {
         MemorySegment indexData = indices.data();
         MemorySegment outData = result.data();
 
+        // Indices are int64, read as JAVA_LONG
         for (int i = 0; i < numIndices; i++) {
-            int idx = (int) indexData.getAtIndex(ValueLayout.JAVA_FLOAT, i);
+            int idx = (int) indexData.getAtIndex(ValueLayout.JAVA_LONG, i);
             long srcOffset = (long) idx * embedDim;
             long dstOffset = (long) i * embedDim;
 

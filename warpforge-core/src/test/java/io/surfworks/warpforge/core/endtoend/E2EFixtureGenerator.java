@@ -569,6 +569,104 @@ class E2EFixtureGenerator {
     // ==================== Tier 6: Embedding Operations ====================
 
     @Test
+    @DisplayName("Generate: bert_squad_mini")
+    void generateBertSquadMini() throws Exception {
+        // Mini BERT model for SQuAD question answering
+        // Architecture: embeddings -> 2 encoder layers -> linear head -> start/end logits
+        // Dimensions: batch=2, seq=16, hidden=64, heads=4, ffn=256, vocab=100
+        generateFixture("bert_squad_mini", """
+            import torch
+            import torch.nn as nn
+            import math
+
+            class TransformerEncoderLayer(nn.Module):
+                def __init__(self, hidden_size, num_heads, ffn_size):
+                    super().__init__()
+                    self.scale = 1.0 / math.sqrt(hidden_size // num_heads)
+                    self.num_heads = num_heads
+                    self.head_dim = hidden_size // num_heads
+
+                    # Attention
+                    self.ln1 = nn.LayerNorm(hidden_size)
+                    self.q_proj = nn.Linear(hidden_size, hidden_size, bias=False)
+                    self.k_proj = nn.Linear(hidden_size, hidden_size, bias=False)
+                    self.v_proj = nn.Linear(hidden_size, hidden_size, bias=False)
+                    self.out_proj = nn.Linear(hidden_size, hidden_size, bias=False)
+
+                    # FFN
+                    self.ln2 = nn.LayerNorm(hidden_size)
+                    self.fc1 = nn.Linear(hidden_size, ffn_size, bias=False)
+                    self.gelu = nn.GELU()
+                    self.fc2 = nn.Linear(ffn_size, hidden_size, bias=False)
+
+                def forward(self, x, batch_size, seq_len):
+                    # Self-attention with residual
+                    residual = x
+                    x = self.ln1(x)
+
+                    q = self.q_proj(x).reshape(batch_size, seq_len, self.num_heads, self.head_dim).transpose(1, 2)
+                    k = self.k_proj(x).reshape(batch_size, seq_len, self.num_heads, self.head_dim).transpose(1, 2)
+                    v = self.v_proj(x).reshape(batch_size, seq_len, self.num_heads, self.head_dim).transpose(1, 2)
+
+                    scores = torch.matmul(q, k.transpose(-2, -1)) * self.scale
+                    attn = torch.softmax(scores, dim=-1)
+                    out = torch.matmul(attn, v)
+
+                    out = out.transpose(1, 2).reshape(batch_size, seq_len, -1)
+                    x = residual + self.out_proj(out)
+
+                    # FFN with residual
+                    residual = x
+                    x = self.ln2(x)
+                    x = self.fc1(x)
+                    x = self.gelu(x)
+                    x = self.fc2(x)
+                    return residual + x
+
+            class Model(nn.Module):
+                def __init__(self):
+                    super().__init__()
+                    hidden_size = 64
+                    num_heads = 4
+                    ffn_size = 256
+                    vocab_size = 100
+                    max_seq_len = 100
+
+                    # Embeddings
+                    self.token_embed = nn.Embedding(vocab_size, hidden_size)
+                    self.pos_embed = nn.Embedding(max_seq_len, hidden_size)
+
+                    # Encoder layers
+                    self.layer1 = TransformerEncoderLayer(hidden_size, num_heads, ffn_size)
+                    self.layer2 = TransformerEncoderLayer(hidden_size, num_heads, ffn_size)
+
+                    # Final layer norm
+                    self.final_ln = nn.LayerNorm(hidden_size)
+
+                    # SQuAD head: produces start and end logits
+                    self.qa_head = nn.Linear(hidden_size, 2, bias=False)
+
+                def forward(self, token_ids, position_ids):
+                    batch_size = 2
+                    seq_len = 16
+
+                    # Embeddings
+                    x = self.token_embed(token_ids) + self.pos_embed(position_ids)
+
+                    # Encoder layers
+                    x = self.layer1(x, batch_size, seq_len)
+                    x = self.layer2(x, batch_size, seq_len)
+
+                    # Final layer norm
+                    x = self.final_ln(x)
+
+                    # SQuAD head: [batch, seq, 2] -> start_logits, end_logits
+                    logits = self.qa_head(x)
+                    return logits
+            """, "[(2, 16, 'i64'), (2, 16, 'i64')]");
+    }
+
+    @Test
     @DisplayName("Generate: embedding")
     void generateEmbedding() throws Exception {
         // Simple embedding lookup (vocab_size=100, embedding_dim=32)

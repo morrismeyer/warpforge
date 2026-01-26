@@ -108,10 +108,17 @@ public final class EndToEndTestFixture implements AutoCloseable {
             return tensors;
         }
 
-        // Find all .npy files sorted by name
+        // Find all .npy files sorted numerically by index (weight_0, weight_1, ..., weight_10, ...)
         List<Path> npyFiles = Files.list(dir)
             .filter(p -> p.toString().endsWith(".npy"))
-            .sorted()
+            .sorted((a, b) -> {
+                String nameA = a.getFileName().toString();
+                String nameB = b.getFileName().toString();
+                // Extract numeric index from filenames like "weight_0.npy", "input_1.npy"
+                int numA = extractNumericSuffix(nameA);
+                int numB = extractNumericSuffix(nameB);
+                return Integer.compare(numA, numB);
+            })
             .toList();
 
         for (Path npyFile : npyFiles) {
@@ -119,6 +126,27 @@ public final class EndToEndTestFixture implements AutoCloseable {
         }
 
         return tensors;
+    }
+
+    /**
+     * Extract numeric suffix from filename (e.g., "weight_123.npy" -> 123).
+     */
+    private static int extractNumericSuffix(String filename) {
+        // Remove extension
+        int dotIdx = filename.lastIndexOf('.');
+        if (dotIdx > 0) {
+            filename = filename.substring(0, dotIdx);
+        }
+        // Find last underscore and parse number after it
+        int underscoreIdx = filename.lastIndexOf('_');
+        if (underscoreIdx >= 0 && underscoreIdx < filename.length() - 1) {
+            try {
+                return Integer.parseInt(filename.substring(underscoreIdx + 1));
+            } catch (NumberFormatException e) {
+                // Fall back to 0 if not a number
+            }
+        }
+        return 0;
     }
 
     /**

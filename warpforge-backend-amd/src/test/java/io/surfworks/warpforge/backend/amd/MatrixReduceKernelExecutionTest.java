@@ -275,12 +275,13 @@ class MatrixReduceKernelExecutionTest {
             int gridX = (N + 15) / 16;
             int gridY = (M + 15) / 16;
 
+            // Kernel signature: dot_f32(A, B, C, M, N, K)
             context.launchKernelWithIntParams(
                 function,
                 new int[]{gridX, gridY}, new int[]{16, 16},
                 0,
                 new long[]{dA, dB, dC},
-                M, K, N
+                M, N, K
             );
 
             context.synchronize();
@@ -326,7 +327,13 @@ class MatrixReduceKernelExecutionTest {
 
         int n = input.length;
         long inByteSize = n * 4L;
-        long outByteSize = 4L;  // Single output value
+
+        // Calculate number of blocks needed (256 threads per block)
+        int numThreads = 256;
+        int numBlocks = (n + numThreads - 1) / numThreads;
+
+        // For add, output is single value (atomicAdd); for others, output per block
+        long outByteSize = reduceType.equals("add") ? 4L : numBlocks * 4L;
 
         long module = context.compileAndLoadModule("reduce_" + reduceType + "_module", source);
         long function = context.getFunction(module, functionName);
@@ -339,10 +346,20 @@ class MatrixReduceKernelExecutionTest {
                 context.copyToDevice(dIn, tensorIn.data());
             }
 
-            // For reduce kernels, typically use a single block or hierarchical reduction
-            // Simplified: use 1 block with enough threads
-            int numThreads = Math.min(n, 256);
-            int numBlocks = 1;
+            // Initialize output to identity value (0 for add, required for atomicAdd)
+            float initValue = switch (reduceType) {
+                case "add" -> 0.0f;
+                case "max" -> Float.NEGATIVE_INFINITY;
+                case "min" -> Float.POSITIVE_INFINITY;
+                case "mul" -> 1.0f;
+                default -> 0.0f;
+            };
+            int outElements = reduceType.equals("add") ? 1 : numBlocks;
+            float[] initOutput = new float[outElements];
+            java.util.Arrays.fill(initOutput, initValue);
+            try (Tensor outTensor = Tensor.fromFloatArray(initOutput, outElements)) {
+                context.copyToDevice(dOut, outTensor.data());
+            }
 
             context.launchKernelWithIntParams(
                 function,
@@ -354,10 +371,30 @@ class MatrixReduceKernelExecutionTest {
 
             context.synchronize();
 
-            float[] result = new float[1];
-            try (Tensor resultTensor = Tensor.fromFloatArray(result, 1)) {
-                context.copyToHost(resultTensor.data(), dOut, outByteSize);
-                return resultTensor.toFloatArray()[0];
+            if (reduceType.equals("add")) {
+                // atomicAdd already accumulated to single output
+                float[] result = new float[1];
+                try (Tensor resultTensor = Tensor.fromFloatArray(result, 1)) {
+                    context.copyToHost(resultTensor.data(), dOut, 4L);
+                    return resultTensor.toFloatArray()[0];
+                }
+            } else {
+                // For max/min/mul, need to reduce block results on CPU
+                float[] blockResults = new float[numBlocks];
+                try (Tensor resultTensor = Tensor.fromFloatArray(blockResults, numBlocks)) {
+                    context.copyToHost(resultTensor.data(), dOut, outByteSize);
+                    blockResults = resultTensor.toFloatArray();
+                }
+                float finalResult = blockResults[0];
+                for (int i = 1; i < numBlocks; i++) {
+                    finalResult = switch (reduceType) {
+                        case "max" -> Math.max(finalResult, blockResults[i]);
+                        case "min" -> Math.min(finalResult, blockResults[i]);
+                        case "mul" -> finalResult * blockResults[i];
+                        default -> finalResult;
+                    };
+                }
+                return finalResult;
             }
 
         } finally {

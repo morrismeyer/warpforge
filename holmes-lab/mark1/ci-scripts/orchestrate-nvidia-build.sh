@@ -186,15 +186,15 @@ ssh "$TARGET_HOST" bash -lc "
   bash -lc \"${NVIDIA_TEST_CMD}\"
 
   echo \"[remote \$(date)] Running JFR GPU validation...\"
-  bash -lc \"./gradlew :ptest:validateJfrNvidia --no-configuration-cache\" || echo \"JFR validation skipped (CUDA may not be available)\"
+  bash -lc \"./gradlew :ptest:validateJfrNvidia --no-configuration-cache\"
 
-  # Validate the JFR recording contains GPU events
-  if [ -f ptest/build/jfr-nvidia.jfr ]; then
+  # Check for success marker (written if GPU events were captured)
+  if [ -f ptest/build/jfr-nvidia.success ]; then
     echo \"[remote \$(date)] Validating JFR recording...\"
     bash -lc \"./gradlew :ptest:checkJfrNvidia --no-configuration-cache\"
     echo \"[remote \$(date)] JFR validation SUCCESS - GPU events captured\"
   else
-    echo \"[remote \$(date)] JFR recording not found (CUDA may not be available)\"
+    echo \"[remote \$(date)] JFR validation skipped (CUDA not available or no events captured)\"
   fi
 
   echo \"[remote \$(date)] Build + tests completed successfully\"

@@ -34,20 +34,32 @@ public class JfrGpuValidation {
         System.out.println();
 
         try {
+            boolean gpuAvailable;
             if ("nvidia".equalsIgnoreCase(backend)) {
-                runNvidiaValidation();
+                gpuAvailable = runNvidiaValidation();
             } else if ("amd".equalsIgnoreCase(backend)) {
-                runAmdValidation();
+                gpuAvailable = runAmdValidation();
             } else if ("cpu".equalsIgnoreCase(backend)) {
                 runCpuValidation();
+                gpuAvailable = true; // CPU always available
             } else {
                 System.err.println("Unknown backend: " + backend);
                 System.err.println("Supported: nvidia, amd, cpu");
                 System.exit(1);
+                return;
             }
 
             System.out.println();
-            System.out.println("Validation complete. Check JFR recording for GpuKernelEvent entries.");
+            if (gpuAvailable) {
+                // Write marker file to indicate GPU events were captured
+                java.nio.file.Files.writeString(
+                    java.nio.file.Path.of("build/jfr-" + backend.toLowerCase() + ".success"),
+                    "GPU_EVENTS_CAPTURED=true\n"
+                );
+                System.out.println("Validation complete. Check JFR recording for GpuKernelEvent entries.");
+            } else {
+                System.out.println("GPU not available - validation skipped.");
+            }
 
         } catch (Throwable t) {
             System.err.println("Validation failed: " + t.getMessage());
@@ -65,7 +77,7 @@ public class JfrGpuValidation {
         return "cpu"; // Default to CPU for basic validation
     }
 
-    private static void runNvidiaValidation() throws Throwable {
+    private static boolean runNvidiaValidation() throws Throwable {
         System.out.println("Checking NVIDIA/CUDA availability...");
 
         // Use reflection to avoid hard dependency
@@ -76,7 +88,7 @@ public class JfrGpuValidation {
         boolean available = (boolean) cudaRuntime.getMethod("isAvailable").invoke(null);
         if (!available) {
             System.out.println("CUDA not available - skipping NVIDIA validation");
-            return;
+            return false;
         }
 
         System.out.println("CUDA available. Running validation...");
@@ -106,9 +118,10 @@ public class JfrGpuValidation {
         } finally {
             cudaContext.getMethod("close").invoke(ctx);
         }
+        return true;
     }
 
-    private static void runAmdValidation() throws Throwable {
+    private static boolean runAmdValidation() throws Throwable {
         System.out.println("Checking AMD/HIP availability...");
 
         // Use reflection to avoid hard dependency
@@ -119,7 +132,7 @@ public class JfrGpuValidation {
         boolean available = (boolean) hipRuntime.getMethod("isAvailable").invoke(null);
         if (!available) {
             System.out.println("HIP/ROCm not available - skipping AMD validation");
-            return;
+            return false;
         }
 
         System.out.println("HIP/ROCm available. Running validation...");
@@ -149,6 +162,7 @@ public class JfrGpuValidation {
         } finally {
             hipContext.getMethod("close").invoke(ctx);
         }
+        return true;
     }
 
     private static void runCpuValidation() {

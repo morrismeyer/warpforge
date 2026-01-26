@@ -44,9 +44,10 @@ tasks.register('validateJfrNvidia', JavaExec) {
     mainClass = 'io.surfworks.warpforge.ptest.JfrGpuValidation'
     args = ['--backend', 'nvidia']
 
-    // Enable JFR recording
+    // Enable JFR recording and native access for FFM
     jvmArgs = [
-        '-XX:StartFlightRecording=filename=build/jfr-nvidia.jfr,dumponexit=true,settings=profile'
+        '-XX:StartFlightRecording=filename=build/jfr-nvidia.jfr,dumponexit=true,settings=profile',
+        '--enable-native-access=ALL-UNNAMED'
     ]
 }
 
@@ -58,9 +59,10 @@ tasks.register('validateJfrAmd', JavaExec) {
     mainClass = 'io.surfworks.warpforge.ptest.JfrGpuValidation'
     args = ['--backend', 'amd']
 
-    // Enable JFR recording
+    // Enable JFR recording and native access for FFM
     jvmArgs = [
-        '-XX:StartFlightRecording=filename=build/jfr-amd.jfr,dumponexit=true,settings=profile'
+        '-XX:StartFlightRecording=filename=build/jfr-amd.jfr,dumponexit=true,settings=profile',
+        '--enable-native-access=ALL-UNNAMED'
     ]
 }
 

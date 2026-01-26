@@ -93,8 +93,20 @@ public class JfrGpuValidation {
 
         System.out.println("CUDA available. Running validation...");
 
-        // Create context
-        Object ctx = cudaContext.getMethod("create", int.class).invoke(null, 0);
+        // Create context - may fail if no device even though library is available
+        Object ctx;
+        try {
+            ctx = cudaContext.getMethod("create", int.class).invoke(null, 0);
+        } catch (java.lang.reflect.InvocationTargetException e) {
+            Throwable cause = e.getCause();
+            if (cause != null && cause.getMessage() != null &&
+                (cause.getMessage().contains("no CUDA-capable device") ||
+                 cause.getMessage().contains("cuInit"))) {
+                System.out.println("No CUDA device detected - skipping NVIDIA validation");
+                return false;
+            }
+            throw e;
+        }
 
         try {
             for (int i = 0; i < ITERATIONS; i++) {
@@ -137,8 +149,19 @@ public class JfrGpuValidation {
 
         System.out.println("HIP/ROCm available. Running validation...");
 
-        // Create context
-        Object ctx = hipContext.getMethod("create", int.class).invoke(null, 0);
+        // Create context - may fail if no device even though library is available
+        Object ctx;
+        try {
+            ctx = hipContext.getMethod("create", int.class).invoke(null, 0);
+        } catch (java.lang.reflect.InvocationTargetException e) {
+            Throwable cause = e.getCause();
+            if (cause != null && cause.getMessage() != null &&
+                cause.getMessage().contains("hipErrorNoDevice")) {
+                System.out.println("No ROCm device detected - skipping AMD validation");
+                return false;
+            }
+            throw e;
+        }
 
         try {
             for (int i = 0; i < ITERATIONS; i++) {

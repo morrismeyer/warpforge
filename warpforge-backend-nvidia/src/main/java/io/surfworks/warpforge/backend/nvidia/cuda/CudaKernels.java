@@ -158,7 +158,7 @@ public final class CudaKernels {
                 mov.u64         %rd_t1, %globaltimer;
                 sub.u64         %rd_delta, %rd_t1, %rd_t0;
                 ld.param.u64    %rd9, [timing_ptr];
-                atom.global.add.u64 [%rd9], %rd_delta;
+                red.global.add.u64 [%rd9], %rd_delta;
 
             """);
         }
@@ -254,7 +254,7 @@ public final class CudaKernels {
                     mov.u64         %rd_t1, %globaltimer;
                     sub.u64         %rd_delta, %rd_t1, %rd_t0;
                     ld.param.u64    %rd9, [timing_ptr];
-                    atom.global.add.u64 [%rd9], %rd_delta;
+                    red.global.add.u64 [%rd9], %rd_delta;
 
             """);
         }
@@ -383,7 +383,7 @@ public final class CudaKernels {
                     mov.u64         %rd_t1, %globaltimer;
                     sub.u64         %rd_delta, %rd_t1, %rd_t0;
                     ld.param.u64    %rd9, [timing_ptr];
-                    atom.global.add.u64 [%rd9], %rd_delta;
+                    red.global.add.u64 [%rd9], %rd_delta;
 
             """);
         }
@@ -476,7 +476,7 @@ public final class CudaKernels {
             ptx.append("    mov.u64         %rd_t1, %globaltimer;\n");
             ptx.append("    sub.u64         %rd_delta, %rd_t1, %rd_t0;\n");
             ptx.append("    ld.param.u64    %rd9, [timing_ptr];\n");
-            ptx.append("    atom.global.add.u64 [%rd9], %rd_delta;\n\n");
+            ptx.append("    red.global.add.u64 [%rd9], %rd_delta;\n\n");
         }
 
         ptx.append("    st.global.f32   [%rd8], %f3;\n\n");
@@ -859,7 +859,7 @@ public final class CudaKernels {
             ptx.append("    mov.u64         %rd_t1, %globaltimer;\n");
             ptx.append("    sub.u64         %rd_delta, %rd_t1, %rd_t0;\n");
             ptx.append("    ld.param.u64    %rd7, [timing_ptr];\n");
-            ptx.append("    atom.global.add.u64 [%rd7], %rd_delta;\n\n");
+            ptx.append("    red.global.add.u64 [%rd7], %rd_delta;\n\n");
         }
 
         ptx.append("    st.global.f32   [%rd6], %f2;\n\n");
@@ -1039,7 +1039,7 @@ lg2.approx.f32  %f4, %f2;              // temp for checking if x is positive
             ptx.append("    mov.u64         %rd_t1, %globaltimer;\n");
             ptx.append("    sub.u64         %rd_delta, %rd_t1, %rd_t0;\n");
             ptx.append("    ld.param.u64    %rd11, [timing_ptr];\n");
-            ptx.append("    atom.global.add.u64 [%rd11], %rd_delta;\n\n");
+            ptx.append("    red.global.add.u64 [%rd11], %rd_delta;\n\n");
         }
 
         ptx.append("    st.global.f32   [%rd10], %f4;\n\n");
@@ -1125,7 +1125,7 @@ lg2.approx.f32  %f4, %f2;              // temp for checking if x is positive
             ptx.append("    mov.u64         %rd_t1, %globaltimer;\n");
             ptx.append("    sub.u64         %rd_delta, %rd_t1, %rd_t0;\n");
             ptx.append("    ld.param.u64    %rd11, [timing_ptr];\n");
-            ptx.append("    atom.global.add.u64 [%rd11], %rd_delta;\n\n");
+            ptx.append("    red.global.add.u64 [%rd11], %rd_delta;\n\n");
         }
 
         ptx.append("    st.global.f32   [%rd10], %f4;\n\n");
@@ -1207,7 +1207,7 @@ lg2.approx.f32  %f4, %f2;              // temp for checking if x is positive
             ptx.append("    mov.u64         %rd_t1, %globaltimer;\n");
             ptx.append("    sub.u64         %rd_delta, %rd_t1, %rd_t0;\n");
             ptx.append("    ld.param.u64    %rd9, [timing_ptr];\n");
-            ptx.append("    atom.global.add.u64 [%rd9], %rd_delta;\n\n");
+            ptx.append("    red.global.add.u64 [%rd9], %rd_delta;\n\n");
         }
 
         ptx.append("    st.global.f32   [%rd8], %f3;\n\n");
@@ -1335,7 +1335,7 @@ lg2.approx.f32  %f4, %f2;              // temp for checking if x is positive
                     mov.u64         %rd_t1, %globaltimer;
                     sub.u64         %rd_delta, %rd_t1, %rd_t0;
                     ld.param.u64    %rd9, [timing_ptr];
-                    atom.global.add.u64 [%rd9], %rd_delta;
+                    red.global.add.u64 [%rd9], %rd_delta;
 
             """);
         }
@@ -1486,7 +1486,7 @@ lg2.approx.f32  %f4, %f2;              // temp for checking if x is positive
                     mov.u64         %rd_t1, %globaltimer;
                     sub.u64         %rd_delta, %rd_t1, %rd_t0;
                     ld.param.u64    %rd7, [timing_ptr];
-                    atom.global.add.u64 [%rd7], %rd_delta;
+                    red.global.add.u64 [%rd7], %rd_delta;
 
             """);
         }
@@ -1635,7 +1635,7 @@ lg2.approx.f32  %f4, %f2;              // temp for checking if x is positive
                     mov.u64         %rd_t1, %globaltimer;
                     sub.u64         %rd_delta, %rd_t1, %rd_t0;
                     ld.param.u64    %rd15, [timing_ptr];
-                    atom.global.add.u64 [%rd15], %rd_delta;
+                    red.global.add.u64 [%rd15], %rd_delta;
 
             """);
         }
@@ -1814,7 +1814,7 @@ lg2.approx.f32  %f4, %f2;              // temp for checking if x is positive
                     mov.u64         %rd_t1, %globaltimer;
                     sub.u64         %rd_delta, %rd_t1, %rd_t0;
                     ld.param.u64    %rd11, [timing_ptr];
-                    atom.global.add.u64 [%rd11], %rd_delta;
+                    red.global.add.u64 [%rd11], %rd_delta;
 
             """);
         }
@@ -1958,7 +1958,7 @@ lg2.approx.f32  %f4, %f2;              // temp for checking if x is positive
                     mov.u64         %rd_t1, %globaltimer;
                     sub.u64         %rd_delta, %rd_t1, %rd_t0;
                     ld.param.u64    %rd7, [timing_ptr];
-                    atom.global.add.u64 [%rd7], %rd_delta;
+                    red.global.add.u64 [%rd7], %rd_delta;
 
             """);
         }
@@ -2076,7 +2076,7 @@ lg2.approx.f32  %f4, %f2;              // temp for checking if x is positive
                     mov.u64         %rd_t1, %globaltimer;
                     sub.u64         %rd_delta, %rd_t1, %rd_t0;
                     ld.param.u64    %rd11, [timing_ptr];
-                    atom.global.add.u64 [%rd11], %rd_delta;
+                    red.global.add.u64 [%rd11], %rd_delta;
 
             """);
         }
@@ -2194,7 +2194,7 @@ lg2.approx.f32  %f4, %f2;              // temp for checking if x is positive
                     mov.u64         %rd_t1, %globaltimer;
                     sub.u64         %rd_delta, %rd_t1, %rd_t0;
                     ld.param.u64    %rd11, [timing_ptr];
-                    atom.global.add.u64 [%rd11], %rd_delta;
+                    red.global.add.u64 [%rd11], %rd_delta;
 
             """);
         }
@@ -2306,7 +2306,7 @@ lg2.approx.f32  %f4, %f2;              // temp for checking if x is positive
                     mov.u64         %rd_t1, %globaltimer;
                     sub.u64         %rd_delta, %rd_t1, %rd_t0;
                     ld.param.u64    %rd11, [timing_ptr];
-                    atom.global.add.u64 [%rd11], %rd_delta;
+                    red.global.add.u64 [%rd11], %rd_delta;
 
             """);
         }
@@ -2403,7 +2403,7 @@ lg2.approx.f32  %f4, %f2;              // temp for checking if x is positive
                     mov.u64         %rd_t1, %globaltimer;
                     sub.u64         %rd_delta, %rd_t1, %rd_t0;
                     ld.param.u64    %rd7, [timing_ptr];
-                    atom.global.add.u64 [%rd7], %rd_delta;
+                    red.global.add.u64 [%rd7], %rd_delta;
 
             """);
         }
@@ -2509,7 +2509,7 @@ lg2.approx.f32  %f4, %f2;              // temp for checking if x is positive
                     mov.u64         %rd_t1, %globaltimer;
                     sub.u64         %rd_delta, %rd_t1, %rd_t0;
                     ld.param.u64    %rd7, [timing_ptr];
-                    atom.global.add.u64 [%rd7], %rd_delta;
+                    red.global.add.u64 [%rd7], %rd_delta;
 
             """);
         }
@@ -2612,7 +2612,7 @@ lg2.approx.f32  %f4, %f2;              // temp for checking if x is positive
                     mov.u64         %rd_t1, %globaltimer;
                     sub.u64         %rd_delta, %rd_t1, %rd_t0;
                     ld.param.u64    %rd7, [timing_ptr];
-                    atom.global.add.u64 [%rd7], %rd_delta;
+                    red.global.add.u64 [%rd7], %rd_delta;
 
             """);
         }
@@ -2720,7 +2720,7 @@ lg2.approx.f32  %f4, %f2;              // temp for checking if x is positive
                     mov.u64         %rd_t1, %globaltimer;
                     sub.u64         %rd_delta, %rd_t1, %rd_t0;
                     ld.param.u64    %rd7, [timing_ptr];
-                    atom.global.add.u64 [%rd7], %rd_delta;
+                    red.global.add.u64 [%rd7], %rd_delta;
 
             """);
         }
@@ -2840,7 +2840,7 @@ lg2.approx.f32  %f4, %f2;              // temp for checking if x is positive
                     mov.u64         %rd_t1, %globaltimer;
                     sub.u64         %rd_delta, %rd_t1, %rd_t0;
                     ld.param.u64    %rd11, [timing_ptr];
-                    atom.global.add.u64 [%rd11], %rd_delta;
+                    red.global.add.u64 [%rd11], %rd_delta;
 
             """);
         }
@@ -2953,7 +2953,7 @@ lg2.approx.f32  %f4, %f2;              // temp for checking if x is positive
                     mov.u64         %rd_t1, %globaltimer;
                     sub.u64         %rd_delta, %rd_t1, %rd_t0;
                     ld.param.u64    %rd11, [timing_ptr];
-                    atom.global.add.u64 [%rd11], %rd_delta;
+                    red.global.add.u64 [%rd11], %rd_delta;
 
             """);
         }
@@ -3094,7 +3094,7 @@ lg2.approx.f32  %f4, %f2;              // temp for checking if x is positive
                     mov.u64         %rd_t1, %globaltimer;
                     sub.u64         %rd_delta, %rd_t1, %rd_t0;
                     ld.param.u64    %rd11, [timing_ptr];
-                    atom.global.add.u64 [%rd11], %rd_delta;
+                    red.global.add.u64 [%rd11], %rd_delta;
 
             """);
         }
@@ -3193,7 +3193,7 @@ lg2.approx.f32  %f4, %f2;              // temp for checking if x is positive
                     mov.u64         %rd_t1, %globaltimer;
                     sub.u64         %rd_delta, %rd_t1, %rd_t0;
                     ld.param.u64    %rd7, [timing_ptr];
-                    atom.global.add.u64 [%rd7], %rd_delta;
+                    red.global.add.u64 [%rd7], %rd_delta;
 
             """);
         }
@@ -3303,7 +3303,7 @@ lg2.approx.f32  %f4, %f2;              // temp for checking if x is positive
                     mov.u64         %rd_t1, %globaltimer;
                     sub.u64         %rd_delta, %rd_t1, %rd_t0;
                     ld.param.u64    %rd7, [timing_ptr];
-                    atom.global.add.u64 [%rd7], %rd_delta;
+                    red.global.add.u64 [%rd7], %rd_delta;
 
             """);
         }
@@ -3413,7 +3413,7 @@ lg2.approx.f32  %f4, %f2;              // temp for checking if x is positive
                     mov.u64         %rd_t1, %globaltimer;
                     sub.u64         %rd_delta, %rd_t1, %rd_t0;
                     ld.param.u64    %rd7, [timing_ptr];
-                    atom.global.add.u64 [%rd7], %rd_delta;
+                    red.global.add.u64 [%rd7], %rd_delta;
 
             """);
         }
@@ -3545,7 +3545,7 @@ lg2.approx.f32  %f4, %f2;              // temp for checking if x is positive
                     mov.u64         %rd_t1, %globaltimer;
                     sub.u64         %rd_delta, %rd_t1, %rd_t0;
                     ld.param.u64    %rd7, [timing_ptr];
-                    atom.global.add.u64 [%rd7], %rd_delta;
+                    red.global.add.u64 [%rd7], %rd_delta;
 
             """);
         }
@@ -3704,7 +3704,7 @@ lg2.approx.f32  %f4, %f2;              // temp for checking if x is positive
                     mov.u64         %rd_t1, %globaltimer;
                     sub.u64         %rd_delta, %rd_t1, %rd_t0;
                     ld.param.u64    %rd11, [timing_ptr];
-                    atom.global.add.u64 [%rd11], %rd_delta;
+                    red.global.add.u64 [%rd11], %rd_delta;
 
             """);
         }
@@ -3809,7 +3809,7 @@ lg2.approx.f32  %f4, %f2;              // temp for checking if x is positive
                     mov.u64         %rd_t1, %globaltimer;
                     sub.u64         %rd_delta, %rd_t1, %rd_t0;
                     ld.param.u64    %rd7, [timing_ptr];
-                    atom.global.add.u64 [%rd7], %rd_delta;
+                    red.global.add.u64 [%rd7], %rd_delta;
 
             """);
         }
@@ -3929,7 +3929,7 @@ lg2.approx.f32  %f4, %f2;              // temp for checking if x is positive
                     mov.u64         %rd_t1, %globaltimer;
                     sub.u64         %rd_delta, %rd_t1, %rd_t0;
                     ld.param.u64    %rd11, [timing_ptr];
-                    atom.global.add.u64 [%rd11], %rd_delta;
+                    red.global.add.u64 [%rd11], %rd_delta;
 
             """);
         }
@@ -4049,7 +4049,7 @@ lg2.approx.f32  %f4, %f2;              // temp for checking if x is positive
                     mov.u64         %rd_t1, %globaltimer;
                     sub.u64         %rd_delta, %rd_t1, %rd_t0;
                     ld.param.u64    %rd11, [timing_ptr];
-                    atom.global.add.u64 [%rd11], %rd_delta;
+                    red.global.add.u64 [%rd11], %rd_delta;
 
             """);
         }
@@ -4159,7 +4159,7 @@ lg2.approx.f32  %f4, %f2;              // temp for checking if x is positive
                     mov.u64         %rd_t1, %globaltimer;
                     sub.u64         %rd_delta, %rd_t1, %rd_t0;
                     ld.param.u64    %rd11, [timing_ptr];
-                    atom.global.add.u64 [%rd11], %rd_delta;
+                    red.global.add.u64 [%rd11], %rd_delta;
 
             """);
         }
@@ -4283,7 +4283,7 @@ lg2.approx.f32  %f4, %f2;              // temp for checking if x is positive
                     mov.u64         %rd_t1, %globaltimer;
                     sub.u64         %rd_delta, %rd_t1, %rd_t0;
                     ld.param.u64    %rd15, [timing_ptr];
-                    atom.global.add.u64 [%rd15], %rd_delta;
+                    red.global.add.u64 [%rd15], %rd_delta;
 
             """);
         }
@@ -4393,7 +4393,7 @@ lg2.approx.f32  %f4, %f2;              // temp for checking if x is positive
                     mov.u64         %rd_t1, %globaltimer;
                     sub.u64         %rd_delta, %rd_t1, %rd_t0;
                     ld.param.u64    %rd11, [timing_ptr];
-                    atom.global.add.u64 [%rd11], %rd_delta;
+                    red.global.add.u64 [%rd11], %rd_delta;
 
             """);
         }
@@ -4556,7 +4556,7 @@ lg2.approx.f32  %f4, %f2;              // temp for checking if x is positive
                     mov.u64         %rd_t1, %globaltimer;
                     sub.u64         %rd_delta, %rd_t1, %rd_t0;
                     ld.param.u64    %rd19, [timing_ptr];
-                    atom.global.add.u64 [%rd19], %rd_delta;
+                    red.global.add.u64 [%rd19], %rd_delta;
 
             """);
         }
@@ -4722,7 +4722,7 @@ lg2.approx.f32  %f4, %f2;              // temp for checking if x is positive
                     mov.u64         %rd_t1, %globaltimer;
                     sub.u64         %rd_delta, %rd_t1, %rd_t0;
                     ld.param.u64    %rd11, [timing_ptr];
-                    atom.global.add.u64 [%rd11], %rd_delta;
+                    red.global.add.u64 [%rd11], %rd_delta;
 
             """);
         }
@@ -4887,7 +4887,7 @@ lg2.approx.f32  %f4, %f2;              // temp for checking if x is positive
                     mov.u64         %rd_t1, %globaltimer;
                     sub.u64         %rd_delta, %rd_t1, %rd_t0;
                     ld.param.u64    %rd11, [timing_ptr];
-                    atom.global.add.u64 [%rd11], %rd_delta;
+                    red.global.add.u64 [%rd11], %rd_delta;
 
             """);
         }
@@ -5078,7 +5078,7 @@ lg2.approx.f32  %f4, %f2;              // temp for checking if x is positive
                     mov.u64         %rd_t1, %globaltimer;
                     sub.u64         %rd_delta, %rd_t1, %rd_t0;
                     ld.param.u64    %rd15, [timing_ptr];
-                    atom.global.add.u64 [%rd15], %rd_delta;
+                    red.global.add.u64 [%rd15], %rd_delta;
 
             """);
         }
@@ -5240,7 +5240,7 @@ lg2.approx.f32  %f4, %f2;              // temp for checking if x is positive
                     mov.u64         %rd_t1, %globaltimer;
                     sub.u64         %rd_delta, %rd_t1, %rd_t0;
                     ld.param.u64    %rd19, [timing_ptr];
-                    atom.global.add.u64 [%rd19], %rd_delta;
+                    red.global.add.u64 [%rd19], %rd_delta;
 
             """);
         }

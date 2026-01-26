@@ -890,6 +890,40 @@ String ptxOps = """
 
 Unicode is fine in Java comments and Javadoc outside the PTX string literals.
 
+## FFM (Foreign Function & Memory) API
+
+When writing FFM bindings to native libraries (CUDA, HIP, cuBLAS, rocBLAS, etc.):
+
+### invokeExact Requires Exact Return Type Matching
+
+**FFM's `invokeExact` enforces exact type matching for BOTH parameters AND return types.** If a native function returns a value, you MUST capture it—even if you don't need it.
+
+```java
+// BAD - invokeExact will throw WrongMethodTypeException
+// The function returns int but we're not capturing it
+hiprtcDestroyProgram.invokeExact(progPtr);
+
+// GOOD - capture the return value even if unused
+@SuppressWarnings("unused")
+int result = (int) hiprtcDestroyProgram.invokeExact(progPtr);
+```
+
+This differs from regular Java method calls where you can ignore return values. With `invokeExact`, the call site signature must exactly match the `MethodHandle`'s type, including the return type.
+
+**Common symptoms of this bug:**
+- `WrongMethodTypeException` at runtime
+- Error mentions type mismatch between `()V` (void) and `()I` (returns int)
+- Works in unit tests but fails in integration tests (if test mocking bypasses FFM)
+
+### Known FFM Portability Issues
+
+| Issue | Symptom | Fix |
+|-------|---------|-----|
+| Missing return capture | `WrongMethodTypeException` | Always capture return value with correct type |
+| Pointer type mismatch | Segfault or wrong data | Use `ADDRESS` for pointer types, `JAVA_LONG` for handles |
+| Arena lifetime | Use-after-free crashes | Ensure arena outlives all allocated segments |
+| String encoding | Garbled text or crashes | Use `arena.allocateFrom(str + "\0", StandardCharsets.UTF_8)` |
+
 ## Documentation Style: Tables
 
 **Use ASCII box-drawing tables**, not GitHub-flavored markdown tables. Tables must have:

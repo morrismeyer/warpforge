@@ -175,16 +175,17 @@ subprojects { p ->
             }
         }
     }
-    // Vector API modules (standard Java 25 with jdk.incubator.vector)
+    // Vector API modules (standard Java 25 with jdk.incubator.vector and preview APIs)
+    // Preview APIs include StructuredTaskScope (JEP 505) for structured concurrency
     else if (vectorModules.contains(p.name)) {
         p.tasks.withType(JavaCompile).configureEach { JavaCompile c ->
-            c.options.compilerArgs.addAll(["--add-modules", "jdk.incubator.vector"])
+            c.options.compilerArgs.addAll(["--add-modules", "jdk.incubator.vector", "--enable-preview"])
         }
         p.tasks.withType(JavaExec).configureEach { JavaExec e ->
-            e.jvmArgs("--add-modules", "jdk.incubator.vector", "--enable-native-access=ALL-UNNAMED")
+            e.jvmArgs("--add-modules", "jdk.incubator.vector", "--enable-native-access=ALL-UNNAMED", "--enable-preview")
         }
         p.tasks.withType(Test).configureEach { Test t ->
-            t.jvmArgs("--add-modules", "jdk.incubator.vector", "--enable-native-access=ALL-UNNAMED")
+            t.jvmArgs("--add-modules", "jdk.incubator.vector", "--enable-native-access=ALL-UNNAMED", "--enable-preview")
         }
     }
     // Other snakeburger modules (standard Java 25, no special modules)

@@ -421,6 +421,151 @@ class E2EFixtureGenerator {
             """, "[(2, 4, 16)]");
     }
 
+    // ==================== Tier 5.5: Attention Mechanisms ====================
+
+    @Test
+    @DisplayName("Generate: scaled_dot_product_attention")
+    void generateScaledDotProductAttention() throws Exception {
+        // Scaled dot-product attention: softmax(Q @ K^T / sqrt(d_k)) @ V
+        // Uses constant scale factor to avoid dynamic q.size(-1)
+        // Input: Q, K, V tensors of shape [batch, seq_len, d_k]
+        generateFixture("scaled_dot_product_attention", """
+            import torch
+            import torch.nn as nn
+            import math
+
+            class Model(nn.Module):
+                def __init__(self):
+                    super().__init__()
+                    self.d_k = 16  # Head dimension (constant)
+                    self.scale = 1.0 / math.sqrt(self.d_k)
+
+                def forward(self, q, k, v):
+                    # Q @ K^T -> [batch, seq, seq]
+                    scores = torch.matmul(q, k.transpose(-2, -1)) * self.scale
+                    # Softmax over last dim
+                    attn_weights = torch.softmax(scores, dim=-1)
+                    # Attention @ V -> [batch, seq, d_k]
+                    output = torch.matmul(attn_weights, v)
+                    return output
+            """, "[(2, 8, 16), (2, 8, 16), (2, 8, 16)]");
+    }
+
+    @Test
+    @DisplayName("Generate: multi_head_attention")
+    void generateMultiHeadAttention() throws Exception {
+        // Multi-head attention with Q/K/V projections
+        // Fixed dimensions: batch=2, seq=8, hidden=32, heads=4, head_dim=8
+        generateFixture("multi_head_attention", """
+            import torch
+            import torch.nn as nn
+            import math
+
+            class Model(nn.Module):
+                def __init__(self):
+                    super().__init__()
+                    self.scale = 1.0 / math.sqrt(8)  # 1/sqrt(head_dim)
+
+                    # Q, K, V projections
+                    self.q_proj = nn.Linear(32, 32, bias=False)
+                    self.k_proj = nn.Linear(32, 32, bias=False)
+                    self.v_proj = nn.Linear(32, 32, bias=False)
+                    self.out_proj = nn.Linear(32, 32, bias=False)
+
+                def forward(self, x):
+                    # x: [2, 8, 32] -> Q, K, V: [2, 8, 32]
+                    q = self.q_proj(x)
+                    k = self.k_proj(x)
+                    v = self.v_proj(x)
+
+                    # Reshape for multi-head: [2, 8, 32] -> [2, 8, 4, 8] -> [2, 4, 8, 8]
+                    q = q.reshape(2, 8, 4, 8).transpose(1, 2)
+                    k = k.reshape(2, 8, 4, 8).transpose(1, 2)
+                    v = v.reshape(2, 8, 4, 8).transpose(1, 2)
+
+                    # Attention: [2, 4, 8, 8] @ [2, 4, 8, 8]^T -> [2, 4, 8, 8]
+                    scores = torch.matmul(q, k.transpose(-2, -1)) * self.scale
+                    attn_weights = torch.softmax(scores, dim=-1)
+                    attn_output = torch.matmul(attn_weights, v)
+
+                    # Reshape back: [2, 4, 8, 8] -> [2, 8, 4, 8] -> [2, 8, 32]
+                    attn_output = attn_output.transpose(1, 2).reshape(2, 8, 32)
+
+                    # Output projection
+                    return self.out_proj(attn_output)
+            """, "[(2, 8, 32)]");
+    }
+
+    @Test
+    @DisplayName("Generate: transformer_encoder_block")
+    void generateTransformerEncoderBlock() throws Exception {
+        // Complete transformer encoder block (BERT-style):
+        // 1. Self-attention with residual + LayerNorm
+        // 2. FFN with residual + LayerNorm
+        // Fixed dimensions: batch=2, seq=8, hidden=32, heads=4, head_dim=8
+        generateFixture("transformer_encoder_block", """
+            import torch
+            import torch.nn as nn
+            import math
+
+            class Model(nn.Module):
+                def __init__(self):
+                    super().__init__()
+                    self.scale = 1.0 / math.sqrt(8)  # 1/sqrt(head_dim)
+
+                    # Attention components
+                    self.ln1 = nn.LayerNorm(32)
+                    self.q_proj = nn.Linear(32, 32, bias=False)
+                    self.k_proj = nn.Linear(32, 32, bias=False)
+                    self.v_proj = nn.Linear(32, 32, bias=False)
+                    self.out_proj = nn.Linear(32, 32, bias=False)
+
+                    # FFN components
+                    self.ln2 = nn.LayerNorm(32)
+                    self.fc1 = nn.Linear(32, 128, bias=False)
+                    self.gelu = nn.GELU()
+                    self.fc2 = nn.Linear(128, 32, bias=False)
+
+                def forward(self, x):
+                    # x: [2, 8, 32]
+
+                    # === Self-attention with residual ===
+                    residual = x
+                    x = self.ln1(x)
+
+                    # Q, K, V projections
+                    q = self.q_proj(x)
+                    k = self.k_proj(x)
+                    v = self.v_proj(x)
+
+                    # Reshape for multi-head: [2, 8, 32] -> [2, 4, 8, 8]
+                    q = q.reshape(2, 8, 4, 8).transpose(1, 2)
+                    k = k.reshape(2, 8, 4, 8).transpose(1, 2)
+                    v = v.reshape(2, 8, 4, 8).transpose(1, 2)
+
+                    # Attention
+                    scores = torch.matmul(q, k.transpose(-2, -1)) * self.scale
+                    attn_weights = torch.softmax(scores, dim=-1)
+                    attn_output = torch.matmul(attn_weights, v)
+
+                    # Reshape back: [2, 4, 8, 8] -> [2, 8, 32]
+                    attn_output = attn_output.transpose(1, 2).reshape(2, 8, 32)
+                    attn_output = self.out_proj(attn_output)
+
+                    x = residual + attn_output
+
+                    # === FFN with residual ===
+                    residual = x
+                    x = self.ln2(x)
+                    x = self.fc1(x)
+                    x = self.gelu(x)
+                    x = self.fc2(x)
+                    x = residual + x
+
+                    return x
+            """, "[(2, 8, 32)]");
+    }
+
     // ==================== Tier 6: Embedding Operations ====================
 
     @Test

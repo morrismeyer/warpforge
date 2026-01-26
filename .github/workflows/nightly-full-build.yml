@@ -216,6 +216,63 @@ jobs:
           fi
           echo "SUCCESS: warpforge-core tests passed (${COUNT} tests)"
 
+      - name: Verify E2E tests (PyTorch vs WarpForge)
+        run: |
+          set -euo pipefail
+          cd ~/surfworks/warpforge
+
+          echo "=== E2E Test Verification ==="
+          echo "These tests verify WarpForge produces the same results as PyTorch"
+
+          # Find E2E test results
+          TEST_XML="warpforge-core/build/test-results/test/TEST-io.surfworks.warpforge.core.endtoend.PyTorchWarpForgeEndToEndTest.xml"
+
+          if [[ ! -f "$TEST_XML" ]]; then
+            echo "ERROR: E2E test results not found at $TEST_XML"
+            echo "This indicates E2E tests did not run"
+            exit 1
+          fi
+
+          # Extract test counts from XML
+          E2E_TESTS=$(grep -oE 'tests="[0-9]+"' "$TEST_XML" | head -1 | grep -oE '[0-9]+')
+          E2E_FAILURES=$(grep -oE 'failures="[0-9]+"' "$TEST_XML" | head -1 | grep -oE '[0-9]+')
+          E2E_SKIPPED=$(grep -oE 'skipped="[0-9]+"' "$TEST_XML" | head -1 | grep -oE '[0-9]+')
+
+          echo "E2E Test Results:"
+          echo "  Total:    ${E2E_TESTS:-0}"
+          echo "  Passed:   $((${E2E_TESTS:-0} - ${E2E_FAILURES:-0} - ${E2E_SKIPPED:-0}))"
+          echo "  Failed:   ${E2E_FAILURES:-0}"
+          echo "  Skipped:  ${E2E_SKIPPED:-0}"
+
+          # Minimum E2E test count (currently 20 fixtures)
+          MIN_E2E_TESTS=15
+          if [[ "${E2E_TESTS:-0}" -lt $MIN_E2E_TESTS ]]; then
+            echo "ERROR: Expected at least $MIN_E2E_TESTS E2E tests, found ${E2E_TESTS:-0}"
+            echo "E2E fixtures may be missing or not discovered"
+            exit 1
+          fi
+
+          if [[ "${E2E_FAILURES:-0}" -gt 0 ]]; then
+            echo "ERROR: E2E tests failed!"
+            echo "WarpForge output does not match PyTorch reference"
+            # Show failed test details
+            grep -A5 'testcase.*status="failed"' "$TEST_XML" || true
+            exit 1
+          fi
+
+          echo ""
+          echo "SUCCESS: All ${E2E_TESTS} E2E tests passed"
+          echo "WarpForge CPU backend matches PyTorch output for all fixtures"
+
+          # List the fixtures that were tested
+          echo ""
+          echo "Tested fixtures:"
+          ls -1 src/test/resources/fixtures/e2e/ | grep -v VERSION | while read fixture; do
+            if [[ -d "src/test/resources/fixtures/e2e/$fixture" ]]; then
+              echo "  - $fixture"
+            fi
+          done
+
       - name: Verify warpforge-io tests
         run: |
           set -euo pipefail
@@ -619,6 +676,23 @@ jobs:
               echo "  ${module}: ${TOTAL:-0} tests, ${FAILED:-0} failures"
             fi
           done
+
+          echo ""
+          echo "=== E2E Tests (PyTorch vs WarpForge) ==="
+          E2E_XML="warpforge-core/build/test-results/test/TEST-io.surfworks.warpforge.core.endtoend.PyTorchWarpForgeEndToEndTest.xml"
+          if [[ -f "$E2E_XML" ]]; then
+            E2E_TESTS=$(grep -oE 'tests="[0-9]+"' "$E2E_XML" | head -1 | grep -oE '[0-9]+')
+            E2E_FAILURES=$(grep -oE 'failures="[0-9]+"' "$E2E_XML" | head -1 | grep -oE '[0-9]+')
+            echo "  E2E fixtures tested: ${E2E_TESTS:-0}"
+            echo "  E2E failures: ${E2E_FAILURES:-0}"
+            if [[ "${E2E_FAILURES:-0}" -eq 0 ]]; then
+              echo "  Status: PASS - WarpForge matches PyTorch output"
+            else
+              echo "  Status: FAIL - Output mismatch detected"
+            fi
+          else
+            echo "  E2E tests did not run"
+          fi
 
           echo ""
           echo "=== Performance Test Results ==="

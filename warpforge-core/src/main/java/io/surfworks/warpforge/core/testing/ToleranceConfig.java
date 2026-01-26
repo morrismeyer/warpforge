@@ -55,6 +55,9 @@ public record ToleranceConfig(double atol, double rtol) {
         Map.entry("ffn_block", new ToleranceConfig(5e-4, 5e-4)),
         Map.entry("pre_norm_residual", new ToleranceConfig(5e-4, 5e-4)),
         Map.entry("attention_scores", new ToleranceConfig(5e-4, 5e-4)),
+        Map.entry("scaled_dot_product_attention", new ToleranceConfig(5e-4, 5e-4)),
+        Map.entry("multi_head_attention", new ToleranceConfig(1e-3, 1e-3)),
+        Map.entry("transformer_encoder_block", new ToleranceConfig(1e-3, 1e-3)),
         Map.entry("transformer_block", new ToleranceConfig(1e-3, 1e-3)),
 
         // Matrix operations (accumulated errors)

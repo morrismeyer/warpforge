@@ -94,3 +94,77 @@ tasks.register('gpuDirectRdmaTest', Test) {
         showStandardStreams = true
     }
 }
+
+// ====================================================================================
+// GPU Stress Test Source Set (gtest)
+// ====================================================================================
+// Stress tests for NVIDIA backend: stream limits, memory pressure, virtual thread scaling.
+// These are long-running tests that require real NVIDIA GPU hardware.
+
+sourceSets {
+    gtest {
+        java {
+            srcDir 'src/gtest/java'
+        }
+        compileClasspath += sourceSets.main.output + sourceSets.test.output
+        runtimeClasspath += sourceSets.main.output + sourceSets.test.output
+    }
+}
+
+configurations {
+    gtestImplementation.extendsFrom testImplementation
+    gtestRuntimeOnly.extendsFrom testRuntimeOnly
+}
+
+dependencies {
+    gtestImplementation 'org.junit.jupiter:junit-jupiter:5.11.3'
+    gtestImplementation 'org.awaitility:awaitility:4.2.0'
+    gtestRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+// NVIDIA GPU stress tests - requires real GPU hardware
+tasks.register('gpuTest', Test) {
+    description = 'Run NVIDIA GPU stress tests (requires CUDA hardware)'
+    group = 'verification'
+
+    testClassesDirs = sourceSets.gtest.output.classesDirs
+    classpath = sourceSets.gtest.runtimeClasspath
+
+    useJUnitPlatform {
+        excludeTags 'stress'  // Exclude long-running stress tests by default
+    }
+    jvmArgs('--enable-preview', '--enable-native-access=ALL-UNNAMED')
+
+    // Set CUDA library paths
+    def cudaHome = System.getenv('CUDA_HOME') ?: '/usr/local/cuda'
+    environment 'LD_LIBRARY_PATH', "${cudaHome}/lib64:${System.getenv('LD_LIBRARY_PATH') ?: ''}"
+
+    testLogging {
+        events 'passed', 'skipped', 'failed'
+        showStandardStreams = true
+    }
+}
+
+// NVIDIA stress tests (long-running, tagged @Tag("stress"))
+tasks.register('stressTest', Test) {
+    description = 'Run NVIDIA stress tests (long running, requires CUDA hardware)'
+    group = 'verification'
+
+    testClassesDirs = sourceSets.gtest.output.classesDirs
+    classpath = sourceSets.gtest.runtimeClasspath
+
+    useJUnitPlatform {
+        includeTags 'stress'
+    }
+    jvmArgs('--enable-preview', '--enable-native-access=ALL-UNNAMED', '-Xmx8g')
+    timeout = java.time.Duration.ofMinutes(30)
+
+    // Set CUDA library paths
+    def cudaHome = System.getenv('CUDA_HOME') ?: '/usr/local/cuda'
+    environment 'LD_LIBRARY_PATH', "${cudaHome}/lib64:${System.getenv('LD_LIBRARY_PATH') ?: ''}"
+
+    testLogging {
+        events 'passed', 'skipped', 'failed'
+        showStandardStreams = true
+    }
+}

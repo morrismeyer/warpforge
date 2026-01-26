@@ -161,3 +161,69 @@ tasks.register('checkJfrStructuredConcurrencyAmd', JavaExec) {
     mainClass = 'io.surfworks.warpforge.ptest.JfrRecordingValidator'
     args = ['build/jfr-structured-amd.jfr']
 }
+
+// ====================================================================================
+// Research Validation Scenarios
+// ====================================================================================
+// Research-informed validations inspired by recent ML systems papers:
+// - Tally (ASPLOS 2025): Compute/memory overlap patterns
+// - PipeFill (MLSys 2025): Pipeline bubble filling
+// - Orion (EuroSys 2024): Occupancy-based admission control
+// - Alibaba Aegaeon (SOSP 2025): SLO-bounded inference
+
+tasks.register('validateResearchNvidia', JavaExec) {
+    group = 'verification'
+    description = 'Run research-informed validations on NVIDIA'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'io.surfworks.warpforge.ptest.research.ResearchValidationRunner'
+    args = ['--backend', 'nvidia']
+
+    jvmArgs = [
+        '-XX:StartFlightRecording=filename=build/jfr-research-nvidia.jfr,dumponexit=true',
+        '--enable-native-access=ALL-UNNAMED',
+        '--enable-preview'
+    ]
+}
+
+tasks.register('validateResearchAmd', JavaExec) {
+    group = 'verification'
+    description = 'Run research-informed validations on AMD'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'io.surfworks.warpforge.ptest.research.ResearchValidationRunner'
+    args = ['--backend', 'amd']
+
+    jvmArgs = [
+        '-XX:StartFlightRecording=filename=build/jfr-research-amd.jfr,dumponexit=true',
+        '--enable-native-access=ALL-UNNAMED',
+        '--enable-preview'
+    ]
+}
+
+// Verbose versions for debugging
+tasks.register('validateResearchNvidiaVerbose', JavaExec) {
+    group = 'verification'
+    description = 'Run research validations on NVIDIA with verbose output'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'io.surfworks.warpforge.ptest.research.ResearchValidationRunner'
+    args = ['--backend', 'nvidia', '--verbose']
+
+    jvmArgs = [
+        '-XX:StartFlightRecording=filename=build/jfr-research-nvidia-verbose.jfr,dumponexit=true',
+        '--enable-native-access=ALL-UNNAMED',
+        '--enable-preview'
+    ]
+}
+
+tasks.register('validateResearchAmdVerbose', JavaExec) {
+    group = 'verification'
+    description = 'Run research validations on AMD with verbose output'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'io.surfworks.warpforge.ptest.research.ResearchValidationRunner'
+    args = ['--backend', 'amd', '--verbose']
+
+    jvmArgs = [
+        '-XX:StartFlightRecording=filename=build/jfr-research-amd-verbose.jfr,dumponexit=true',
+        '--enable-native-access=ALL-UNNAMED',
+        '--enable-preview'
+    ]
+}

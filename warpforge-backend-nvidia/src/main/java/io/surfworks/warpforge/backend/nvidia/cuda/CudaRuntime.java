@@ -46,6 +46,13 @@ public final class CudaRuntime {
     private static final MethodHandle cuCtxSynchronize;
     private static final MethodHandle cuGetErrorName;
 
+    // CUDA Event API for GPU timing (JFR profiling)
+    private static final MethodHandle cuEventCreate;
+    private static final MethodHandle cuEventDestroy;
+    private static final MethodHandle cuEventRecord;
+    private static final MethodHandle cuEventSynchronize;
+    private static final MethodHandle cuEventElapsedTime;
+
     static {
         SymbolLookup lookup = null;
         boolean available = false;
@@ -88,6 +95,23 @@ public final class CudaRuntime {
             ));
             cuCtxSynchronize = downcall("cuCtxSynchronize", FunctionDescriptor.of(ValueLayout.JAVA_INT));
             cuGetErrorName = downcall("cuGetErrorName", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+
+            // Event API for GPU timing
+            // CUresult cuEventCreate(CUevent *phEvent, unsigned int Flags)
+            cuEventCreate = downcall("cuEventCreate", FunctionDescriptor.of(
+                ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
+            // CUresult cuEventDestroy(CUevent hEvent)
+            cuEventDestroy = downcall("cuEventDestroy_v2", FunctionDescriptor.of(
+                ValueLayout.JAVA_INT, ValueLayout.JAVA_LONG));
+            // CUresult cuEventRecord(CUevent hEvent, CUstream hStream)
+            cuEventRecord = downcall("cuEventRecord", FunctionDescriptor.of(
+                ValueLayout.JAVA_INT, ValueLayout.JAVA_LONG, ValueLayout.JAVA_LONG));
+            // CUresult cuEventSynchronize(CUevent hEvent)
+            cuEventSynchronize = downcall("cuEventSynchronize", FunctionDescriptor.of(
+                ValueLayout.JAVA_INT, ValueLayout.JAVA_LONG));
+            // CUresult cuEventElapsedTime(float *pMilliseconds, CUevent hStart, CUevent hEnd)
+            cuEventElapsedTime = downcall("cuEventElapsedTime", FunctionDescriptor.of(
+                ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.JAVA_LONG));
         } else {
             cuInit = null;
             cuDeviceGet = null;
@@ -105,6 +129,11 @@ public final class CudaRuntime {
             cuLaunchKernel = null;
             cuCtxSynchronize = null;
             cuGetErrorName = null;
+            cuEventCreate = null;
+            cuEventDestroy = null;
+            cuEventRecord = null;
+            cuEventSynchronize = null;
+            cuEventElapsedTime = null;
         }
     }
 
@@ -328,6 +357,145 @@ public final class CudaRuntime {
             MemorySegment.NULL
         );
         checkError(result, "cuLaunchKernel");
+    }
+
+    // ==================== Event Management (GPU Timing) ====================
+
+    /**
+     * Event creation flags.
+     */
+    public static final int CU_EVENT_DEFAULT = 0;
+    public static final int CU_EVENT_BLOCKING_SYNC = 1;
+    public static final int CU_EVENT_DISABLE_TIMING = 2;
+
+    /**
+     * Create a CUDA event for GPU timing.
+     *
+     * @param arena Arena for memory allocation
+     * @param flags Event creation flags (use CU_EVENT_DEFAULT for timing)
+     * @return Event handle (CUevent)
+     */
+    public static long eventCreate(Arena arena, int flags) throws Throwable {
+        ensureAvailable();
+        MemorySegment eventPtr = arena.allocate(ValueLayout.JAVA_LONG);
+        int result = (int) cuEventCreate.invokeExact(eventPtr, flags);
+        checkError(result, "cuEventCreate");
+        return eventPtr.get(ValueLayout.JAVA_LONG, 0);
+    }
+
+    /**
+     * Create a CUDA event with default flags (timing enabled).
+     *
+     * @param arena Arena for memory allocation
+     * @return Event handle (CUevent)
+     */
+    public static long eventCreate(Arena arena) throws Throwable {
+        return eventCreate(arena, CU_EVENT_DEFAULT);
+    }
+
+    /**
+     * Destroy a CUDA event.
+     *
+     * @param event Event handle to destroy
+     */
+    public static void eventDestroy(long event) throws Throwable {
+        ensureAvailable();
+        int result = (int) cuEventDestroy.invokeExact(event);
+        checkError(result, "cuEventDestroy");
+    }
+
+    /**
+     * Record an event on a stream.
+     *
+     * @param event Event handle
+     * @param stream Stream handle (0 for default stream)
+     */
+    public static void eventRecord(long event, long stream) throws Throwable {
+        ensureAvailable();
+        int result = (int) cuEventRecord.invokeExact(event, stream);
+        checkError(result, "cuEventRecord");
+    }
+
+    /**
+     * Record an event on the default stream.
+     *
+     * @param event Event handle
+     */
+    public static void eventRecord(long event) throws Throwable {
+        eventRecord(event, 0L);
+    }
+
+    /**
+     * Wait for an event to complete.
+     *
+     * @param event Event handle
+     */
+    public static void eventSynchronize(long event) throws Throwable {
+        ensureAvailable();
+        int result = (int) cuEventSynchronize.invokeExact(event);
+        checkError(result, "cuEventSynchronize");
+    }
+
+    /**
+     * Compute elapsed time between two events in milliseconds.
+     *
+     * <p>Both events must have been recorded and completed before calling this.
+     *
+     * @param arena Arena for memory allocation
+     * @param start Start event handle
+     * @param end End event handle
+     * @return Elapsed time in milliseconds
+     */
+    public static float eventElapsedTime(Arena arena, long start, long end) throws Throwable {
+        ensureAvailable();
+        MemorySegment msPtr = arena.allocate(ValueLayout.JAVA_FLOAT);
+        int result = (int) cuEventElapsedTime.invokeExact(msPtr, start, end);
+        checkError(result, "cuEventElapsedTime");
+        return msPtr.get(ValueLayout.JAVA_FLOAT, 0);
+    }
+
+    /**
+     * Time a GPU operation using events.
+     *
+     * <p>This is a convenience method that creates events, records before/after
+     * the operation, and returns the elapsed time. The events are destroyed
+     * after use.
+     *
+     * <p>Example usage:
+     * <pre>{@code
+     * try (Arena arena = Arena.ofConfined()) {
+     *     float ms = CudaRuntime.timeOperation(arena, () -> {
+     *         CudaRuntime.launchKernel(...);
+     *     });
+     *     System.out.println("Kernel took " + ms + " ms");
+     * }
+     * }</pre>
+     *
+     * @param arena Arena for memory allocation
+     * @param operation The GPU operation to time
+     * @return Elapsed time in milliseconds
+     */
+    public static float timeOperation(Arena arena, ThrowingRunnable operation) throws Throwable {
+        long start = eventCreate(arena);
+        long end = eventCreate(arena);
+        try {
+            eventRecord(start);
+            operation.run();
+            eventRecord(end);
+            eventSynchronize(end);
+            return eventElapsedTime(arena, start, end);
+        } finally {
+            eventDestroy(start);
+            eventDestroy(end);
+        }
+    }
+
+    /**
+     * Functional interface for operations that may throw.
+     */
+    @FunctionalInterface
+    public interface ThrowingRunnable {
+        void run() throws Throwable;
     }
 
     // ==================== Error Handling ====================

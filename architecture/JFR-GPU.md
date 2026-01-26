@@ -345,10 +345,12 @@ warpforge-backend-amd/
 
 ## Implementation Phases
 
-### Phase 1: GPU Events + JFR (Current Target)
-- Add CUDA Event FFM bindings
-- Define JFR event classes
-- Wrap kernel dispatchers with timing
+### Phase 1: GPU Events + JFR ✅ (Complete)
+- ✅ Add CUDA Event FFM bindings (CudaRuntime.java)
+- ✅ Add HIP Event FFM bindings (HipRuntime.java - already complete)
+- ✅ Define JFR event classes (GpuKernelEvent, GpuMemoryEvent, GpuCompilationEvent)
+- ✅ Add CudaContext event helper methods (createEvent, destroyEvent, timeOperation)
+- ⏳ Wrap kernel dispatchers with timing (ready for integration)
 
 ### Phase 2: NVTX/roctx Integration
 - Add NVTX FFM bindings

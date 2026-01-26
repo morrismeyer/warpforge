@@ -389,6 +389,109 @@ public final class CudaContext implements AutoCloseable {
         }
     }
 
+    // ==================== Event-Based GPU Timing (JFR Profiling) ====================
+
+    /**
+     * Create a CUDA event for GPU timing.
+     *
+     * @return Event handle
+     */
+    public long createEvent() {
+        checkNotClosed();
+        try {
+            return CudaRuntime.eventCreate(arena);
+        } catch (Throwable t) {
+            throw new CudaRuntime.CudaException("Failed to create CUDA event", t);
+        }
+    }
+
+    /**
+     * Destroy a CUDA event.
+     *
+     * @param event Event handle to destroy
+     */
+    public void destroyEvent(long event) {
+        checkNotClosed();
+        try {
+            CudaRuntime.eventDestroy(event);
+        } catch (Throwable t) {
+            throw new CudaRuntime.CudaException("Failed to destroy CUDA event", t);
+        }
+    }
+
+    /**
+     * Record an event on the default stream.
+     *
+     * @param event Event handle
+     */
+    public void recordEvent(long event) {
+        checkNotClosed();
+        try {
+            CudaRuntime.eventRecord(event);
+        } catch (Throwable t) {
+            throw new CudaRuntime.CudaException("Failed to record CUDA event", t);
+        }
+    }
+
+    /**
+     * Wait for an event to complete.
+     *
+     * @param event Event handle
+     */
+    public void synchronizeEvent(long event) {
+        checkNotClosed();
+        try {
+            CudaRuntime.eventSynchronize(event);
+        } catch (Throwable t) {
+            throw new CudaRuntime.CudaException("Failed to synchronize CUDA event", t);
+        }
+    }
+
+    /**
+     * Compute elapsed time between two events in milliseconds.
+     *
+     * @param start Start event handle
+     * @param end End event handle
+     * @return Elapsed time in milliseconds
+     */
+    public float elapsedTime(long start, long end) {
+        checkNotClosed();
+        try {
+            return CudaRuntime.eventElapsedTime(arena, start, end);
+        } catch (Throwable t) {
+            throw new CudaRuntime.CudaException("Failed to compute elapsed time", t);
+        }
+    }
+
+    /**
+     * Time a GPU operation and return elapsed time in milliseconds.
+     *
+     * <p>Example:
+     * <pre>{@code
+     * float ms = ctx.timeOperation(() -> {
+     *     ctx.launchKernel(function, gridDim, blockDim, 0, params);
+     * });
+     * }</pre>
+     *
+     * @param operation The GPU operation to time
+     * @return Elapsed time in milliseconds
+     */
+    public float timeOperation(Runnable operation) {
+        checkNotClosed();
+        long start = createEvent();
+        long end = createEvent();
+        try {
+            recordEvent(start);
+            operation.run();
+            recordEvent(end);
+            synchronizeEvent(end);
+            return elapsedTime(start, end);
+        } finally {
+            destroyEvent(start);
+            destroyEvent(end);
+        }
+    }
+
     // ==================== Lifecycle ====================
 
     private void checkNotClosed() {

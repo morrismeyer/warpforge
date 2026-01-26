@@ -98,9 +98,10 @@ public final class HiprtcRuntime {
                 ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
 
             // hiprtcResult hiprtcCompileProgram(hiprtcProgram prog, int numOptions, const char** options)
+            // Note: hiprtcProgram is a pointer type, use ADDRESS
             hiprtcCompileProgram = downcall("hiprtcCompileProgram", FunctionDescriptor.of(
                 ValueLayout.JAVA_INT,
-                ValueLayout.JAVA_LONG, // prog
+                ValueLayout.ADDRESS, // prog (pointer type)
                 ValueLayout.JAVA_INT,  // numOptions
                 ValueLayout.ADDRESS    // options
             ));
@@ -108,28 +109,28 @@ public final class HiprtcRuntime {
             // hiprtcResult hiprtcGetCodeSize(hiprtcProgram prog, size_t* codeSizeRet)
             hiprtcGetCodeSize = downcall("hiprtcGetCodeSize", FunctionDescriptor.of(
                 ValueLayout.JAVA_INT,
-                ValueLayout.JAVA_LONG, // prog
+                ValueLayout.ADDRESS, // prog (pointer type)
                 ValueLayout.ADDRESS    // codeSizeRet
             ));
 
             // hiprtcResult hiprtcGetCode(hiprtcProgram prog, char* code)
             hiprtcGetCode = downcall("hiprtcGetCode", FunctionDescriptor.of(
                 ValueLayout.JAVA_INT,
-                ValueLayout.JAVA_LONG, // prog
+                ValueLayout.ADDRESS, // prog (pointer type)
                 ValueLayout.ADDRESS    // code
             ));
 
             // hiprtcResult hiprtcGetProgramLogSize(hiprtcProgram prog, size_t* logSizeRet)
             hiprtcGetProgramLogSize = downcall("hiprtcGetProgramLogSize", FunctionDescriptor.of(
                 ValueLayout.JAVA_INT,
-                ValueLayout.JAVA_LONG, // prog
+                ValueLayout.ADDRESS, // prog (pointer type)
                 ValueLayout.ADDRESS    // logSizeRet
             ));
 
             // hiprtcResult hiprtcGetProgramLog(hiprtcProgram prog, char* log)
             hiprtcGetProgramLog = downcall("hiprtcGetProgramLog", FunctionDescriptor.of(
                 ValueLayout.JAVA_INT,
-                ValueLayout.JAVA_LONG, // prog
+                ValueLayout.ADDRESS, // prog (pointer type)
                 ValueLayout.ADDRESS    // log
             ));
 
@@ -207,8 +208,8 @@ public final class HiprtcRuntime {
         ensureAvailable();
 
         try (Arena arena = Arena.ofConfined()) {
-            // Create program
-            MemorySegment progPtr = arena.allocate(ValueLayout.JAVA_LONG);
+            // Create program - hiprtcCreateProgram takes hiprtcProgram* (pointer to pointer)
+            MemorySegment progPtr = arena.allocate(ValueLayout.ADDRESS);
             MemorySegment srcSegment = arena.allocateFrom(source + "\0", StandardCharsets.UTF_8);
             MemorySegment nameSegment = arena.allocateFrom(kernelName + "\0", StandardCharsets.UTF_8);
 
@@ -217,7 +218,8 @@ public final class HiprtcRuntime {
                 0, MemorySegment.NULL, MemorySegment.NULL);
             checkError(result, "hiprtcCreateProgram");
 
-            long prog = progPtr.get(ValueLayout.JAVA_LONG, 0);
+            // Read the hiprtcProgram handle (pointer type) as a MemorySegment
+            MemorySegment prog = progPtr.get(ValueLayout.ADDRESS, 0);
 
             try {
                 // Set up compiler options
@@ -233,7 +235,7 @@ public final class HiprtcRuntime {
                     optionsPtr = MemorySegment.NULL;
                 }
 
-                // Compile
+                // Compile - prog is passed as ADDRESS (pointer type)
                 result = (int) hiprtcCompileProgram.invokeExact(prog, options.length, optionsPtr);
 
                 if (result != HIPRTC_SUCCESS) {
@@ -266,7 +268,7 @@ public final class HiprtcRuntime {
     /**
      * Get the compilation log for a program.
      */
-    private static String getProgramLog(Arena arena, long prog) throws Throwable {
+    private static String getProgramLog(Arena arena, MemorySegment prog) throws Throwable {
         MemorySegment sizePtr = arena.allocate(ValueLayout.JAVA_LONG);
         int result = (int) hiprtcGetProgramLogSize.invokeExact(prog, sizePtr);
         if (result != HIPRTC_SUCCESS) {

@@ -489,44 +489,25 @@ class HipKernelExecutionTest {
         }
     }
 
-    // ==================== Summary Test ====================
+    // ==================== Environment Info Test ====================
 
     @Test
     @Tag("amd")
-    @DisplayName("HIP: All Kernel Execution Summary")
-    void testAllKernelExecutionSummary() {
+    @DisplayName("HIP: Environment Info")
+    void testEnvironmentInfo() {
         System.out.println("========================================");
-        System.out.println("HIP Kernel Execution Summary (AMD GPU)");
+        System.out.println("HIP Kernel Execution Environment");
         System.out.println("========================================");
 
         createContext();
-        assertNotNull(context);
+        assertNotNull(context, "HipContext should be created successfully");
 
         System.out.println("  Device: AMD GPU (device 0)");
         System.out.println("  HIPRTC: " + (HiprtcRuntime.isAvailable() ? "Available" : "Not available"));
-
-        System.out.println("--- Binary Operations ---");
-        System.out.println("  Add: Compiled and executed");
-        System.out.println("  Multiply: Compiled and executed");
-        System.out.println("  Subtract: Compiled and executed");
-        System.out.println("  Divide: Compiled and executed");
-        System.out.println("  Maximum: Compiled and executed");
-        System.out.println("  Minimum: Compiled and executed");
-
-        System.out.println("--- Unary Operations ---");
-        System.out.println("  Negate: Compiled and executed");
-        System.out.println("  Abs: Compiled and executed");
-        System.out.println("  Sqrt: Compiled and executed");
-        System.out.println("  Exp: Compiled and executed");
-        System.out.println("  Log: Compiled and executed");
-        System.out.println("  Tanh: Compiled and executed");
-        System.out.println("  Sin: Compiled and executed");
-        System.out.println("  Cos: Compiled and executed");
-        System.out.println("  Floor: Compiled and executed");
-        System.out.println("  Ceil: Compiled and executed");
-
-        System.out.println("----------------------------------------");
-        System.out.println("All HIP kernel execution tests PASSED");
+        System.out.println("  Context: Created successfully");
         System.out.println("========================================");
+
+        // Verify HIPRTC is available for compilation
+        assertTrue(HiprtcRuntime.isAvailable(), "HIPRTC must be available for kernel compilation");
     }
 }

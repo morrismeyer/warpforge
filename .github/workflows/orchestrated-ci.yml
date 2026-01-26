@@ -141,3 +141,33 @@ jobs:
             echo "ERROR: No test results found at ${TEST_RESULTS_DIR}"
             exit 1
           fi
+
+      - name: Run ptest JFR event emission tests
+        run: |
+          set -euo pipefail
+          echo "=== Running ptest JFR event emission tests ==="
+
+          NUC_REPO="${HOME}/surfworks/warpforge"
+          cd "$NUC_REPO"
+
+          # Run ptest unit tests - these verify JFR event capture without GPU hardware
+          ./gradlew :ptest:test --no-daemon
+
+          echo "=== Checking ptest results ==="
+          TEST_RESULTS_DIR="${NUC_REPO}/ptest/build/test-results/test"
+
+          if [[ -d "$TEST_RESULTS_DIR" ]]; then
+            TEST_COUNT=$(find "$TEST_RESULTS_DIR" -name "*.xml" -exec grep -h "tests=" {} \; | grep -oE 'tests="[0-9]+"' | grep -oE '[0-9]+' | awk '{sum+=$1} END {print sum}')
+            echo "ptest JFR event emission test count: ${TEST_COUNT:-0}"
+
+            # ptest should have at least 4 JFR event emission tests
+            if [[ "${TEST_COUNT:-0}" -lt 4 ]]; then
+              echo "ERROR: Expected at least 4 ptest JFR tests but found ${TEST_COUNT:-0}"
+              exit 1
+            fi
+
+            echo "SUCCESS: ptest JFR event emission tests passed (${TEST_COUNT} tests)"
+          else
+            echo "ERROR: No test results found at ${TEST_RESULTS_DIR}"
+            exit 1
+          fi

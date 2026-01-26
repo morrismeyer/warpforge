@@ -1,0 +1,77 @@
+plugins {
+    id 'java'
+    id 'application'
+}
+
+repositories {
+    mavenCentral()
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(25)
+    }
+}
+
+dependencies {
+    implementation project(':warpforge-core')
+    implementation project(':warpforge-backend-cpu')
+    implementation project(':warpforge-backend-nvidia')
+    implementation project(':warpforge-backend-amd')
+    implementation project(':warpforge-benchmark')
+
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.11.3'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+application {
+    mainClass = 'io.surfworks.warpforge.ptest.JfrGpuValidation'
+}
+
+tasks.named('test') {
+    useJUnitPlatform()
+    testLogging {
+        events "passed", "skipped", "failed"
+        showStandardStreams = true
+    }
+}
+
+// Task to run JFR validation on NVIDIA
+tasks.register('validateJfrNvidia', JavaExec) {
+    group = 'verification'
+    description = 'Validate JFR GPU event capture on NVIDIA hardware'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'io.surfworks.warpforge.ptest.JfrGpuValidation'
+    args = ['--backend', 'nvidia']
+
+    // Enable JFR recording
+    jvmArgs = [
+        '-XX:StartFlightRecording=filename=build/jfr-nvidia.jfr,dumponexit=true,settings=profile'
+    ]
+}
+
+// Task to run JFR validation on AMD
+tasks.register('validateJfrAmd', JavaExec) {
+    group = 'verification'
+    description = 'Validate JFR GPU event capture on AMD hardware'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'io.surfworks.warpforge.ptest.JfrGpuValidation'
+    args = ['--backend', 'amd']
+
+    // Enable JFR recording
+    jvmArgs = [
+        '-XX:StartFlightRecording=filename=build/jfr-amd.jfr,dumponexit=true,settings=profile'
+    ]
+}
+
+// Task to validate JFR recordings contain expected events
+tasks.register('validateJfrRecordings', JavaExec) {
+    group = 'verification'
+    description = 'Validate that JFR recordings contain GPU events'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'io.surfworks.warpforge.ptest.JfrRecordingValidator'
+
+    dependsOn 'validateJfrNvidia', 'validateJfrAmd'
+
+    args = ['build/jfr-nvidia.jfr', 'build/jfr-amd.jfr']
+}

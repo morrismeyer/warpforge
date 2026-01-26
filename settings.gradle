@@ -40,4 +40,5 @@ include('warpforge-data')
 include('warpforge-benchmark')
 include('warpforge-dist')
 include('tools:mcp-shared-context')
+include('ptest')
 

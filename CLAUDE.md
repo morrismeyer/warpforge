@@ -371,6 +371,54 @@ PyTorch Model (nn.Module)
 - Tag tests with `@Tag("cpu")`, `@Tag("nvidia")`, or `@Tag("amd")` for hardware-specific execution
 - GPU tests have 60-second SSH/wake timeouts
 
+### Hardware Tests Must Run on Hardware
+
+**GPU kernel tests must actually execute on GPU hardware.** Code generation tests alone are insufficient.
+
+When writing tests for GPU backends (NVIDIA or AMD), you need BOTH:
+
+1. **Code generation tests** (no hardware required) - Verify the kernel source/PTX is generated correctly
+2. **Hardware execution tests** (tagged for specific GPU) - Verify the kernel runs correctly on actual hardware
+
+**Wrong approach:**
+```java
+// BAD - Only tests that HIP source code is generated, never runs on GPU
+@Test
+void testAddKernel() {
+    String src = HipKernels.generateAddF32(SALT_NONE);
+    assertTrue(src.contains("extern \"C\" __global__ void add_f32"));
+}
+```
+
+**Correct approach:**
+```java
+// GOOD - Tests code generation (runs on NUC)
+@Test
+void testAddPtxGeneration() {
+    String src = HipKernels.generateAddF32(SALT_NONE);
+    assertTrue(src.contains("extern \"C\" __global__ void add_f32"));
+}
+
+// GOOD - Tests actual execution (runs on AMD box)
+@Test
+@Tag("amd")
+void testAddExecution() {
+    assumeTrue(HipRuntime.isAvailable(), "ROCm not available");
+    float[] a = {1.0f, 2.0f, 3.0f};
+    float[] b = {4.0f, 5.0f, 6.0f};
+    float[] result = executeAdd(a, b);
+    assertArrayEquals(new float[]{5.0f, 7.0f, 9.0f}, result, 1e-5f);
+}
+```
+
+**Why this matters:**
+- Code generation tests only verify string content, not correctness
+- A kernel might generate valid-looking code but produce wrong results
+- GPU architectures have subtle differences that only manifest at runtime
+- Without hardware tests, regressions in actual computation go undetected
+
+**Rule:** If NVIDIA has hardware execution tests for an operation, AMD must have equivalent hardware execution tests. Parity between backends is required.
+
 ### Zero Tolerance for Test Failures
 
 **The build must fail if even a single test fails.** This is non-negotiable.

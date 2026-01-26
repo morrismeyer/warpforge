@@ -9,6 +9,9 @@ dependencies {
     api project(':warpforge-core')
     api project(':warpforge-io')
 
+    // CPU backend for integration test comparison
+    testImplementation project(':warpforge-backend-cpu')
+
     testImplementation 'org.junit.jupiter:junit-jupiter-api:5.10.2'
     testImplementation 'org.junit.jupiter:junit-jupiter-params:5.10.2'
     testRuntimeOnly 'org.junit.jupiter:junit-jupiter-engine:5.10.2'
@@ -39,6 +42,29 @@ tasks.register('amdBackendTest', Test) {
 
     useJUnitPlatform {
         includeTags 'amd'
+        excludeTags 'nightly'  // BERT tests run nightly only
+    }
+
+    // Set ROCm library paths
+    def rocmHome = System.getenv('ROCM_HOME') ?: '/opt/rocm'
+    environment 'LD_LIBRARY_PATH', "${rocmHome}/lib:${System.getenv('LD_LIBRARY_PATH') ?: ''}"
+
+    testLogging {
+        events 'passed', 'skipped', 'failed', 'standardOut'
+        showStandardStreams = true
+    }
+}
+
+// Nightly AMD tests (BERT models)
+tasks.register('nightlyAmdTest', Test) {
+    description = 'Run nightly-only AMD tests (BERT EndToEnd fixtures)'
+    group = 'verification'
+
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+
+    useJUnitPlatform {
+        includeTags 'amd', 'nightly'
     }
 
     // Set ROCm library paths

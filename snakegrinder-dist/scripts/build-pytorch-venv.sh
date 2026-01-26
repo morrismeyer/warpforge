@@ -238,6 +238,12 @@ else
     "${GRAALPY_HOME}/bin/graalpy" -m venv "${VENV_DIR}"
 fi
 
+# Ensure graalpy symlink exists in venv (PyTorch build expects this)
+if [ ! -e "${VENV_DIR}/bin/graalpy" ]; then
+    echo "Creating graalpy symlink in venv..."
+    ln -s python "${VENV_DIR}/bin/graalpy"
+fi
+
 # Activate venv
 source "${VENV_DIR}/bin/activate"
 

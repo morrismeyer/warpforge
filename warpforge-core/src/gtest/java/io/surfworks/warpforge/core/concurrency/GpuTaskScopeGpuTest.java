@@ -342,6 +342,132 @@ class GpuTaskScopeGpuTest {
         assertTrue(true, "JFR events committed successfully");
     }
 
+    // ==================== Error Handling ====================
+
+    @Test
+    @DisplayName("Exception in task propagates correctly")
+    void exceptionInTaskPropagates() {
+        try (GpuTaskScope scope = GpuTaskScope.open(backend)) {
+            GpuTask<Integer> task = scope.fork(() -> {
+                throw new RuntimeException("Intentional GPU test failure");
+            });
+
+            try {
+                scope.joinAll();
+            } catch (Exception e) {
+                // Expected
+            }
+
+            assertTrue(task.isFailed(), "Task should be marked as failed");
+            assertNotNull(task.exception(), "Task should have exception");
+            assertTrue(task.exception().getMessage().contains("Intentional"),
+                "Exception message should be preserved");
+        }
+    }
+
+    @Test
+    @DisplayName("Multiple tasks with one failure")
+    void multipleTasksWithOneFailure() throws Exception {
+        try (GpuTaskScope scope = GpuTaskScope.open(backend)) {
+            GpuTask<Integer> successTask1 = scope.fork(() -> 1);
+            GpuTask<Integer> failTask = scope.fork(() -> {
+                throw new IllegalStateException("Planned failure");
+            });
+            GpuTask<Integer> successTask2 = scope.fork(() -> 2);
+
+            try {
+                scope.joinAll();
+            } catch (Exception e) {
+                // Expected due to failure
+            }
+
+            assertTrue(successTask1.isSuccess(), "First task should succeed");
+            assertTrue(failTask.isFailed(), "Second task should fail");
+            // Third task may or may not complete depending on timing
+        }
+    }
+
+    // ==================== Scope Timing ====================
+
+    @Test
+    @DisplayName("Scope tracks execution time")
+    void scopeTracksExecutionTime() throws Exception {
+        long beforeNanos = System.nanoTime();
+
+        try (GpuTaskScope scope = GpuTaskScope.open(backend, "timing-test")) {
+            scope.fork(() -> {
+                simulateGpuWork("TimingTask");
+                return null;
+            });
+            scope.joinAll();
+        }
+
+        long afterNanos = System.nanoTime();
+        long elapsedMillis = (afterNanos - beforeNanos) / 1_000_000;
+
+        // Should take at least a few ms due to simulated work
+        assertTrue(elapsedMillis >= 1, "Scope should take measurable time");
+        // Should not take too long (sanity check)
+        assertTrue(elapsedMillis < 5000, "Scope should complete in reasonable time");
+    }
+
+    // ==================== Scale Tests ====================
+
+    @Test
+    @DisplayName("Many concurrent tasks complete")
+    void manyConcurrentTasks() throws Exception {
+        final int numTasks = 20;
+        AtomicInteger completedTasks = new AtomicInteger(0);
+
+        try (GpuTaskScope scope = GpuTaskScope.open(backend, "scale-test")) {
+            long startTime = System.nanoTime();
+
+            for (int i = 0; i < numTasks; i++) {
+                final int taskIndex = i;
+                scope.fork(() -> {
+                    // Light work to test concurrency, not performance
+                    long sum = 0;
+                    for (int j = 0; j < 1000; j++) {
+                        sum += j;
+                    }
+                    completedTasks.incrementAndGet();
+                    return sum;
+                });
+            }
+
+            scope.joinAll();
+
+            long elapsedMicros = (System.nanoTime() - startTime) / 1000;
+            emitKernelEvent("ScaleTest:" + numTasks, "tasks", elapsedMicros);
+        }
+
+        assertEquals(numTasks, completedTasks.get(),
+            "All " + numTasks + " tasks should complete");
+    }
+
+    @Test
+    @DisplayName("Many concurrent streams")
+    void manyConcurrentStreams() throws Exception {
+        final int numStreams = 10;
+        AtomicInteger completedStreams = new AtomicInteger(0);
+
+        try (GpuTaskScope scope = GpuTaskScope.open(backend, "stream-scale-test")) {
+            for (int i = 0; i < numStreams; i++) {
+                final int streamIndex = i;
+                scope.forkWithStream(lease -> {
+                    lease.synchronize();
+                    completedStreams.incrementAndGet();
+                    return lease.streamHandle();
+                });
+            }
+
+            scope.joinAll();
+        }
+
+        assertEquals(numStreams, completedStreams.get(),
+            "All " + numStreams + " streams should complete");
+    }
+
     // ==================== Helper Methods ====================
 
     /**

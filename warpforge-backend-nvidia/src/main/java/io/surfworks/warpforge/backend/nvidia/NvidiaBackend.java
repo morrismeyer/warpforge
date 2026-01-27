@@ -4,12 +4,14 @@ import io.surfworks.snakeburger.stablehlo.StableHloAst;
 import io.surfworks.warpforge.core.backend.BackendCapabilities;
 import io.surfworks.warpforge.core.backend.GpuBackend;
 import io.surfworks.warpforge.core.backend.GpuBackendCapabilities;
+import io.surfworks.warpforge.core.backend.GpuMonitoring;
 import io.surfworks.warpforge.core.tensor.Tensor;
 import io.surfworks.warpforge.core.tensor.TensorSpec;
 
 import io.surfworks.warpforge.backend.nvidia.cuda.CudaContext;
 import io.surfworks.warpforge.backend.nvidia.cuda.CudaKernels;
 import io.surfworks.warpforge.backend.nvidia.cuda.CudaRuntime;
+import io.surfworks.warpforge.backend.nvidia.nvml.NvmlRuntime;
 import io.surfworks.warpforge.backend.nvidia.ops.CudaOpDispatcher;
 
 import java.lang.foreign.Arena;
@@ -38,7 +40,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * <p>This is a stub implementation. Real CUDA operations will be added via
  * FFM bindings generated from CUDA headers.</p>
  */
-public class NvidiaBackend implements GpuBackend {
+public class NvidiaBackend implements GpuBackend, GpuMonitoring {
 
     private final int deviceIndex;
     private final int salt;
@@ -48,6 +50,11 @@ public class NvidiaBackend implements GpuBackend {
     private final ConcurrentHashMap<Long, StreamInfo> streams;
     private final AtomicLong allocatedBytes;
     private volatile boolean closed = false;
+
+    // NVML monitoring
+    private final boolean nvmlAvailable;
+    private final long nvmlDeviceHandle;
+    private final Arena nvmlArena;
 
     // Mock device memory values (will be replaced with real CUDA queries)
     private static final long MOCK_TOTAL_MEMORY = 24L * 1024 * 1024 * 1024; // 24GB (RTX 3090/4090)
@@ -92,6 +99,28 @@ public class NvidiaBackend implements GpuBackend {
             }
         }
         this.cudaContext = ctx;
+
+        // Initialize NVML for GPU monitoring
+        boolean nvmlOk = false;
+        long nvmlHandle = 0;
+        Arena arena = null;
+        if (NvmlRuntime.isAvailable()) {
+            try {
+                NvmlRuntime.init();
+                arena = Arena.ofShared(); // Long-lived arena for NVML operations
+                nvmlHandle = NvmlRuntime.getDeviceHandle(arena, deviceIndex);
+                nvmlOk = true;
+            } catch (Throwable e) {
+                System.err.println("Warning: NVML initialization failed: " + e.getMessage());
+                if (arena != null) {
+                    arena.close();
+                    arena = null;
+                }
+            }
+        }
+        this.nvmlAvailable = nvmlOk;
+        this.nvmlDeviceHandle = nvmlHandle;
+        this.nvmlArena = arena;
 
         // Create dispatcher with context (or null for stub mode)
         this.dispatcher = new CudaOpDispatcher(cudaContext, salt);
@@ -314,9 +343,70 @@ public class NvidiaBackend implements GpuBackend {
         }
         streams.clear();
 
+        // Shutdown NVML
+        if (nvmlAvailable) {
+            try {
+                NvmlRuntime.shutdown();
+            } catch (Throwable e) {
+                // Ignore shutdown errors
+            }
+            if (nvmlArena != null) {
+                nvmlArena.close();
+            }
+        }
+
         // Close CUDA context
         if (cudaContext != null) {
             cudaContext.close();
+        }
+    }
+
+    // ==================== GPU Monitoring (NVML) ====================
+
+    @Override
+    public boolean isMonitoringAvailable() {
+        return nvmlAvailable;
+    }
+
+    @Override
+    public int getGpuUtilization() {
+        if (!nvmlAvailable) return -1;
+        try {
+            NvmlRuntime.Utilization util = NvmlRuntime.getUtilizationRates(nvmlArena, nvmlDeviceHandle);
+            return util.gpu();
+        } catch (Throwable e) {
+            return -1;
+        }
+    }
+
+    @Override
+    public int getMemoryUtilization() {
+        if (!nvmlAvailable) return -1;
+        try {
+            NvmlRuntime.Utilization util = NvmlRuntime.getUtilizationRates(nvmlArena, nvmlDeviceHandle);
+            return util.memory();
+        } catch (Throwable e) {
+            return -1;
+        }
+    }
+
+    @Override
+    public int getTemperature() {
+        if (!nvmlAvailable) return -1;
+        try {
+            return NvmlRuntime.getTemperature(nvmlArena, nvmlDeviceHandle);
+        } catch (Throwable e) {
+            return -1;
+        }
+    }
+
+    @Override
+    public int getPowerUsage() {
+        if (!nvmlAvailable) return -1;
+        try {
+            return NvmlRuntime.getPowerUsage(nvmlArena, nvmlDeviceHandle);
+        } catch (Throwable e) {
+            return -1;
         }
     }
 

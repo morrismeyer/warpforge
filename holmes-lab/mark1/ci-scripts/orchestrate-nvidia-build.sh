@@ -157,7 +157,7 @@ ssh "$TARGET_HOST" bash -lc "
     fi
     git reset --hard \"origin/${BRANCH}\"
     echo \"[remote \$(date)] Cleaning untracked files...\"
-    git clean -fdx -e '.pytorch-venv' -e '.gradle'
+    git clean -fdx -e 'snakegrinder-dist/.pytorch-venv' -e 'snakegrinder-dist/tools' -e '.gradle'
   else
     echo \"[remote \$(date)] ERROR: origin/${BRANCH} does not exist\" >&2
     exit 1

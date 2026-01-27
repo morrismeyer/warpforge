@@ -82,8 +82,22 @@ if git show-ref --verify --quiet "refs/remotes/origin/${BRANCH}"; then
   fi
   log "Resetting working tree to origin/${BRANCH}..."
   git reset --hard "origin/${BRANCH}" 2>&1 | tee -a "$LOG_FILE"
-  log "Cleaning untracked files (excluding venvs, build caches, and GraalPy tools)..."
-  git clean -fdx -e '.pytorch-venv' -e '.gradle' -e 'snakegrinder-dist/tools' 2>&1 | tee -a "$LOG_FILE"
+
+  # Check if PyTorch build is in progress - if so, skip clean to avoid breaking it
+  if pgrep -f "pip.*torch|graalpy.*torch|ninja.*torch" > /dev/null 2>&1; then
+    log "WARNING: PyTorch build detected in progress - skipping git clean to avoid interference"
+    log "  Running processes:"
+    pgrep -af "pip.*torch|graalpy.*torch|ninja.*torch" 2>&1 | tee -a "$LOG_FILE" || true
+  else
+    log "Cleaning untracked files (excluding venvs, build caches, and GraalPy tools)..."
+    # Use full paths for exclusions - git clean -e patterns are relative to repo root
+    git clean -fdx \
+      -e 'snakegrinder-dist/.pytorch-venv' \
+      -e 'snakegrinder-dist/tools' \
+      -e '.gradle' \
+      -e '*.log' \
+      2>&1 | tee -a "$LOG_FILE"
+  fi
 
   # Diagnostic: Verify clean state
   log "=== Git Status After Reset ==="

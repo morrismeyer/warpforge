@@ -382,6 +382,21 @@ When reviewing code changes:
 
 **The audit documents in `tasks/` track parity status.** If one backend falls behind, it becomes a high-priority work item.
 
+### Halt If Parity Is Not Achievable
+
+**When implementing a GPU feature, always explore implementing for BOTH backends simultaneously.**
+
+If you cannot implement a feature for both NVIDIA and AMD:
+1. **STOP** - Do not proceed with a single-vendor implementation
+2. **Explain** - Document why parity isn't currently possible (missing API, hardware limitation, etc.)
+3. **Discuss** - Work with the user to decide how to proceed:
+   - Can we design around the limitation?
+   - Is there an alternative approach that works on both?
+   - Should we defer the feature until both backends can support it?
+   - Is this a rare exception that justifies vendor-specific code?
+
+**Never silently ship NVIDIA-only or AMD-only code.** The architecture must evolve carefully to maintain parity. A half-implemented feature creates technical debt and violates the core WarpForge principle.
+
 ## Design Philosophy: "It Just Works"
 
 Inspired by Steve Jobs' NeXT and Apple philosophy: **software should just work**.

@@ -334,6 +334,54 @@ source babylon-runtime/build/babylon.toolchain.env
 - **build-logic** - Gradle convention plugins
 - **holmes-lab/mark1/ci-scripts** - Hardware CI orchestration scripts
 
+## Backend Parity: NVIDIA ↔ AMD
+
+**Every feature implemented for NVIDIA must have an equivalent implementation for AMD, and vice versa.** This is the entire ethos of WarpForge.
+
+WarpForge is not an "NVIDIA-first" or "AMD-first" project. It is a **GPU-agnostic ML compiler** that treats both vendors as first-class citizens. When you add a capability to one backend, you must add the equivalent capability to the other.
+
+### What Parity Means
+
+| NVIDIA Component | AMD Equivalent | Notes |
+|------------------|----------------|-------|
+| CUDA Runtime | HIP Runtime | FFM bindings in respective backend modules |
+| cuBLAS | hipBLAS/rocBLAS | Matrix operations |
+| cuDNN | MIOpen | Deep learning primitives |
+| NVML (monitoring) | ROCm SMI | GPU utilization, temperature, power |
+| PTX (assembly) | GCN/RDNA ISA | Low-level kernel code |
+| NCCL (collectives) | RCCL | Multi-GPU communication |
+
+### Implementation Rules
+
+1. **No NVIDIA-only features** - If you add NVML monitoring to NvidiaBackend, you must add ROCm SMI monitoring to AmdBackend in the same PR or immediately after.
+
+2. **No AMD-only features** - The same applies in reverse. Parity goes both ways.
+
+3. **Shared abstractions** - Create interfaces in `warpforge-core` that both backends implement:
+   - `GpuBackend` - core GPU operations
+   - `GpuMonitoring` - utilization/temperature/power queries
+   - Future: `CollectiveBackend`, `TensorCoreBackend`, etc.
+
+4. **Test parity** - If NVIDIA has 50 hardware execution tests, AMD must have 50 equivalent tests. See "Hardware Tests Must Run on Hardware" below.
+
+5. **Documentation parity** - Architecture docs must cover both backends equally.
+
+### Why This Matters
+
+- **Vendor lock-in is the enemy** - Users should be able to switch between NVIDIA and AMD GPUs without changing their code
+- **Competition drives innovation** - Supporting both backends keeps WarpForge relevant as GPU markets evolve
+- **Correctness verification** - Running the same workload on both architectures catches subtle bugs that single-vendor testing misses
+- **Research reproducibility** - ML research should not depend on specific hardware vendors
+
+### Enforcement
+
+When reviewing code changes:
+- If a PR adds NVIDIA-specific functionality, ask: "Where is the AMD equivalent?"
+- If a PR adds AMD-specific functionality, ask: "Where is the NVIDIA equivalent?"
+- Exceptions require explicit justification (e.g., vendor-specific debugging tools)
+
+**The audit documents in `tasks/` track parity status.** If one backend falls behind, it becomes a high-priority work item.
+
 ## Design Philosophy: "It Just Works"
 
 Inspired by Steve Jobs' NeXT and Apple philosophy: **software should just work**.
@@ -510,7 +558,7 @@ void testAddExecution() {
 - GPU architectures have subtle differences that only manifest at runtime
 - Without hardware tests, regressions in actual computation go undetected
 
-**Rule:** If NVIDIA has hardware execution tests for an operation, AMD must have equivalent hardware execution tests. Parity between backends is required.
+**Rule:** If NVIDIA has hardware execution tests for an operation, AMD must have equivalent hardware execution tests. See "Backend Parity: NVIDIA ↔ AMD" above—this is a core architectural principle, not just a testing guideline.
 
 ### Zero Tolerance for Test Failures
 

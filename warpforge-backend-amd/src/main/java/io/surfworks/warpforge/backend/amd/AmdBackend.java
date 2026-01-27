@@ -4,10 +4,12 @@ import io.surfworks.snakeburger.stablehlo.StableHloAst;
 import io.surfworks.warpforge.core.backend.BackendCapabilities;
 import io.surfworks.warpforge.core.backend.GpuBackend;
 import io.surfworks.warpforge.core.backend.GpuBackendCapabilities;
+import io.surfworks.warpforge.core.backend.GpuMonitoring;
 import io.surfworks.warpforge.core.tensor.Tensor;
 import io.surfworks.warpforge.core.tensor.TensorSpec;
 
 import io.surfworks.warpforge.backend.amd.ops.HipOpDispatcher;
+import io.surfworks.warpforge.backend.amd.smi.RocmSmiRuntime;
 
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
@@ -35,7 +37,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * <p>This is a stub implementation. Real ROCm/HIP operations will be added via
  * FFM bindings generated from HIP headers.</p>
  */
-public class AmdBackend implements GpuBackend {
+public class AmdBackend implements GpuBackend, GpuMonitoring {
 
     private final int deviceIndex;
     private final GpuBackendCapabilities capabilities;
@@ -43,6 +45,10 @@ public class AmdBackend implements GpuBackend {
     private final ConcurrentHashMap<Long, StreamInfo> streams;
     private final AtomicLong allocatedBytes;
     private volatile boolean closed = false;
+
+    // ROCm SMI monitoring
+    private final boolean smiAvailable;
+    private final Arena smiArena;
 
     // Mock device memory values (will be replaced with real HIP queries)
     private static final long MOCK_TOTAL_MEMORY = 16L * 1024 * 1024 * 1024; // 16GB (RX 7900 XTX)
@@ -65,6 +71,25 @@ public class AmdBackend implements GpuBackend {
         this.dispatcher = new HipOpDispatcher();
         this.streams = new ConcurrentHashMap<>();
         this.allocatedBytes = new AtomicLong(0);
+
+        // Initialize ROCm SMI for GPU monitoring
+        boolean smiOk = false;
+        Arena arena = null;
+        if (RocmSmiRuntime.isAvailable()) {
+            try {
+                RocmSmiRuntime.init();
+                arena = Arena.ofShared(); // Long-lived arena for SMI operations
+                smiOk = true;
+            } catch (Throwable e) {
+                System.err.println("Warning: ROCm SMI initialization failed: " + e.getMessage());
+                if (arena != null) {
+                    arena.close();
+                    arena = null;
+                }
+            }
+        }
+        this.smiAvailable = smiOk;
+        this.smiArena = arena;
 
         // TODO: Query actual device capabilities via HIP
         boolean rocmRdmaSupported = checkRocmRdmaSupport();
@@ -265,7 +290,66 @@ public class AmdBackend implements GpuBackend {
         }
         streams.clear();
 
+        // Shutdown ROCm SMI
+        if (smiAvailable) {
+            try {
+                RocmSmiRuntime.shutdown();
+            } catch (Throwable e) {
+                // Ignore shutdown errors
+            }
+            if (smiArena != null) {
+                smiArena.close();
+            }
+        }
+
         // TODO: Release all HIP resources
+    }
+
+    // ==================== GPU Monitoring (ROCm SMI) ====================
+
+    @Override
+    public boolean isMonitoringAvailable() {
+        return smiAvailable;
+    }
+
+    @Override
+    public int getGpuUtilization() {
+        if (!smiAvailable) return -1;
+        try {
+            return RocmSmiRuntime.getGpuUtilization(smiArena, deviceIndex);
+        } catch (Throwable e) {
+            return -1;
+        }
+    }
+
+    @Override
+    public int getMemoryUtilization() {
+        if (!smiAvailable) return -1;
+        try {
+            return RocmSmiRuntime.getMemoryUtilization(smiArena, deviceIndex);
+        } catch (Throwable e) {
+            return -1;
+        }
+    }
+
+    @Override
+    public int getTemperature() {
+        if (!smiAvailable) return -1;
+        try {
+            return RocmSmiRuntime.getTemperature(smiArena, deviceIndex);
+        } catch (Throwable e) {
+            return -1;
+        }
+    }
+
+    @Override
+    public int getPowerUsage() {
+        if (!smiAvailable) return -1;
+        try {
+            return RocmSmiRuntime.getPowerUsage(smiArena, deviceIndex);
+        } catch (Throwable e) {
+            return -1;
+        }
     }
 
     // ==================== Helper Methods ====================

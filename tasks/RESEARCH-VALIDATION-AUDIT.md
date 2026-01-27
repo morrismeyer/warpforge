@@ -158,18 +158,22 @@ backend.synchronizeStream(stream);
 
    **Done**: Created `NvmlRuntime.java`, `GpuMonitoring.java`, updated `NvidiaBackend` and `OccupancyAdmissionValidation`.
 
+### Completed (2026-01-27)
+
+2. **ROCm SMI for AMD** (Backend Parity):
+   - ~~Similar to NVML but for AMD GPUs~~
+   - ~~`rocm_smi_lib` provides utilization metrics~~
+   - ~~Create `RocmSmiRuntime.java` following `NvmlRuntime.java` pattern~~
+   - ~~Update `AmdBackend` to implement `GpuMonitoring`~~
+
+   **Done**: Created `RocmSmiRuntime.java`, updated `AmdBackend` to implement `GpuMonitoring`.
+
 ### Medium Priority
 
-2. **Add Compute Kernels to Validations**:
+3. **Add Compute Kernels to Validations**:
    - Current validations use memory transfers only
    - Add simple compute kernels (vector add, reduction)
    - Verify compute correctness, not just timing
-
-3. **ROCm SMI for AMD**:
-   - Similar to NVML but for AMD GPUs
-   - `rocm_smi_lib` provides utilization metrics
-   - Create `RocmSmiRuntime.java` following `NvmlRuntime.java` pattern
-   - Update `AmdBackend` to implement `GpuMonitoring`
 
 ### Low Priority
 
@@ -190,8 +194,8 @@ backend.synchronizeStream(stream);
 | 2  | Implement real OccupancyTracker       | HIGH     | DONE      |
 |    | using NVML queries                    |          |           |
 +----+----------------------------------------+----------+-----------+
-| 3  | Add rocm_smi bindings for AMD         | MEDIUM   | TODO      |
-|    | occupancy metrics                     |          |           |
+| 3  | Add rocm_smi bindings for AMD         | HIGH     | DONE      |
+|    | occupancy metrics (Backend Parity)    |          |           |
 +----+----------------------------------------+----------+-----------+
 | 4  | Add compute kernel validations        | MEDIUM   | TODO      |
 |    | (vector add, reduction)               |          |           |
@@ -204,4 +208,4 @@ backend.synchronizeStream(stream);
 - **Date**: 2026-01-27
 - **Auditor**: Claude Code
 - **Files Reviewed**: 5 research validation files
-- **Status**: 3/4 PASS, 1 NEEDS WORK (OccupancyAdmissionValidation)
+- **Status**: 4/4 PASS (All validations use real GPU metrics)

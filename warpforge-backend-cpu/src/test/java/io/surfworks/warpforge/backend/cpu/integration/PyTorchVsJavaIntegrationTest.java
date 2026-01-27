@@ -30,7 +30,7 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
  * Integration tests comparing PyTorch outputs (via SnakeGrinder) against
  * Java CPU backend execution.
  *
- * <p>These tests load E2E fixtures that contain:
+ * <p>These tests load EndToEnd fixtures that contain:
  * <ul>
  *   <li>StableHLO MLIR generated from PyTorch models</li>
  *   <li>Input tensors used during tracing</li>
@@ -61,7 +61,7 @@ class PyTorchVsJavaIntegrationTest {
     }
 
     /**
-     * Provides all available E2E fixture names.
+     * Provides all available EndToEnd fixture names.
      */
     static Stream<String> fixtureNames() throws IOException {
         if (!Files.exists(FIXTURES_DIR)) {

@@ -432,7 +432,7 @@ public final class SnakeGrinderCli {
         System.out.println();
         System.out.println("Commands:");
         System.out.println("  --trace              Trace a PyTorch nn.Module and convert to StableHLO MLIR");
-        System.out.println("  --trace-with-values  Trace and capture tensor values (for E2E testing)");
+        System.out.println("  --trace-with-values  Trace and capture tensor values (for EndToEnd testing)");
         System.out.println("  --trace-example      Run a built-in example (SimpleMLP)");
         System.out.println("  --pytorch-info       Show PyTorch version and capabilities");
         System.out.println("  --self-test          Run GraalPy self-test");

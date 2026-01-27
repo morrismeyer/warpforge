@@ -1,4 +1,4 @@
-# E2E Test Fixtures
+# EndToEnd Test Fixtures
 
 **Fixtures are NOT stored in this directory.**
 
@@ -10,7 +10,7 @@ Test fixtures are generated to `build/generated-fixtures/e2e/` which is:
 ## Generating Fixtures
 
 ```bash
-./gradlew :warpforge-core:generateE2EFixtures
+./gradlew :warpforge-core:generateEndToEndFixtures
 ```
 
 This uses the snakegrinder native binary to trace PyTorch models and capture

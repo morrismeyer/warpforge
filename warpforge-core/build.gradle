@@ -36,7 +36,7 @@ test {
 }
 
 tasks.register('nightlyTest', Test) {
-    description = 'Run nightly-only tests (expensive E2E fixtures like BERT)'
+    description = 'Run nightly-only tests (expensive EndToEnd fixtures like BERT)'
     group = 'verification'
 
     testClassesDirs = sourceSets.test.output.classesDirs
@@ -52,8 +52,8 @@ tasks.register('nightlyTest', Test) {
     }
 }
 
-tasks.register('generateE2EFixtures', Test) {
-    description = 'Generate E2E test fixtures using snakegrinder-dist native binary'
+tasks.register('generateEndToEndFixtures', Test) {
+    description = 'Generate EndToEnd test fixtures using snakegrinder-dist native binary'
     group = 'verification'
 
     testClassesDirs = sourceSets.test.output.classesDirs
@@ -86,13 +86,13 @@ tasks.register('generateE2EFixtures', Test) {
         }
 
         def count = fixturesDirPath.listFiles()?.findAll { it.isDirectory() }?.size() ?: 0
-        logger.lifecycle("Generated ${count} E2E fixtures to ${fixturesDirPath}")
+        logger.lifecycle("Generated ${count} EndToEnd fixtures to ${fixturesDirPath}")
     }
 }
 
-// Check if E2E fixtures exist (they live in build/, never committed)
-tasks.register('checkE2EFixturesVersion') {
-    description = 'Check if E2E fixtures have been generated'
+// Check if EndToEnd fixtures exist (they live in build/, never committed)
+tasks.register('checkEndToEndFixturesVersion') {
+    description = 'Check if EndToEnd fixtures have been generated'
     group = 'verification'
 
     def fixturesDir = file('build/generated-fixtures/e2e')
@@ -100,45 +100,45 @@ tasks.register('checkE2EFixturesVersion') {
 
     doLast {
         if (!fixturesDir.exists() || fixturesDir.listFiles()?.length == 0) {
-            logger.warn("E2E fixtures not found. Run: ./gradlew :warpforge-core:generateE2EFixtures")
+            logger.warn("EndToEnd fixtures not found. Run: ./gradlew :warpforge-core:generateEndToEndFixtures")
             logger.warn("Tests will be skipped until fixtures are generated.")
             return
         }
 
         if (versionFile.exists()) {
             def version = versionFile.text.trim()
-            logger.lifecycle("E2E fixtures available (PyTorch ${version})")
+            logger.lifecycle("EndToEnd fixtures available (PyTorch ${version})")
         } else {
-            logger.lifecycle("E2E fixtures available")
+            logger.lifecycle("EndToEnd fixtures available")
         }
     }
 }
 
 // Check if fixtures need to be generated
-tasks.register('ensureE2EFixtures') {
-    description = 'Check if E2E fixtures need to be generated'
+tasks.register('ensureEndToEndFixtures') {
+    description = 'Check if EndToEnd fixtures need to be generated'
     group = 'verification'
 
     def fixturesDir = file('build/generated-fixtures/e2e')
 
     doLast {
         if (!fixturesDir.exists() || fixturesDir.listFiles()?.length == 0) {
-            logger.lifecycle("E2E fixtures not found at ${fixturesDir}")
-            logger.lifecycle("Run: ./gradlew :warpforge-core:generateE2EFixtures")
+            logger.lifecycle("EndToEnd fixtures not found at ${fixturesDir}")
+            logger.lifecycle("Run: ./gradlew :warpforge-core:generateEndToEndFixtures")
         } else {
             def count = fixturesDir.listFiles()?.findAll { it.isDirectory() }?.size() ?: 0
-            logger.lifecycle("E2E fixtures available: ${count} fixtures in ${fixturesDir}")
+            logger.lifecycle("EndToEnd fixtures available: ${count} fixtures in ${fixturesDir}")
         }
     }
 }
 
 // Wire up: test task checks fixtures version first
-test.dependsOn checkE2EFixturesVersion
+test.dependsOn checkEndToEndFixturesVersion
 
-// Download E2E fixtures from remote storage (alternative to generating locally)
+// Download EndToEnd fixtures from remote storage (alternative to generating locally)
 // All fixtures go to build/ directory - NEVER committed to repository
 tasks.register('downloadFixtures') {
-    description = 'Download E2E fixtures from remote storage'
+    description = 'Download EndToEnd fixtures from remote storage'
     group = 'verification'
 
     def fixturesDir = file('build/generated-fixtures/e2e')
@@ -206,7 +206,7 @@ tasks.register('checkNightlyFixtures') {
         if (!missingFixtures.isEmpty()) {
             logger.warn("Missing nightly fixtures: ${missingFixtures.join(', ')}")
             logger.warn("Run './gradlew :warpforge-core:downloadFixtures' to download them")
-            logger.warn("Or run './gradlew :warpforge-core:generateE2EFixtures' to generate them locally")
+            logger.warn("Or run './gradlew :warpforge-core:generateEndToEndFixtures' to generate them locally")
         } else {
             logger.lifecycle("All nightly fixtures available")
         }

@@ -50,7 +50,7 @@ class NvidiaEndToEndTest {
 
     /**
      * Fixtures are generated to build/ directory - NEVER committed to repo.
-     * Run ./gradlew :warpforge-core:generateE2EFixtures to create them.
+     * Run ./gradlew :warpforge-core:generateEndToEndFixtures to create them.
      */
     private static final Path FIXTURES_DIR = Paths.get(
         "../warpforge-core/build/generated-fixtures/e2e"
@@ -85,7 +85,7 @@ class NvidiaEndToEndTest {
     }
 
     /**
-     * Discover quick E2E fixture directories (excludes BERT and other expensive fixtures).
+     * Discover quick EndToEnd fixture directories (excludes BERT and other expensive fixtures).
      * These run on every CI push.
      */
     static Stream<Path> quickEndToEndFixtures() {
@@ -93,7 +93,7 @@ class NvidiaEndToEndTest {
     }
 
     /**
-     * Discover expensive E2E fixture directories (BERT models).
+     * Discover expensive EndToEnd fixture directories (BERT models).
      * These run nightly only.
      */
     static Stream<Path> nightlyEndToEndFixtures() {
@@ -147,7 +147,7 @@ class NvidiaEndToEndTest {
     private void runNvidiaE2eTest(Path fixtureDir) throws IOException {
         if (fixtureDir.toString().equals("NO_FIXTURES_AVAILABLE")) {
             // Use assumeTrue to properly skip with visible message in JUnit report
-            assumeTrue(false, "No EndToEnd fixtures found. Run: ./gradlew :warpforge-core:generateE2EFixtures");
+            assumeTrue(false, "No EndToEnd fixtures found. Run: ./gradlew :warpforge-core:generateEndToEndFixtures");
             return;
         }
 

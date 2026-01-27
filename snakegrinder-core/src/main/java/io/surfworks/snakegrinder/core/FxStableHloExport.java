@@ -222,7 +222,7 @@ public final class FxStableHloExport {
     }
 
     /**
-     * Trace a PyTorch model and capture actual tensor values for E2E verification.
+     * Trace a PyTorch model and capture actual tensor values for EndToEnd verification.
      *
      * <p>This method runs the model forward pass with deterministic inputs
      * and captures both the graph (MLIR) and the actual tensor values.

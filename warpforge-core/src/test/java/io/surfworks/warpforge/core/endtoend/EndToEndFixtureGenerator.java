@@ -20,16 +20,16 @@ import static org.junit.jupiter.api.Assertions.fail;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 /**
- * Generator for E2E test fixtures using the snakegrinder-dist native binary.
+ * Generator for EndToEnd test fixtures using the snakegrinder-dist native binary.
  *
  * <p>This is NOT a regular test - it's a fixture generator that:
  * <ol>
  *   <li>Invokes snakegrinder-dist/build/dist/bin/snakegrinder (native binary)</li>
  *   <li>Uses --trace-with-values to capture tensor data</li>
- *   <li>Writes fixtures to warpforge-core/src/test/resources/fixtures/e2e/</li>
+ *   <li>Writes fixtures to warpforge-core/src/test/resources/fixtures/endtoend/</li>
  * </ol>
  *
- * <p>Run manually with: ./gradlew :warpforge-core:generateE2EFixtures
+ * <p>Run manually with: ./gradlew :warpforge-core:generateEndToEndFixtures
  *
  * <p>Prerequisites:
  * <ul>
@@ -38,8 +38,8 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
  */
 @Tag("fixture-generator")
 @Tag("requires-snakegrinder-dist")
-@DisplayName("E2E Fixture Generator")
-class E2EFixtureGenerator {
+@DisplayName("EndToEnd Fixture Generator")
+class EndToEndFixtureGenerator {
 
     private static final Path PROJECT_ROOT = findProjectRoot();
     private static final Path SNAKEGRINDER_BINARY = PROJECT_ROOT.resolve(

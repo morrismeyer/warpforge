@@ -64,6 +64,41 @@ All architecture documentation files use **ALL-CAPS-WITH-HYPHENS.md** naming:
 
 This makes architecture docs visually distinct from code and config files.
 
+## Pre-Implementation Requirements
+
+**Before writing any implementation code, you MUST:**
+
+1. **Read all relevant architecture documents** in `architecture/` that pertain to the feature
+2. If the feature involves GPU operations, read: `JFR-GPU.md`, `GPU-SCHEDULING.md`
+3. If the feature involves concurrency, read: `STRUCTURED-CONCURRENCY-RESEARCH.md`
+4. **Cross-reference your implementation** against specifications in those documents
+5. **Do not proceed with assumptions** - if specifications exist, follow them exactly
+
+**After context compaction (which you cannot detect), assume:**
+
+- You may have lost detailed implementation context from earlier in the conversation
+- Re-read architecture documents before continuing implementation work
+- Do not rely on summaries for technical specifications - read the source files
+- If unsure whether context was lost, ask the user before proceeding
+
+**A "validation" or "test" must:**
+
+- Use assertions (JUnit, AssertJ) or JFR event verification
+- Measure real hardware metrics, not simulated values
+- Never declare success via `System.out.println("PASSED")` - that is not a test
+- Query actual GPU state via NVML/CUDA APIs when testing GPU functionality
+
+## Enforcement of Style Rules
+
+The following rules in this document are **NON-NEGOTIABLE**. Violations should be fixed immediately upon detection:
+
+- **EndToEnd, not E2E** - applies to all code, comments, documentation, and task names
+- **Explicit imports only** - never use wildcard imports
+- **No time estimates** - never predict durations for tasks
+- **Architecture docs first** - read specifications before implementing
+
+If you notice existing violations of these rules, fix them proactively.
+
 ## Language Preference
 
 **When all else is equal, prefer Java over other languages.** This is the ethos of the WarpForge project.

@@ -48,12 +48,12 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
  * </ul>
  */
 @Tag("cpu")
-@DisplayName("PyTorch vs WarpForge E2E Tests")
+@DisplayName("PyTorch vs WarpForge EndToEnd Tests")
 class PyTorchWarpForgeEndToEndTest {
 
     /**
      * Fixtures are generated to build/ directory - NEVER committed to repo.
-     * Run ./gradlew :warpforge-core:generateE2EFixtures to create them.
+     * Run ./gradlew :warpforge-core:generateEndToEndFixtures to create them.
      */
     private static final Path FIXTURES_DIR = Paths.get(
         "build/generated-fixtures/e2e"
@@ -83,7 +83,7 @@ class PyTorchWarpForgeEndToEndTest {
     }
 
     /**
-     * Discover quick E2E fixture directories (excludes BERT and other expensive fixtures).
+     * Discover quick EndToEnd fixture directories (excludes BERT and other expensive fixtures).
      * These run on every CI push.
      */
     static Stream<Path> quickE2eFixtures() {
@@ -91,7 +91,7 @@ class PyTorchWarpForgeEndToEndTest {
     }
 
     /**
-     * Discover expensive E2E fixture directories (BERT models).
+     * Discover expensive EndToEnd fixture directories (BERT models).
      * These run nightly only.
      */
     static Stream<Path> nightlyE2eFixtures() {
@@ -146,7 +146,7 @@ class PyTorchWarpForgeEndToEndTest {
         // Skip if no fixtures are available
         if (fixtureDir.toString().equals("NO_FIXTURES_AVAILABLE")) {
             // Use assumeTrue to properly skip with visible message in JUnit report
-            assumeTrue(false, "No EndToEnd fixtures found. Run: ./gradlew :warpforge-core:generateE2EFixtures");
+            assumeTrue(false, "No EndToEnd fixtures found. Run: ./gradlew :warpforge-core:generateEndToEndFixtures");
             return;
         }
 

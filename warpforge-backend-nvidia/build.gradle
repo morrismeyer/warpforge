@@ -57,7 +57,7 @@ tasks.register('nvidiaBackendTest', Test) {
 
 // Nightly NVIDIA tests (BERT models)
 tasks.register('nightlyNvidiaTest', Test) {
-    description = 'Run nightly-only NVIDIA tests (BERT E2E fixtures)'
+    description = 'Run nightly-only NVIDIA tests (BERT EndToEnd fixtures)'
     group = 'verification'
 
     testClassesDirs = sourceSets.test.output.classesDirs

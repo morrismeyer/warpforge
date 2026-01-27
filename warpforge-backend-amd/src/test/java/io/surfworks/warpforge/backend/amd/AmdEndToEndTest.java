@@ -50,7 +50,7 @@ class AmdEndToEndTest {
 
     /**
      * Fixtures are generated to build/ directory - NEVER committed to repo.
-     * Run ./gradlew :warpforge-core:generateE2EFixtures to create them.
+     * Run ./gradlew :warpforge-core:generateEndToEndFixtures to create them.
      */
     private static final Path FIXTURES_DIR = Paths.get(
         "../warpforge-core/build/generated-fixtures/e2e"
@@ -147,7 +147,7 @@ class AmdEndToEndTest {
     private void runAmdEndToEndTest(Path fixtureDir) throws IOException {
         if (fixtureDir.toString().equals("NO_FIXTURES_AVAILABLE")) {
             // Use assumeTrue to properly skip with visible message in JUnit report
-            assumeTrue(false, "No EndToEnd fixtures found. Run: ./gradlew :warpforge-core:generateE2EFixtures");
+            assumeTrue(false, "No EndToEnd fixtures found. Run: ./gradlew :warpforge-core:generateEndToEndFixtures");
             return;
         }
 

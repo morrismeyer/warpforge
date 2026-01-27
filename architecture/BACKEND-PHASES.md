@@ -100,7 +100,7 @@ public class CuBLAS {
 - [ ] `warpforge-backend-nvidia` with cuBLAS/cuDNN FFM bindings
 - [ ] `warpforge-backend-amd` with hipBLAS/MIOpen FFM bindings
 - [ ] Op-by-op executor that walks StableHLO graph
-- [ ] E2E tests comparing WarpForge output to PyTorch reference
+- [ ] EndToEnd tests comparing WarpForge output to PyTorch reference
 
 ### Success Criteria
 

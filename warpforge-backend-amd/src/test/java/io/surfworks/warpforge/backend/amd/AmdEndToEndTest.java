@@ -49,11 +49,12 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 class AmdEndToEndTest {
 
     /**
-     * Fixtures are generated to build/ directory - NEVER committed to repo.
-     * Run ./gradlew :warpforge-core:generateEndToEndFixtures to create them.
+     * Fixtures are read from the NFS-mounted warpdata directory.
+     * NUC generates to: ~/surfworks/warpdata/fixtures/endtoend
+     * GPU boxes read from: /mnt/warpdata/fixtures/endtoend
      */
     private static final Path FIXTURES_DIR = Paths.get(
-        "../warpforge-core/build/generated-fixtures/e2e"
+        "/mnt/warpdata/fixtures/endtoend"
     );
 
     /**

@@ -47,11 +47,15 @@ class EndToEndFixtureGenerator {
     );
 
     /**
-     * ALL fixtures go here - build/ is always gitignored, so data can NEVER
-     * be accidentally committed to the repository.
+     * Fixtures are published to the shared warpdata directory which is NFS-mounted
+     * on GPU boxes. This allows generated fixtures to be immediately accessible
+     * to NVIDIA and AMD test runners without copying.
+     *
+     * NUC writes to: ~/surfworks/warpdata/fixtures/endtoend
+     * GPU boxes read from: /mnt/warpdata/fixtures/endtoend
      */
-    private static final Path FIXTURES_OUTPUT_DIR = PROJECT_ROOT.resolve(
-        "warpforge-core/build/generated-fixtures/e2e"
+    private static final Path FIXTURES_OUTPUT_DIR = Paths.get(
+        System.getProperty("user.home"), "surfworks/warpdata/fixtures/endtoend"
     );
 
     private static final long DEFAULT_SEED = 42;

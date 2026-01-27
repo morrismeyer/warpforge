@@ -52,11 +52,12 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 class PyTorchWarpForgeEndToEndTest {
 
     /**
-     * Fixtures are generated to build/ directory - NEVER committed to repo.
-     * Run ./gradlew :warpforge-core:generateEndToEndFixtures to create them.
+     * Fixtures are read from the shared warpdata directory.
+     * On NUC: ~/surfworks/warpdata/fixtures/endtoend
+     * Run ./gradlew :warpforge-core:generateE2EFixtures to create them.
      */
     private static final Path FIXTURES_DIR = Paths.get(
-        "build/generated-fixtures/e2e"
+        System.getProperty("user.home"), "surfworks/warpdata/fixtures/endtoend"
     );
 
     /**

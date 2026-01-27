@@ -47,6 +47,16 @@ public class GpuKernelEvent extends Event {
     @Timespan(Timespan.MICROSECONDS)
     public long gpuTimeMicros;
 
+    @Label("Launch Latency")
+    @Description("CPU to GPU submission overhead in nanoseconds")
+    @Timespan(Timespan.NANOSECONDS)
+    public long launchLatencyNanos;
+
+    @Label("Queue Delay")
+    @Description("Time waiting in stream queue before execution in nanoseconds")
+    @Timespan(Timespan.NANOSECONDS)
+    public long queueDelayNanos;
+
     @Label("Throughput (TFLOPS)")
     @Description("Throughput in teraflops (for compute-bound operations)")
     public double teraflops;

@@ -66,20 +66,31 @@ This makes architecture docs visually distinct from code and config files.
 
 ## Pre-Implementation Requirements
 
-**Before writing any implementation code, you MUST:**
+**Before writing any implementation code, you MUST read the relevant architecture documents.**
 
-1. **Read all relevant architecture documents** in `architecture/` that pertain to the feature
-2. If the feature involves GPU operations, read: `JFR-GPU.md`, `GPU-SCHEDULING.md`
-3. If the feature involves concurrency, read: `STRUCTURED-CONCURRENCY-RESEARCH.md`
-4. **Cross-reference your implementation** against specifications in those documents
-5. **Do not proceed with assumptions** - if specifications exist, follow them exactly
+This is not optional. Use the Read tool to read the actual files - do not rely on memory or summaries.
+
+| Feature Area | Required Reading |
+|--------------|------------------|
+| GPU operations | `architecture/JFR-GPU.md`, `architecture/GPU-SCHEDULING.md` |
+| Concurrency | `architecture/STRUCTURED-CONCURRENCY-RESEARCH.md` |
+| Backend development | `architecture/BACKEND-PHASES.md` |
+| Overall architecture | `architecture/ARCHITECTURE.md` |
+
+**Implementation checklist:**
+1. Read the relevant architecture docs (use Read tool, not memory)
+2. Identify specific sections that apply to your task
+3. Note exact API names, field names, and patterns from the docs
+4. Implement according to those specifications exactly
+5. Cross-reference your code against the docs before committing
 
 **After context compaction (which you cannot detect), assume:**
 
-- You may have lost detailed implementation context from earlier in the conversation
-- Re-read architecture documents before continuing implementation work
-- Do not rely on summaries for technical specifications - read the source files
-- If unsure whether context was lost, ask the user before proceeding
+- You have lost detailed implementation context from earlier in the conversation
+- Re-read architecture documents before continuing ANY implementation work
+- Do not rely on summaries - read the source files with the Read tool
+- If a task seems partially complete, re-read the docs before continuing
+- When in doubt, ask the user: "Should I re-read the architecture docs before proceeding?"
 
 **A "validation" or "test" must:**
 
@@ -98,6 +109,38 @@ The following rules in this document are **NON-NEGOTIABLE**. Violations should b
 - **Architecture docs first** - read specifications before implementing
 
 If you notice existing violations of these rules, fix them proactively.
+
+## Compaction-Safe Summaries
+
+**After completing any substantial implementation task, provide a compaction-safe summary.**
+
+This summary should be structured to survive context compaction and enable work to continue correctly. Include:
+
+1. **What was implemented** - Specific files created/modified with their purposes
+2. **Key specifications followed** - Which architecture docs and which sections guided the implementation
+3. **Critical details** - API names, field names, constants, or patterns that must not drift
+4. **What remains** - Next steps with enough detail to continue without re-reading everything
+5. **Verification commands** - How to verify the work is correct
+
+Example format:
+```
+## Compaction-Safe Summary: [Task Name]
+
+**Implemented:** GpuKernelEvent JFR integration in warpforge-core/src/main/java/.../jfr/
+
+**Per specifications:** JFR-GPU.md lines 99-154 (event fields), GPU-SCHEDULING.md lines 248-265 (NVML utilization)
+
+**Critical details:**
+- Must use `nvmlDeviceGetUtilizationRates()` not simulated values
+- GpuKernelEvent.teraflops = (2.0 * M * N * K) / (elapsedMs * 1e9)
+- Backend field values: "cuBLAS", "PTX", "rocBLAS", "HIP"
+
+**Remaining:** Add NVML bindings for nvmlDeviceGetHandleByIndex, nvmlDeviceGetUtilizationRates
+
+**Verify:** ./gradlew :warpforge-core:test --tests "*GpuKernel*"
+```
+
+This practice ensures that if compaction occurs, the summary in conversation history preserves actionable detail rather than vague descriptions.
 
 ## Language Preference
 

@@ -53,6 +53,10 @@ public final class CudaRuntime {
     private static final MethodHandle cuEventSynchronize;
     private static final MethodHandle cuEventElapsedTime;
 
+    // CUDA Function Attributes API (for occupancy calculation)
+    private static final MethodHandle cuFuncGetAttribute;
+    private static final MethodHandle cuOccupancyMaxActiveBlocksPerMultiprocessor;
+
     static {
         SymbolLookup lookup = null;
         boolean available = false;
@@ -116,6 +120,14 @@ public final class CudaRuntime {
             // CUresult cuEventElapsedTime(float *pMilliseconds, CUevent hStart, CUevent hEnd)
             cuEventElapsedTime = downcall("cuEventElapsedTime", FunctionDescriptor.of(
                 ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.JAVA_LONG));
+
+            // CUresult cuFuncGetAttribute(int *pi, CUfunction_attribute attrib, CUfunction hfunc)
+            cuFuncGetAttribute = downcall("cuFuncGetAttribute", FunctionDescriptor.of(
+                ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_INT, ValueLayout.JAVA_LONG));
+
+            // CUresult cuOccupancyMaxActiveBlocksPerMultiprocessor(int *numBlocks, CUfunction func, int blockSize, size_t dynamicSMemSize)
+            cuOccupancyMaxActiveBlocksPerMultiprocessor = downcall("cuOccupancyMaxActiveBlocksPerMultiprocessor", FunctionDescriptor.of(
+                ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.JAVA_INT, ValueLayout.JAVA_LONG));
         } else {
             cuInit = null;
             cuDeviceGet = null;
@@ -138,6 +150,8 @@ public final class CudaRuntime {
             cuEventRecord = null;
             cuEventSynchronize = null;
             cuEventElapsedTime = null;
+            cuFuncGetAttribute = null;
+            cuOccupancyMaxActiveBlocksPerMultiprocessor = null;
         }
     }
 
@@ -500,6 +514,77 @@ public final class CudaRuntime {
     @FunctionalInterface
     public interface ThrowingRunnable {
         void run() throws Throwable;
+    }
+
+    // ==================== Function Attributes (for Occupancy Calculation) ====================
+
+    /**
+     * CUfunction_attribute enum values for cuFuncGetAttribute.
+     */
+    public static final int CU_FUNC_ATTRIBUTE_MAX_THREADS_PER_BLOCK = 0;
+    public static final int CU_FUNC_ATTRIBUTE_SHARED_SIZE_BYTES = 1;
+    public static final int CU_FUNC_ATTRIBUTE_CONST_SIZE_BYTES = 2;
+    public static final int CU_FUNC_ATTRIBUTE_LOCAL_SIZE_BYTES = 3;
+    public static final int CU_FUNC_ATTRIBUTE_NUM_REGS = 4;
+    public static final int CU_FUNC_ATTRIBUTE_PTX_VERSION = 5;
+    public static final int CU_FUNC_ATTRIBUTE_BINARY_VERSION = 6;
+
+    /**
+     * Get a function attribute.
+     *
+     * @param arena Arena for memory allocation
+     * @param function Function handle (CUfunction)
+     * @param attribute Attribute to query (CU_FUNC_ATTRIBUTE_*)
+     * @return The attribute value
+     */
+    public static int funcGetAttribute(Arena arena, long function, int attribute) throws Throwable {
+        ensureAvailable();
+        MemorySegment valuePtr = arena.allocate(ValueLayout.JAVA_INT);
+        int result = (int) cuFuncGetAttribute.invokeExact(valuePtr, attribute, function);
+        checkError(result, "cuFuncGetAttribute");
+        return valuePtr.get(ValueLayout.JAVA_INT, 0);
+    }
+
+    /**
+     * Get all kernel attributes for occupancy calculation.
+     *
+     * @param arena Arena for memory allocation
+     * @param function Function handle (CUfunction)
+     * @return KernelAttributes record with all queried values
+     */
+    public static io.surfworks.warpforge.core.kernel.KernelAttributes getKernelAttributes(
+            Arena arena, long function) throws Throwable {
+        int numRegs = funcGetAttribute(arena, function, CU_FUNC_ATTRIBUTE_NUM_REGS);
+        int sharedSize = funcGetAttribute(arena, function, CU_FUNC_ATTRIBUTE_SHARED_SIZE_BYTES);
+        int localSize = funcGetAttribute(arena, function, CU_FUNC_ATTRIBUTE_LOCAL_SIZE_BYTES);
+        int maxThreads = funcGetAttribute(arena, function, CU_FUNC_ATTRIBUTE_MAX_THREADS_PER_BLOCK);
+        int ptxVersion = funcGetAttribute(arena, function, CU_FUNC_ATTRIBUTE_PTX_VERSION);
+        int binaryVersion = funcGetAttribute(arena, function, CU_FUNC_ATTRIBUTE_BINARY_VERSION);
+
+        return new io.surfworks.warpforge.core.kernel.KernelAttributes(
+            sharedSize, localSize, maxThreads, numRegs, ptxVersion, binaryVersion);
+    }
+
+    /**
+     * Calculate maximum active blocks per SM for the given kernel configuration.
+     *
+     * <p>This is the CUDA occupancy API that considers register usage, shared memory,
+     * and other constraints to determine how many blocks can run concurrently on one SM.
+     *
+     * @param arena Arena for memory allocation
+     * @param function Function handle (CUfunction)
+     * @param blockSize Threads per block
+     * @param dynamicSharedMem Dynamic shared memory per block in bytes
+     * @return Maximum active blocks per SM
+     */
+    public static int occupancyMaxActiveBlocksPerMultiprocessor(
+            Arena arena, long function, int blockSize, long dynamicSharedMem) throws Throwable {
+        ensureAvailable();
+        MemorySegment numBlocksPtr = arena.allocate(ValueLayout.JAVA_INT);
+        int result = (int) cuOccupancyMaxActiveBlocksPerMultiprocessor.invokeExact(
+            numBlocksPtr, function, blockSize, dynamicSharedMem);
+        checkError(result, "cuOccupancyMaxActiveBlocksPerMultiprocessor");
+        return numBlocksPtr.get(ValueLayout.JAVA_INT, 0);
     }
 
     // ==================== Error Handling ====================

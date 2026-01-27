@@ -74,6 +74,10 @@ public final class HipRuntime {
     private static final MethodHandle hipEventSynchronize;
     private static final MethodHandle hipEventElapsedTime;
 
+    // HIP Function Attributes API (for occupancy calculation)
+    private static final MethodHandle hipFuncGetAttribute;
+    private static final MethodHandle hipOccupancyMaxActiveBlocksPerMultiprocessor;
+
     static {
         SymbolLookup lookup = null;
         boolean available = false;
@@ -177,6 +181,14 @@ public final class HipRuntime {
                 ValueLayout.JAVA_INT, ValueLayout.JAVA_LONG));
             hipEventElapsedTime = downcall("hipEventElapsedTime", FunctionDescriptor.of(
                 ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.JAVA_LONG));
+
+            // hipError_t hipFuncGetAttribute(int *value, hipFunction_attribute attrib, hipFunction_t hfunc)
+            hipFuncGetAttribute = downcall("hipFuncGetAttribute", FunctionDescriptor.of(
+                ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_INT, ValueLayout.JAVA_LONG));
+
+            // hipError_t hipOccupancyMaxActiveBlocksPerMultiprocessor(int *numBlocks, T func, int blockSize, size_t dynamicSMemSize)
+            hipOccupancyMaxActiveBlocksPerMultiprocessor = downcall("hipOccupancyMaxActiveBlocksPerMultiprocessor", FunctionDescriptor.of(
+                ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.JAVA_INT, ValueLayout.JAVA_LONG));
         } else {
             hipInit = null;
             hipGetDeviceCount = null;
@@ -202,6 +214,8 @@ public final class HipRuntime {
             hipEventRecord = null;
             hipEventSynchronize = null;
             hipEventElapsedTime = null;
+            hipFuncGetAttribute = null;
+            hipOccupancyMaxActiveBlocksPerMultiprocessor = null;
         }
     }
 
@@ -492,6 +506,79 @@ public final class HipRuntime {
         int result = (int) hipEventElapsedTime.invokeExact(msPtr, startEvent, stopEvent);
         checkError(result, "hipEventElapsedTime");
         return msPtr.get(ValueLayout.JAVA_FLOAT, 0);
+    }
+
+    // ==================== Function Attributes (for Occupancy Calculation) ====================
+
+    /**
+     * hipFunction_attribute enum values for hipFuncGetAttribute.
+     * These mirror CUDA's CUfunction_attribute values.
+     */
+    public static final int HIP_FUNC_ATTRIBUTE_MAX_THREADS_PER_BLOCK = 0;
+    public static final int HIP_FUNC_ATTRIBUTE_SHARED_SIZE_BYTES = 1;
+    public static final int HIP_FUNC_ATTRIBUTE_CONST_SIZE_BYTES = 2;
+    public static final int HIP_FUNC_ATTRIBUTE_LOCAL_SIZE_BYTES = 3;
+    public static final int HIP_FUNC_ATTRIBUTE_NUM_REGS = 4;
+    public static final int HIP_FUNC_ATTRIBUTE_PTX_VERSION = 5;  // Not used on AMD, returns 0
+    public static final int HIP_FUNC_ATTRIBUTE_BINARY_VERSION = 6;
+
+    /**
+     * Get a function attribute.
+     *
+     * @param arena Arena for memory allocation
+     * @param function Function handle (hipFunction_t)
+     * @param attribute Attribute to query (HIP_FUNC_ATTRIBUTE_*)
+     * @return The attribute value
+     */
+    public static int funcGetAttribute(Arena arena, long function, int attribute) throws Throwable {
+        ensureAvailable();
+        MemorySegment valuePtr = arena.allocate(ValueLayout.JAVA_INT);
+        int result = (int) hipFuncGetAttribute.invokeExact(valuePtr, attribute, function);
+        checkError(result, "hipFuncGetAttribute");
+        return valuePtr.get(ValueLayout.JAVA_INT, 0);
+    }
+
+    /**
+     * Get all kernel attributes for occupancy calculation.
+     *
+     * @param arena Arena for memory allocation
+     * @param function Function handle (hipFunction_t)
+     * @return KernelAttributes record with all queried values
+     */
+    public static io.surfworks.warpforge.core.kernel.KernelAttributes getKernelAttributes(
+            Arena arena, long function) throws Throwable {
+        int numRegs = funcGetAttribute(arena, function, HIP_FUNC_ATTRIBUTE_NUM_REGS);
+        int sharedSize = funcGetAttribute(arena, function, HIP_FUNC_ATTRIBUTE_SHARED_SIZE_BYTES);
+        int localSize = funcGetAttribute(arena, function, HIP_FUNC_ATTRIBUTE_LOCAL_SIZE_BYTES);
+        int maxThreads = funcGetAttribute(arena, function, HIP_FUNC_ATTRIBUTE_MAX_THREADS_PER_BLOCK);
+        int binaryVersion = funcGetAttribute(arena, function, HIP_FUNC_ATTRIBUTE_BINARY_VERSION);
+        // PTX version is not meaningful for AMD - use 0
+        int ptxVersion = 0;
+
+        return new io.surfworks.warpforge.core.kernel.KernelAttributes(
+            sharedSize, localSize, maxThreads, numRegs, ptxVersion, binaryVersion);
+    }
+
+    /**
+     * Calculate maximum active blocks per CU for the given kernel configuration.
+     *
+     * <p>This is the HIP occupancy API that considers VGPR usage, LDS,
+     * and other constraints to determine how many workgroups can run concurrently on one CU.
+     *
+     * @param arena Arena for memory allocation
+     * @param function Function handle (hipFunction_t)
+     * @param blockSize Threads per workgroup
+     * @param dynamicSharedMem Dynamic LDS per workgroup in bytes
+     * @return Maximum active workgroups per CU
+     */
+    public static int occupancyMaxActiveBlocksPerMultiprocessor(
+            Arena arena, long function, int blockSize, long dynamicSharedMem) throws Throwable {
+        ensureAvailable();
+        MemorySegment numBlocksPtr = arena.allocate(ValueLayout.JAVA_INT);
+        int result = (int) hipOccupancyMaxActiveBlocksPerMultiprocessor.invokeExact(
+            numBlocksPtr, function, blockSize, dynamicSharedMem);
+        checkError(result, "hipOccupancyMaxActiveBlocksPerMultiprocessor");
+        return numBlocksPtr.get(ValueLayout.JAVA_INT, 0);
     }
 
     // ==================== Error Handling ====================

@@ -111,6 +111,51 @@ public class GpuKernelEvent extends Event {
     @Description("Total blocks (gridDimX * gridDimY * gridDimZ)")
     public int totalBlocks;
 
+    // ==================== Resource Usage ====================
+    // From cudaFuncGetAttributes / hipFuncGetAttributes
+
+    @Label("Registers Per Thread")
+    @Description("Number of registers used per thread")
+    public int registersPerThread;
+
+    @Label("Static Shared Memory")
+    @Description("Static shared memory per block (compiled into kernel)")
+    @DataAmount
+    public int staticSharedMemoryBytes;
+
+    @Label("Dynamic Shared Memory")
+    @Description("Dynamic shared memory per block (passed at launch)")
+    @DataAmount
+    public int dynamicSharedMemoryBytes;
+
+    @Label("Local Memory Per Thread")
+    @Description("Local memory per thread (register spills)")
+    @DataAmount
+    public int localMemoryPerThread;
+
+    // ==================== Occupancy ====================
+    // See architecture/CPU-GPU-VISIBILITY.md for calculation details
+
+    @Label("Theoretical Occupancy %")
+    @Description("Theoretical occupancy percentage (0-100)")
+    public int theoreticalOccupancyPercent;
+
+    @Label("Max Active Blocks Per SM")
+    @Description("Maximum concurrent blocks per SM for this kernel")
+    public int maxActiveBlocksPerSM;
+
+    @Label("Estimated Active SMs")
+    @Description("Estimated number of SMs executing this kernel")
+    public int estimatedActiveSMs;
+
+    @Label("Estimated Active Warps")
+    @Description("Estimated concurrent warps across all SMs")
+    public long estimatedActiveWarps;
+
+    @Label("Occupancy Limiting Factor")
+    @Description("What limits occupancy: registers, shared_memory, blocks, or warps")
+    public String occupancyLimitingFactor;
+
     // ==================== Stream Context ====================
 
     @Label("Stream ID")

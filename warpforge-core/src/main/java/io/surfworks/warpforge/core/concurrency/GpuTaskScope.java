@@ -8,6 +8,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Callable;
 import java.util.concurrent.StructuredTaskScope;
+import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Function;
 
@@ -75,7 +76,14 @@ public final class GpuTaskScope implements AutoCloseable {
         this.scopeName = scopeName;
         this.scopeId = SCOPE_ID_GENERATOR.incrementAndGet();
         this.startNanos = System.nanoTime();
-        this.scope = StructuredTaskScope.open();
+
+        // Use named virtual threads for JFR observability
+        // See architecture/LOOM-DEBUGGING.md for why this is critical
+        ThreadFactory threadFactory = GpuThreadFactory.forScope(scopeName, scopeId);
+        this.scope = StructuredTaskScope.open(
+            StructuredTaskScope.Joiner.awaitAllSuccessfulOrThrow(),
+            cfg -> cfg.withThreadFactory(threadFactory)
+        );
         emitStartEvent();
     }
 

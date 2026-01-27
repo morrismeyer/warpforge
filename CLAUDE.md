@@ -523,388 +523,46 @@ PyTorch Model (nn.Module)
 
 ## Testing
 
-- Framework: JUnit 5
-- Tag tests with `@Tag("cpu")`, `@Tag("nvidia")`, or `@Tag("amd")` for hardware-specific execution
-- GPU tests have 60-second SSH/wake timeouts
+**Full details:** [architecture/TESTING.md](architecture/TESTING.md)
 
-### Hardware Tests Must Run on Hardware
-
-**GPU kernel tests must actually execute on GPU hardware.** Code generation tests alone are insufficient.
-
-When writing tests for GPU backends (NVIDIA or AMD), you need BOTH:
-
-1. **Code generation tests** (no hardware required) - Verify the kernel source/PTX is generated correctly
-2. **Hardware execution tests** (tagged for specific GPU) - Verify the kernel runs correctly on actual hardware
-
-**Wrong approach:**
-```java
-// BAD - Only tests that HIP source code is generated, never runs on GPU
-@Test
-void testAddKernel() {
-    String src = HipKernels.generateAddF32(SALT_NONE);
-    assertTrue(src.contains("extern \"C\" __global__ void add_f32"));
-}
-```
-
-**Correct approach:**
-```java
-// GOOD - Tests code generation (runs on NUC)
-@Test
-void testAddPtxGeneration() {
-    String src = HipKernels.generateAddF32(SALT_NONE);
-    assertTrue(src.contains("extern \"C\" __global__ void add_f32"));
-}
-
-// GOOD - Tests actual execution (runs on AMD box)
-@Test
-@Tag("amd")
-void testAddExecution() {
-    assumeTrue(HipRuntime.isAvailable(), "ROCm not available");
-    float[] a = {1.0f, 2.0f, 3.0f};
-    float[] b = {4.0f, 5.0f, 6.0f};
-    float[] result = executeAdd(a, b);
-    assertArrayEquals(new float[]{5.0f, 7.0f, 9.0f}, result, 1e-5f);
-}
-```
-
-**Why this matters:**
-- Code generation tests only verify string content, not correctness
-- A kernel might generate valid-looking code but produce wrong results
-- GPU architectures have subtle differences that only manifest at runtime
-- Without hardware tests, regressions in actual computation go undetected
-
-**Rule:** If NVIDIA has hardware execution tests for an operation, AMD must have equivalent hardware execution tests. See "Backend Parity: NVIDIA ↔ AMD" above—this is a core architectural principle, not just a testing guideline.
-
-### Zero Tolerance for Test Failures
-
-**The build must fail if even a single test fails.** This is non-negotiable.
-
-Allowing test failures to accumulate is a dangerous development practice that leads to:
-- Silent regressions that compound over time
-- Loss of confidence in the test suite
-- "It's probably fine" mentality that masks real bugs
-- Technical debt that becomes impossible to pay down
-
-**Rules:**
-- A failing test is a build-breaking event—treat it with the same urgency as a compilation error
-- Never commit code that causes test failures
-- Never disable or skip tests to make the build pass (fix the test or fix the code)
-- CI enforces minimum test counts per module to detect accidentally skipped tests
-
-**If a test is flaky:**
-- Fix the flakiness immediately—flaky tests are worse than no tests
-- If the test cannot be fixed quickly, delete it and file an issue
-- Never leave flaky tests in the suite "for now"
+**Key rules:**
+- Framework: JUnit 5 with `@Tag("cpu")`, `@Tag("nvidia")`, `@Tag("amd")`
+- **Zero tolerance for test failures** - a failing test is a build-breaking event
+- **Hardware tests must run on hardware** - code generation tests alone are insufficient
+- **Build pass without tests = not validated** - if tests didn't run, investigate immediately
+- **Test parity required** - if NVIDIA has tests, AMD must have equivalent tests
 
 **Module test minimums (enforced by CI):**
 - `snakeburger-core`: 300+ tests
 - `warpforge-io`: 150+ tests
 - `warpforge-core`: 100+ tests
 
-### Fix the Root Cause, Not the Symptom
-
-**When a build fails due to missing dependencies or environment issues, fix the underlying problem—never skip or disable tests to make the build pass.**
-
-This applies to:
-- Missing tools or binaries (e.g., GraalPy, native libraries)
-- Missing environment configuration
-- Unavailable external dependencies
-
-**Wrong approach:**
-```bash
-# BAD: Skip tests when dependency is missing
-if [[ ! -f "$GRAALPY_BIN" ]]; then
-  log "Skipping tests because GraalPy is missing"
-fi
-```
-
-**Correct approach:**
-```bash
-# GOOD: Download the dependency as part of the build
-./gradlew :snakegrinder-dist:downloadGraalPy
-./gradlew :snakegrinder-dist:testDist
-```
-
-The build system should be self-healing: if a required dependency is missing, download or build it automatically. Tests should always run—if they can't run due to missing infrastructure, that's a build system bug to fix, not a test to skip.
-
-### Build Pass Without Tests = Not Validated
-
-**If the build and unit tests completed but the unit tests did not actually run (for any reason), the code is not validated.**
-
-A "successful" build that skips tests is worse than a failing build because:
-- It provides false confidence that the code works
-- Regressions slip through undetected
-- The problem compounds as more changes are built on unvalidated code
-
-**This counts as a failed build:**
-- Tests skipped due to missing dependencies or configuration
-- Tests skipped due to early exit in test setup
-- Zero tests executed (test task "passed" trivially)
-- Test count significantly lower than expected minimums
-
-**What to do:**
-1. If tests didn't run, investigate immediately—do not proceed with other work
-2. Check the test output for "0 tests" or "skipped" messages
-3. Fix the root cause (missing dependencies, broken setup, etc.)
-4. Re-run and verify the expected number of tests executed
-
-**Prevention:**
-- CI enforces minimum test counts per module
-- Test tasks should fail-fast if prerequisites are missing
-- Never treat "no tests found" as a passing condition
-
 ## CI/CD
 
-### Nightly Full Build: Clone-to-Run Verification
+**Full details:** [architecture/CI-CD.md](architecture/CI-CD.md)
 
-**The nightly build must verify that a new developer can clone WarpForge and build everything from scratch.**
-
-This is the ultimate "It Just Works" test. Every night, CI performs a complete clean build that:
-
-1. **Wipes everything** - All build artifacts, Gradle caches, and generated files (keeps only PyTorch source cache for speed)
-2. **Builds PyTorch venv from scratch** - Verifies GraalPy + PyTorch builds correctly
-3. **Builds all modules** - Full `./gradlew clean assemble` with no caching
-4. **Runs all tests** - Unit, integration, and performance tests
-5. **Validates performance baselines** - Catches regressions in collective operations
-
-**Why this matters:**
-- Ensures reproducible builds - if nightly passes, any developer can build
-- Catches "works on my machine" issues before they accumulate
-- Validates that build scripts, patches, and dependencies are correctly configured
-- Performance baselines prevent silent throughput regressions
-
-**Nightly workflow location:** `.github/workflows/nightly-full-build.yml`
-
-### Weekly Fresh Clone Build
-
-**The weekly build is the ultimate "It Just Works" test.**
-
-Every Sunday, CI performs a completely fresh clone into a new directory (`~/surfworks/warpforge-weekly`) and builds everything as a new developer would. This catches issues that the nightly build might miss:
-
-- Hardcoded paths that only work on existing setups
-- Dependencies on files outside the repository
-- Build scripts that assume certain directories exist
-- Any "works on my machine" issues
-
-**What it tests:**
-1. Fresh `git clone` from GitHub (no existing checkout)
-2. Build dependencies are documented and available
-3. PyTorch venv builds from scratch
-4. All modules compile
-5. All tests pass
-
-**After success, the fresh clone is deleted** to save disk space.
-
-**Weekly workflow location:** `.github/workflows/weekly-fresh-clone.yml`
-
-**Manual trigger for testing:**
-```bash
-# Via GitHub CLI
-gh workflow run "Nightly Full Build" --ref main
-gh workflow run "Weekly Fresh Clone Build" --ref main
-
-# Or via GitHub UI: Actions → [workflow name] → Run workflow
-```
-
-**What gets tested:**
-
-| Phase | Description | Duration |
-|-------|-------------|----------|
-| Full Clean | Wipe all artifacts and caches | ~1 min |
-| PyTorch Venv | Build GraalPy + PyTorch from source | ~30-60 min |
-| Full Build | All modules, no cache | ~5 min |
-| Unit Tests | All module tests | ~5 min |
-| SnakeGrinder | Distribution tests | ~2 min |
-| Native Image | Build `ucc-perf-test` | ~4 min |
-| GPU Tests | NVIDIA + AMD box tests | ~10 min |
-| Two-Node Perf | NVIDIA↔AMD collective benchmarks | ~5 min |
-| Baseline Check | Compare against performance baselines | ~1 min |
-
-**Performance baselines:** `holmes-lab/mark1/baselines/`
-
-### Push-Triggered CI
-
-GitHub Actions workflow (`orchestrated-ci.yml`) orchestrates:
-1. SSH to NUC (self-hosted)
-2. Build and test on NUC
-3. Wake and test on NVIDIA box
-4. Wake and test on AMD box
-
-Required secrets: `HOLMES_NUC_HOST`, `HOLMES_NUC_USER`, `HOLMES_NUC_SSH_KEY`
-
-### Hardware Test Distribution
-
-**CRITICAL: The NUC has NO GPU.** Test tasks must run on the correct hardware:
-
-| Test Task | Runs On | Hardware |
-|-----------|---------|----------|
-| `./gradlew test` | NUC | CPU only - no GPU |
-| `./gradlew cpuTest` | NUC | CPU only |
-| `./gradlew nvidiaTest` | NVIDIA box | RTX GPU + CUDA runtime |
-| `./gradlew amdTest` | AMD box | Radeon GPU + ROCm runtime |
-
-The NUC can compile GPU backend code and run FFM linkage tests (verifying native library bindings), but it **cannot execute GPU kernels**. Any test that actually runs CUDA/HIP kernels must be tagged appropriately and run on the corresponding GPU box.
-
-- Tests tagged `@Tag("nvidia")` → run only via `nvidiaTest` on NVIDIA box
-- Tests tagged `@Tag("amd")` → run only via `amdTest` on AMD box
-- Tests tagged `@Tag("cpu")` or untagged → run on NUC via `test` or `cpuTest`
-
-### Full Integration Test Path (Target Architecture)
-
-The NUC orchestrates the complete ML-to-GPU pipeline:
-
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│  NUC (Linux x86_64) - Orchestrator                                      │
-│                                                                         │
-│  1. SnakeGrinder traces PyTorch model → StableHLO MLIR                 │
-│  2. SnakeBurger parses StableHLO → Babylon Code Reflection IR          │
-│  3. WarpForge generates GPU kernels from IR                            │
-│                                                                         │
-└─────────────────────┬───────────────────────┬───────────────────────────┘
-                      │                       │
-                      ▼                       ▼
-        ┌─────────────────────┐   ┌─────────────────────┐
-        │  Node A (AMD GPU)   │   │  Node B (NVIDIA GPU)│
-        │  - ROCm runtime     │   │  - CUDA runtime     │
-        │  - Execute kernels  │   │  - Execute kernels  │
-        │  - Verify results   │   │  - Verify results   │
-        └─────────────────────┘   └─────────────────────┘
-```
-
-**Critical dependency**: SnakeGrinder must build and run on Linux (NUC) for this pipeline to work. This requires:
-- GraalPy 25.0.1 for Linux x86_64
-- PyTorch 2.7.0 built from source with GraalPy patches
-- Native-image compilation on Linux
+**Key points:**
+- **Nightly build** verifies clone-to-run (fresh developer experience)
+- **Weekly fresh clone** catches "works on my machine" issues
+- **NUC has NO GPU** - use `nvidiaTest`/`amdTest` for GPU execution tests
+- Tests tagged `@Tag("nvidia")` → NVIDIA box only
+- Tests tagged `@Tag("amd")` → AMD box only
 
 ## SnakeGrinder Distribution Build
 
-### Quick Start
+**Full details:** [architecture/SNAKEGRINDER-BUILD.md](architecture/SNAKEGRINDER-BUILD.md)
 
+**Quick start:**
 ```bash
-# Check current configuration and venv status
-./gradlew :snakegrinder-dist:checkPytorchVenv
-
-# Build PyTorch venv (~30-60 min first time, downloads GraalPy automatically)
-./gradlew :snakegrinder-dist:buildPytorchVenv
-
-# Optional: Prune venv to reduce size
-./gradlew :snakegrinder-dist:prunePytorchVenv
-
-# Build native distribution
-./gradlew :snakegrinder-dist:assembleDist
+./gradlew :snakegrinder-dist:buildPytorchVenv   # ~30-60 min first time
+./gradlew :snakegrinder-dist:assembleDist       # Build native distribution
 ```
 
-### Version Configuration
-
-All versions are centralized in `snakegrinder-dist/versions.env`:
-
-```bash
-GRAALPY_VERSION="25.0.1"
-PYTORCH_VERSION="2.7.0"
-PYTHON_VERSION="3.12"
-```
-
-### Upgrading PyTorch/GraalPy
-
-**Constraint**: PyTorch version must have a matching GraalPy patch. Check `$GRAALPY_HOME/lib/graalpy*/patches/torch-*.patch` for available versions.
-
-1. Check GraalPy releases: https://github.com/oracle/graalpython/releases
-2. Check available PyTorch patches in the new GraalPy release
-3. Update `snakegrinder-dist/versions.env`
-4. Rebuild:
-   ```bash
-   ./gradlew :snakegrinder-dist:rebuildPytorchVenv
-   ./gradlew :snakegrinder-dist:assembleDist
-   ```
-
-### Build Dependencies
-
-The build script checks dependencies and provides install instructions:
-
-| macOS | Linux |
-|-------|-------|
-| `brew install cmake ninja` | `sudo apt install cmake ninja-build build-essential` |
-| Xcode CLI: `xcode-select --install` | |
-
-### Checking for New PyTorch Patches
-
-GraalPy periodically adds patches for newer PyTorch versions. Check for updates:
-
-```bash
-./snakegrinder-dist/scripts/check-graalpy-patches.sh
-```
-
-Track the upstream issue for PyTorch 2.8+ support: https://github.com/oracle/graalpython/issues/588
-
-### macOS Packaging (DMG, PKG)
-
-```bash
-# Build macOS .app bundle
-./gradlew :snakegrinder-dist:buildApp
-
-# Build DMG installer
-./gradlew :snakegrinder-dist:buildDmg
-
-# Build PKG installer
-./gradlew :snakegrinder-dist:buildPkg
-
-# Build all macOS packages
-./gradlew :snakegrinder-dist:buildAllMacOs
-```
-
-**Important**: All packaging scripts must be non-interactive. They must not:
-- Mount DMGs and wait for user interaction
-- Use AppleScript that opens Finder windows
-- Require user clicks or confirmations
-
-The build should complete without human intervention, suitable for CI/CD pipelines.
+Versions in `snakegrinder-dist/versions.env`: GraalPy 25.0.1, PyTorch 2.7.0
 
 ## Development Workflow: Fixes Must Survive Cleanup
 
-When fixing build issues, **never make manual edits to generated or downloaded artifacts** (e.g., files inside `.pytorch-venv/`, `build/`, or any directory that gets deleted on clean rebuild).
-
-**Wrong approach:**
-```bash
-# Editing a file that will be deleted on rebuild
-vim .pytorch-venv/pytorch-src/some/file.cpp  # BAD - lost on rm -rf .pytorch-venv
-```
-
-**Correct approach:**
-1. Create patch files in a permanent location (e.g., `scripts/patches/`)
-2. Update the build script to apply patches automatically
-3. Verify by doing a clean rebuild: `rm -rf <artifact-dir> && ./gradlew build`
-
-This ensures fixes are:
-- **Repeatable** - Works for other developers and CI
-- **Documented** - Patch files show exactly what changed and why
-- **Resilient** - Survives `clean` operations
-
-## PyTorch + GraalPy Build: Use Official Patching System
-
-**Important**: PyTorch builds for GraalPy must use the **officially supported pip install method**:
-
-```bash
-pip install "torch==2.7.0" --no-binary torch --no-cache -v
-```
-
-This approach is documented by Oracle GraalPy staff and works because:
-
-1. **autopatch_capi.py** - GraalPy automatically patches C API usages (e.g., `->ob_type` → `Py_TYPE()`)
-2. **Official torch patches** - Fetched from `https://github.com/oracle/graalpython/tree/github/patches/`
-3. **Correct ordering** - Auto-patching runs first, then manual patches apply cleanly
-
-**Do NOT** maintain custom PyTorch patches in this repository. The official GraalPy patches are:
-- Tested by Oracle
-- Updated with each GraalPy release
-- Designed to work with the auto-patching system
-
-If you encounter build issues:
-1. First try with `--no-cache` to ensure fresh patch download
-2. Check the GraalPy GitHub issues: https://github.com/oracle/graalpython/issues
-3. Report issues to Oracle if patches are missing for new PyTorch versions
-
-Track PyTorch version support: https://github.com/oracle/graalpython/issues/588
+When fixing build issues, **never make manual edits to generated or downloaded artifacts** (e.g., files inside `.pytorch-venv/`, `build/`). Create patch files in a permanent location and apply automatically.
 
 ## Git Commit Preferences
 

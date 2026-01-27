@@ -71,4 +71,87 @@ public class GpuKernelEvent extends Event {
     @Label("Memory Bandwidth (GB/s)")
     @Description("Effective memory bandwidth in GB/s")
     public double memoryBandwidthGBps;
+
+    // ==================== Launch Configuration ====================
+    // See architecture/CPU-GPU-VISIBILITY.md for the full vision
+
+    @Label("Grid Dim X")
+    @Description("Number of blocks in X dimension")
+    public int gridDimX;
+
+    @Label("Grid Dim Y")
+    @Description("Number of blocks in Y dimension")
+    public int gridDimY;
+
+    @Label("Grid Dim Z")
+    @Description("Number of blocks in Z dimension")
+    public int gridDimZ;
+
+    @Label("Block Dim X")
+    @Description("Threads per block in X dimension")
+    public int blockDimX;
+
+    @Label("Block Dim Y")
+    @Description("Threads per block in Y dimension")
+    public int blockDimY;
+
+    @Label("Block Dim Z")
+    @Description("Threads per block in Z dimension")
+    public int blockDimZ;
+
+    @Label("Total Threads")
+    @Description("Total GPU threads (gridDim * blockDim)")
+    public long totalThreads;
+
+    @Label("Total Warps")
+    @Description("Total warps (totalThreads / warpSize)")
+    public long totalWarps;
+
+    @Label("Total Blocks")
+    @Description("Total blocks (gridDimX * gridDimY * gridDimZ)")
+    public int totalBlocks;
+
+    // ==================== Stream Context ====================
+
+    @Label("Stream ID")
+    @Description("CUDA/HIP stream handle")
+    public long streamId;
+
+    // ==================== Java Context ====================
+
+    @Label("Virtual Thread ID")
+    @Description("Java virtual thread ID (Thread.currentThread().threadId())")
+    public long virtualThreadId;
+
+    @Label("Scope ID")
+    @Description("GpuTaskScope identifier")
+    public long scopeId;
+
+    @Label("Scope Name")
+    @Description("Human-readable scope name for profiling")
+    public String scopeName;
+
+    /**
+     * Populates computed fields from the launch configuration.
+     *
+     * <p>Call this after setting gridDim and blockDim fields.
+     *
+     * @param warpSize 32 for NVIDIA, 64 for AMD RDNA, 32 for AMD CDNA
+     */
+    public void computeDerivedFields(int warpSize) {
+        this.totalBlocks = gridDimX * gridDimY * gridDimZ;
+        long threadsPerBlock = (long) blockDimX * blockDimY * blockDimZ;
+        this.totalThreads = (long) totalBlocks * threadsPerBlock;
+        this.totalWarps = (totalThreads + warpSize - 1) / warpSize;
+    }
+
+    /**
+     * Captures the current Java thread context.
+     *
+     * <p>Call this from the virtual thread executing the GPU operation.
+     */
+    public void captureThreadContext() {
+        Thread current = Thread.currentThread();
+        this.virtualThreadId = current.threadId();
+    }
 }

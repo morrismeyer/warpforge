@@ -55,6 +55,21 @@ For detailed architectural decisions and implementation roadmaps, see the `archi
 
 This file (CLAUDE.md) covers build commands, development workflow, and code style. The architecture docs cover **what to build and why**.
 
+## Task Tracking
+
+For ongoing work items and audit results, see the `tasks/` directory:
+
+- **[GPU-TEST-AUDIT.md](tasks/GPU-TEST-AUDIT.md)** - Audit of GPU tests for real hardware verification
+- **[RESEARCH-VALIDATION-AUDIT.md](tasks/RESEARCH-VALIDATION-AUDIT.md)** - Audit of research validation implementations
+
+Task files track:
+- What needs to be done (requirements)
+- What was audited (findings)
+- What passed/failed verification
+- Specific fixes needed
+
+**Before starting implementation work**, check `tasks/` for relevant audit findings and requirements.
+
 ### Architecture Doc Naming Convention
 
 All architecture documentation files use **ALL-CAPS-WITH-HYPHENS.md** naming:

@@ -172,6 +172,14 @@ public class GpuKernelEvent extends Event {
     @Description("CUDA/HIP stream handle")
     public long streamId;
 
+    @Label("Stream Priority")
+    @Description("Stream priority: -1 (high) to 0 (default)")
+    public int streamPriority;
+
+    @Label("Concurrent Kernels")
+    @Description("Number of other kernels executing concurrently on other streams")
+    public int concurrentKernels;
+
     // ==================== Java Context ====================
 
     @Label("Virtual Thread ID")
